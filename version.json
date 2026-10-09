@@ -1,0 +1,10 @@
+{
+ "versionCode": 15,
+ "versionName": "3.1",
+ "notes": "Build your own team when your league isn't on Sleeper, and the 2027 draft kit: the whole class graded plus a rookie draft helper (your picks, what you're thin at, who to take, who'll still be there). Also trade history, where each player was drafted, league removal, grades on fitted forecasts and in-app updates.",
+ "apk": {
+  "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
+  "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
+ },
+ "published": "2026-10-08"
+}

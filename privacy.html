@@ -48,9 +48,23 @@ receive your card or bank information. Google tells the app whether your subscri
 your leagues and download public league information: rosters, team names, trades and matchups. The username and
 the downloaded league information are saved only on your phone, in the app's private storage.</p>
 
+<h2>Your GM (the chat)</h2>
+<p>Pro has a chat called Your GM that answers questions about your league. When you ask it something, the app sends
+your question, the conversation so far, and a "league brief" to a server run by the developer on Cloudflare, where an
+AI model (Cloudflare Workers AI running Meta's Llama, or Anthropic's Claude if the developer configures it) writes the
+answer and streams it back. The brief holds what is already on your phone:
+your league's team names, rosters, records and recent trades, the app's values and grades, your projected lineup and
+suggested pickups. It does not include your email, your name or anything from your account.</p>
+<p>The developer's server keeps a count of questions per account per day and nothing else; it does not store your
+questions or the brief. Cloudflare processes the request under its <a href="https://www.cloudflare.com/privacypolicy/">privacy
+policy</a>; if Anthropic's model is used, Anthropic processes it under its <a href="https://www.anthropic.com/legal/privacy">privacy
+policy</a> and does not use API data to train its models. The conversation itself is saved only on your phone, and
+"Clear chat" in the GM screen removes it.</p>
+
 <h2>Information the app does not collect</h2>
 <p>The app does not collect your name, contacts, location, photos, advertising ID or device identifiers, and it has no
-ads, analytics or tracking. Your leagues, rosters, trades and settings are not sent to the developer.</p>
+ads, analytics or tracking. Your leagues, rosters, trades and settings are not sent to the developer, except as part
+of a question you ask Your GM (above).</p>
 
 <h2>Services the app contacts</h2>
 <p>To download player values and league information, the app connects directly from your phone to these services.
@@ -61,7 +75,11 @@ Like any website, each one receives your IP address and basic request details, a
   <tr><td><a href="https://play.google.com">Google Play</a></td><td>Subscription purchase and status</td></tr>
   <tr><td><a href="https://sleeper.com">Sleeper</a></td><td>Your leagues, rosters, trades, player list, injury status and trending pickups</td></tr>
   <tr><td><a href="https://github.com/nflverse/nflverse-data">nflverse</a> (on GitHub)</td><td>Public NFL stats, draft history, the schedule and betting lines, used to calculate player values and weekly projections</td></tr>
+  <tr><td>The app's own site (<a href="https://milliguns58.github.io/dynasty-mover-legal/">GitHub Pages</a>)</td><td>The rookie-class file: college prospects for the next draft with the app's grades, built from <a href="https://collegefootballdata.com">CollegeFootballData.com</a> data</td></tr>
+  <tr><td><a href="https://github.com/ffverse/ffopportunity">ffopportunity</a> (on GitHub)</td><td>Expected fantasy points by player and week, used to show how a player's usage compares with his points</td></tr>
   <tr><td><a href="https://www.weather.gov">National Weather Service</a> (weather.gov)</td><td>The forecast at each outdoor stadium at kickoff, for lineup advice. The request carries only the stadium's location.</td></tr>
+  <tr><td><a href="https://www.cloudflare.com/privacypolicy/">Cloudflare</a></td><td>Your GM only: runs the GM's server and the AI model (Workers AI, Meta's Llama) that writes the answers from your question and the league brief; keeps a daily count per account</td></tr>
+  <tr><td><a href="https://www.anthropic.com/legal/privacy">Anthropic</a></td><td>Your GM only, and only if the developer switches the GM to Anthropic's Claude model</td></tr>
 </table>
 <p>The app sends these services only what a request needs, such as a league ID, your league's format or a stadium's location. It sends nothing else about you.</p>
 
@@ -81,7 +99,7 @@ uninstall the app or clear its storage in your phone's settings.</p>
 <p>If this policy changes, the new version will be posted on this page with a new effective date.</p>
 
 <h2>Contact</h2>
-<p>Questions: <a href="mailto:markamilligan00@gmail.com">markamilligan00@gmail.com</a></p>
+<p>Questions: <a href="mailto:dynastymover.app@gmail.com">dynastymover.app@gmail.com</a></p>
 
 <p style="margin-top:32px;font-size:14px">Dynasty Mover is not affiliated with, endorsed by, or sponsored by the NFL, Sleeper,
 the NFL Players Association or nflverse.</p>

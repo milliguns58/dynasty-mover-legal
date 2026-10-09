@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dynasty Mover Admin</title>
+<link rel="icon" href="icon.png">
+<style>
+:root{color-scheme:light;--bg:#f3f4f6;--surface:#fff;--raise:#f3f4f6;--ink:#111418;--ink2:#4b5260;--muted:#8a909c;--line:#e6e8ec;
+  --accent:#2563eb;--accent-soft:#e3ecfd;--good:#15803d;--good-soft:#e6f4ea;--bad:#dc2626;--bad-soft:#fdecec;--warn:#b45309;--warn-soft:#fdf3e2;--pick:#7c3aed}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0b0c0e;--surface:#16181b;--raise:#202328;--ink:#f3f4f6;--ink2:#b4bac4;--muted:#7d8491;--line:#262a30;
+  --accent:#4f8bff;--accent-soft:#1b2b4a;--good:#34d399;--good-soft:#123024;--bad:#f87171;--bad-soft:#3a1717;--warn:#fbbf24;--warn-soft:#3a2c0d;--pick:#a78bfa}}
+*{box-sizing:border-box;margin:0}
+body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+button,input,select,textarea{font:inherit;color:inherit}
+.hidden{display:none!important}
+header{background:linear-gradient(135deg,#1d4ed8,#0f172a);color:#fff;padding:18px 24px}
+header .in{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header img{width:40px;height:40px;border-radius:11px}
+header h1{font-size:20px;font-weight:800}
+header .who{margin-left:auto;display:flex;gap:10px;align-items:center;font-size:14px;opacity:.95}
+main{max-width:1180px;margin:0 auto;padding:20px 16px 60px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border-radius:16px;padding:18px;border:1px solid var(--line)}
+.card h2{font-size:17px;margin-bottom:10px}
+.hint{color:var(--muted);font-size:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:11px;padding:8px 14px;min-height:38px;font-weight:650;cursor:pointer;background:var(--raise);white-space:nowrap}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.danger{background:var(--bad-soft);color:var(--bad)}
+.btn.sm{min-height:30px;padding:4px 10px;font-size:13px;border-radius:9px}
+.btn:disabled{opacity:.5}
+header .btn{background:rgba(255,255,255,.15);color:#fff}
+input,select,textarea{width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--raise)}
+textarea{min-height:70px;resize:vertical}
+label{display:block;font-size:13px;color:var(--ink2);margin:10px 0 4px;font-weight:600}
+.login{max-width:380px;margin:60px auto}
+.err{margin-top:10px;padding:9px 12px;border-radius:10px;background:var(--bad-soft);color:var(--bad);font-weight:600;font-size:14px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
+.stat .v{font-size:28px;font-weight:800;letter-spacing:-.02em}
+.stat .l{color:var(--muted);font-size:13px;font-weight:600}
+.stat.good .v{color:var(--good)}.stat.acc .v{color:var(--accent)}.stat.bad .v{color:var(--bad)}.stat.pick .v{color:var(--pick)}
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.bar input{max-width:280px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:0;border-radius:999px;padding:6px 12px;background:var(--raise);font-weight:600;font-size:13px;cursor:pointer}
+.chip.on{background:var(--ink);color:var(--surface)}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+tr.u{cursor:pointer}
+tr.u:hover td{background:var(--raise)}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px}
+.pill.trial{background:var(--accent-soft);color:var(--accent)}.pill.paid{background:var(--good-soft);color:var(--good)}
+.pill.comp{background:color-mix(in srgb,var(--pick) 15%,transparent);color:var(--pick)}.pill.expired{background:var(--bad-soft);color:var(--bad)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.kv span{color:var(--ink2)}
+.drawer{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;justify-content:flex-end;z-index:5}
+.drawer .panel{width:min(440px,100%);height:100%;overflow:auto;background:var(--surface);padding:20px}
+.drawer h2{font-size:18px;word-break:break-all}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:10px 16px;border-radius:12px;font-weight:600;display:none;z-index:9}
+.muted{color:var(--muted)}
+a{color:var(--accent)}
+@media (max-width:600px){header{padding:14px 16px}}
+</style>
+</head>
+<body>
+<header><div class="in"><img src="icon.png" alt=""><h1>Dynasty Mover Admin</h1>
+  <div class="who hidden" id="who"><span id="whoEmail"></span><button class="btn sm" id="reload">Refresh</button><button class="btn sm" id="out">Sign out</button></div></div></header>
+
+<main>
+  <section class="card login" id="login">
+    <h2>Sign in</h2>
+    <p class="hint">Use your admin account (the email in store/firestore.rules). If you don't have one yet, create it here and click the link in the email Firebase sends you.</p>
+    <label>Email</label><input type="email" id="lEmail" autocomplete="username">
+    <label>Password</label><input type="password" id="lPw" autocomplete="current-password">
+    <div class="err hidden" id="lErr"></div>
+    <div class="row"><button class="btn primary" id="lGo">Sign in</button><button class="btn" id="lNew">Create admin account</button></div>
+  </section>
+
+  <div id="dash" class="hidden" style="display:flex;flex-direction:column;gap:16px">
+    <div class="stats" id="stats"></div>
+
+    <section class="card">
+      <div class="bar"><h2 style="margin:0 8px 0 0">Users</h2><input type="search" id="q" placeholder="Search email">
+        <div class="chips" id="chips"></div><span style="flex:1"></span><button class="btn sm" id="csv">Export CSV</button></div>
+      <div class="tw"><table><thead><tr><th>Email</th><th>Plan</th><th>Joined</th><th>Trial ends</th><th>Last seen</th><th>Version</th></tr></thead><tbody id="rows"></tbody></table></div>
+      <p class="hint" id="count" style="margin-top:10px"></p>
+    </section>
+
+    <div class="grid2">
+      <section class="card">
+        <h2>Announcement</h2>
+        <p class="hint">Shows at the top of the app for everyone until they close it. Publishing a new one shows it again to people who closed the last one.</p>
+        <label>Title</label><input id="aTitle" placeholder="e.g. New feature">
+        <label>Message</label><textarea id="aText" placeholder="e.g. Rookie picks now update every week."></textarea>
+        <div class="row"><button class="btn primary" id="aPub">Publish</button><button class="btn" id="aClear">Remove</button><span class="hint" id="aNow"></span></div>
+      </section>
+      <section class="card">
+        <h2>App settings</h2>
+        <label>Free trial length for new sign-ups (days)</label><input type="number" id="sTrial" min="0" max="90">
+        <label>Minimum app version (older copies must update; leave blank for none)</label><input id="sMin" placeholder="e.g. 3.0">
+        <div class="row"><button class="btn primary" id="sSave">Save settings</button></div>
+        <p class="hint" style="margin-top:14px">Money, refunds and cancellations live in <a href="https://play.google.com/console" target="_blank" rel="noopener">Google Play Console</a>.
+          To turn off or delete a sign-in, use <a id="fbUsers" target="_blank" rel="noopener">Firebase Authentication</a>.</p>
+      </section>
+    </div>
+  </div>
+</main>
+
+<div class="drawer hidden" id="drawer"><div class="panel" id="panel"></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="edition.js"></script>
+<script>
+"use strict";
+const F = window.FIREBASE || {}, P = window.PRO || {};
+const AUTH = "https://identitytoolkit.googleapis.com/v1/accounts:";
+const DOCS = `https://firestore.googleapis.com/v1/projects/${F.projectId}/databases/(default)/documents`;
+const DAY = 86400000;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const toast = m => { const t = $("#toast"); t.textContent = m; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 2600); };
+let session = null, users = [], config = {}, filter = "all";
+
+// ---- Firestore values ----
+function enc(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (v instanceof Date) return { timestampValue: v.toISOString() };
+  if (typeof v === "boolean") return { booleanValue: v };
+  if (typeof v === "number") return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === "object") return { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, enc(x)])) } };
+  return { stringValue: String(v) };
+}
+function dec(v) {
+  if (!v) return null;
+  if ("timestampValue" in v) return v.timestampValue;
+  if ("integerValue" in v) return parseInt(v.integerValue, 10);
+  if ("doubleValue" in v) return v.doubleValue;
+  if ("booleanValue" in v) return v.booleanValue;
+  if ("stringValue" in v) return v.stringValue;
+  if ("mapValue" in v) return decFields(v.mapValue.fields);
+  return null;
+}
+const decFields = f => Object.fromEntries(Object.entries(f || {}).map(([k, v]) => [k, dec(v)]));
+
+async function call(method, url, body, auth = true) {
+  const h = { "Content-Type": "application/json" };
+  if (auth && session) h.Authorization = "Bearer " + await token();
+  const r = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const m = (j.error && (j.error.message || j.error.status)) || "HTTP " + r.status;
+    const e = new Error({ INVALID_LOGIN_CREDENTIALS: "Wrong email or password.", EMAIL_EXISTS: "That account already exists. Sign in instead.",
+      PERMISSION_DENIED: "Not allowed. Is this the admin email in firestore.rules, and is the email verified?" }[String(m).split(" ")[0].replace(":", "")] || m);
+    e.status = r.status; throw e;
+  }
+  return j;
+}
+async function token() {
+  if (session.expires > Date.now()) return session.idToken;
+  const r = await fetch("https://securetoken.googleapis.com/v1/token?key=" + F.apiKey, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ grant_type: "refresh_token", refresh_token: session.refreshToken }) }).then(r => r.json());
+  session.idToken = r.id_token; session.refreshToken = r.refresh_token; session.expires = Date.now() + (parseInt(r.expires_in, 10) - 120) * 1000;
+  sessionStorage.setItem("dmAdmin", JSON.stringify(session));
+  return session.idToken;
+}
+
+// ---- sign-in ----
+const lErr = m => { $("#lErr").textContent = m; $("#lErr").classList.toggle("hidden", !m); };
+async function login(create) {
+  const email = $("#lEmail").value.trim(), password = $("#lPw").value;
+  if (!email || password.length < 6) return lErr("Enter your email and a password of at least 6 characters.");
+  lErr("");
+  try {
+    const r = await call("POST", AUTH + (create ? "signUp" : "signInWithPassword") + "?key=" + F.apiKey, { email, password, returnSecureToken: true }, false);
+    session = { email: r.email, idToken: r.idToken, refreshToken: r.refreshToken, expires: Date.now() + (parseInt(r.expiresIn, 10) - 120) * 1000 };
+    const info = await call("POST", AUTH + "lookup?key=" + F.apiKey, { idToken: r.idToken }, false);
+    if (!(info.users && info.users[0] && info.users[0].emailVerified)) {
+      await call("POST", AUTH + "sendOobCode?key=" + F.apiKey, { requestType: "VERIFY_EMAIL", idToken: r.idToken }, false).catch(() => {});
+      session = null;
+      return lErr("Check your inbox: click the link Firebase just sent to verify this email, then sign in again.");
+    }
+    sessionStorage.setItem("dmAdmin", JSON.stringify(session));
+    await open();
+  } catch (e) { session = null; lErr(e.message); }
+}
+$("#lGo").onclick = () => login(false);
+$("#lNew").onclick = () => login(true);
+$("#lPw").onkeydown = e => { if (e.key === "Enter") login(false); };
+$("#out").onclick = () => { sessionStorage.removeItem("dmAdmin"); location.reload(); };
+$("#reload").onclick = () => load().then(() => toast("Up to date"));
+$("#fbUsers").href = `https://console.firebase.google.com/project/${F.projectId}/authentication/users`;
+
+async function open() {
+  $("#login").classList.add("hidden");
+  $("#dash").classList.remove("hidden");
+  $("#who").classList.remove("hidden");
+  $("#whoEmail").textContent = session.email;
+  await load();
+}
+
+// ---- data ----
+async function load() {
+  try {
+    const out = [];
+    let page = "";
+    do {
+      const r = await call("GET", `${DOCS}/users?pageSize=300${page ? "&pageToken=" + encodeURIComponent(page) : ""}`);
+      (r.documents || []).forEach(d => out.push(Object.assign({ uid: d.name.split("/").pop() }, decFields(d.fields))));
+      page = r.nextPageToken || "";
+    } while (page);
+    users = out;
+    try { config = decFields((await call("GET", `${DOCS}/config/app`)).fields); } catch (e) { if (e.status === 404) config = {}; else throw e; }
+    draw();
+  } catch (e) {
+    toast(e.message);
+    if (e.status === 403) { $("#dash").classList.add("hidden"); $("#login").classList.remove("hidden"); lErr(e.message); }
+  }
+}
+
+const trialDays = () => parseInt(config.trialDays ?? P.trialDays ?? 7, 10);
+function trialEnd(u) { return u.trialEnds ? Date.parse(u.trialEnds) : u.created ? Date.parse(u.created) + trialDays() * DAY : 0; }
+function statusOf(u) {
+  const now = Date.now();
+  if (u.comp && (!u.compUntil || Date.parse(u.compUntil) > now)) return "comp";
+  if (u.sub && u.sub.active) return "paid";
+  return trialEnd(u) > now ? "trial" : "expired";
+}
+const LABEL = { trial: "Trial", paid: "Paid", comp: "Free access", expired: "Basic" };
+const day = iso => iso ? new Date(iso).toLocaleDateString() : "";
+function ago(iso) {
+  if (!iso) return "";
+  const m = (Date.now() - Date.parse(iso)) / 60000;
+  if (m < 60) return Math.max(1, Math.round(m)) + " min ago";
+  if (m < 1440) return Math.round(m / 60) + " h ago";
+  return Math.round(m / 1440) + " d ago";
+}
+
+function draw() {
+  const by = { trial: 0, paid: 0, comp: 0, expired: 0 };
+  users.forEach(u => by[statusOf(u)]++);
+  const week = users.filter(u => u.created && Date.now() - Date.parse(u.created) < 7 * DAY).length;
+  const active = users.filter(u => u.lastSeen && Date.now() - Date.parse(u.lastSeen) < 7 * DAY).length;
+  const tried = by.paid + by.expired;                      // people whose trial is over (free access not counted)
+  const conv = tried ? Math.round(100 * by.paid / tried) : 0;
+  $("#stats").innerHTML = [["Users", users.length, ""], ["New this week", week, "acc"], ["Active this week", active, ""], ["On trial", by.trial, "acc"],
+    ["Paying", by.paid, "good"], ["Free access", by.comp, "pick"], ["On Basic (free)", by.expired, "bad"], ["Trial → paid", conv + "%", "good"]]
+    .map(([l, v, c]) => `<div class="stat ${c}"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join("");
+  $("#chips").innerHTML = [["all", "All", users.length], ["trial", "Trial", by.trial], ["paid", "Paid", by.paid], ["comp", "Free access", by.comp], ["expired", "Basic", by.expired]]
+    .map(([k, l, n]) => `<button class="chip${filter === k ? " on" : ""}" data-f="${k}">${l} ${n}</button>`).join("");
+  document.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { filter = b.dataset.f; draw(); });
+  const q = $("#q").value.trim().toLowerCase();
+  const list = users.filter(u => (filter === "all" || statusOf(u) === filter) && (!q || String(u.email || "").toLowerCase().includes(q)))
+    .sort((a, b) => String(b.created || "").localeCompare(String(a.created || "")));
+  $("#rows").innerHTML = list.map(u => { const s = statusOf(u); return `<tr class="u" data-u="${esc(u.uid)}"><td>${esc(u.email)}</td><td><span class="pill ${s}">${LABEL[s]}</span></td>
+    <td>${esc(day(u.created))}</td><td>${s === "trial" || s === "expired" ? esc(day(new Date(trialEnd(u)).toISOString())) : ""}</td><td>${esc(ago(u.lastSeen))}</td><td>${esc(u.appVersion || "")}</td></tr>`; }).join("")
+    || `<tr><td colspan="6" class="muted">No users${q || filter !== "all" ? " match" : " yet"}.</td></tr>`;
+  $("#count").textContent = `${list.length} of ${users.length} shown`;
+  document.querySelectorAll("[data-u]").forEach(r => r.onclick = () => detail(r.dataset.u));
+  $("#aTitle").value = config.announceTitle || ""; $("#aText").value = config.announceText || "";
+  $("#aNow").textContent = config.announceText ? "Showing in the app now" : "No announcement";
+  $("#sTrial").value = trialDays(); $("#sMin").value = config.minVersion || "";
+}
+$("#q").oninput = draw;
+
+// ---- one user ----
+async function patchUser(uid, fields) {
+  await call("PATCH", `${DOCS}/users/${uid}?${Object.keys(fields).map(k => "updateMask.fieldPaths=" + k).join("&")}`,
+    { fields: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, enc(v)])) });
+  Object.assign(users.find(u => u.uid === uid), Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v])));
+  draw(); detail(uid);
+}
+function detail(uid) {
+  const u = users.find(x => x.uid === uid); if (!u) return;
+  const s = statusOf(u), end = trialEnd(u), sub = u.sub || {};
+  $("#panel").innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px;align-items:start"><h2>${esc(u.email)}</h2><button class="btn sm" id="dX">Close</button></div>
+    <p style="margin:8px 0 14px"><span class="pill ${s}">${LABEL[s]}</span></p>
+    <div class="kv"><span>Joined</span><b>${esc(day(u.created))}</b></div>
+    <div class="kv"><span>Trial ${end > Date.now() ? "ends" : "ended"}</span><b>${esc(day(new Date(end).toISOString()))}${u.trialEnds ? " (set by you)" : ""}</b></div>
+    <div class="kv"><span>Last seen</span><b>${esc(ago(u.lastSeen))}</b></div>
+    <div class="kv"><span>App version</span><b>${esc(u.appVersion || "")}</b></div>
+    <div class="kv"><span>Google Play</span><b>${sub.active ? (sub.autoRenew ? "Subscribed" : "Subscribed, not renewing") : "No subscription"}</b></div>
+    ${sub.orderId ? `<div class="kv"><span>Order</span><b style="font-size:12px">${esc(sub.orderId)}</b></div>` : ""}
+    <div class="kv"><span>2027 draft kit</span><b>${(sub.addons || []).includes("draft_kit_2027") ? "Bought on Google Play" : u.kits && u.kits.draft_kit_2027 ? "Given by you" : "No"}</b></div>
+    <div class="kv"><span>User ID</span><b style="font-size:12px">${esc(u.uid)}</b></div>
+    <label>Trial</label><div class="row" style="margin-top:0"><button class="btn sm" data-ext="7">+7 days</button><button class="btn sm" data-ext="30">+30 days</button><button class="btn sm" id="dEnd">End trial now</button></div>
+    <label>Free access (friends, testers, giveaways)</label>
+    <div class="row" style="margin-top:0">${u.comp ? `<button class="btn sm danger" id="dCompOff">Remove free access</button>` : `<button class="btn sm primary" id="dComp">Give free access</button><button class="btn sm" id="dComp30">Free for 30 days</button>`}</div>
+    <label>2027 draft kit (a one-time purchase; give it to friends and testers)</label>
+    <div class="row" style="margin-top:0">${u.kits && u.kits.draft_kit_2027 ? `<button class="btn sm danger" id="dKitOff">Remove the kit</button>` : `<button class="btn sm primary" id="dKit">Give the kit</button>`}</div>
+    <label>Private note</label><textarea id="dNote">${esc(u.note || "")}</textarea><div class="row" style="margin-top:6px"><button class="btn sm" id="dNoteSave">Save note</button></div>
+    <p class="hint" style="margin-top:18px">Refunds and cancelling a subscription: Google Play Console > Order management (search the order number).</p>`;
+  $("#drawer").classList.remove("hidden");
+  $("#dX").onclick = () => $("#drawer").classList.add("hidden");
+  document.querySelectorAll("[data-ext]").forEach(b => b.onclick = () => patchUser(uid, { trialEnds: new Date(Math.max(Date.now(), end) + parseInt(b.dataset.ext, 10) * DAY) }).then(() => toast("Trial extended")).catch(e => toast(e.message)));
+  $("#dEnd").onclick = () => patchUser(uid, { trialEnds: new Date() }).then(() => toast("Trial ended")).catch(e => toast(e.message));
+  if ($("#dComp")) $("#dComp").onclick = () => patchUser(uid, { comp: true, compUntil: null }).then(() => toast("Free access on")).catch(e => toast(e.message));
+  if ($("#dComp30")) $("#dComp30").onclick = () => patchUser(uid, { comp: true, compUntil: new Date(Date.now() + 30 * DAY) }).then(() => toast("Free for 30 days")).catch(e => toast(e.message));
+  if ($("#dCompOff")) $("#dCompOff").onclick = () => patchUser(uid, { comp: false, compUntil: null }).then(() => toast("Free access removed")).catch(e => toast(e.message));
+  $("#dNoteSave").onclick = () => patchUser(uid, { note: $("#dNote").value }).then(() => toast("Saved")).catch(e => toast(e.message));
+  if ($("#dKit")) $("#dKit").onclick = () => patchUser(uid, { kits: { draft_kit_2027: true } }).then(() => toast("Draft kit given")).catch(e => toast(e.message));
+  if ($("#dKitOff")) $("#dKitOff").onclick = () => patchUser(uid, { kits: {} }).then(() => toast("Draft kit removed")).catch(e => toast(e.message));
+}
+$("#drawer").onclick = e => { if (e.target.id === "drawer") $("#drawer").classList.add("hidden"); };
+
+// ---- app settings ----
+async function saveConfig(fields, msg) {
+  await call("PATCH", `${DOCS}/config/app?${Object.keys(fields).map(k => "updateMask.fieldPaths=" + k).join("&")}`,
+    { fields: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, enc(v)])) });
+  Object.assign(config, fields); draw(); toast(msg);
+}
+$("#aPub").onclick = () => { const t = $("#aText").value.trim(); if (!t) return toast("Write a message first");
+  saveConfig({ announceTitle: $("#aTitle").value.trim(), announceText: t, announceId: String(Date.now()) }, "Published").catch(e => toast(e.message)); };
+$("#aClear").onclick = () => saveConfig({ announceTitle: "", announceText: "", announceId: "" }, "Removed").catch(e => toast(e.message));
+$("#sSave").onclick = () => { const d = parseInt($("#sTrial").value, 10);
+  if (!(d >= 0 && d <= 90)) return toast("Trial length must be 0 to 90 days");
+  const m = $("#sMin").value.trim(); if (m && !/^\d+(\.\d+)*$/.test(m)) return toast("Version looks like 2.3 or 3.0.1");
+  saveConfig({ trialDays: d, minVersion: m }, "Settings saved").catch(e => toast(e.message)); };
+
+// ---- export ----
+$("#csv").onclick = () => {
+  const cols = ["email", "plan", "joined", "trial_ends", "last_seen", "version", "google_play_order", "note"];
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [cols.join(",")].concat(users.map(u => [u.email, LABEL[statusOf(u)], day(u.created), day(new Date(trialEnd(u)).toISOString()), day(u.lastSeen), u.appVersion, (u.sub || {}).orderId, u.note].map(q).join(",")));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "text/csv" }));
+  a.download = `dynasty-mover-users-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+};
+
+// ---- start ----
+if (!F.apiKey || /PASTE/.test(F.apiKey)) lErr("Firebase isn't set up yet: paste your apiKey and projectId into editions\\pro\\www\\js\\edition.js (PRO-SETUP.md step 2).");
+try { session = JSON.parse(sessionStorage.getItem("dmAdmin") || "null"); } catch (e) { session = null; }
+if (session) open();
+</script>
+</body>
+</html>
