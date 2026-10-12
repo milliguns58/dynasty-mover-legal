@@ -1,0 +1,15 @@
+{
+  "name": "Dynasty Mover",
+  "short_name": "Dynasty Mover",
+  "description": "The fantasy football trade analyzer, with a GM who knows your league.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "icon.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
