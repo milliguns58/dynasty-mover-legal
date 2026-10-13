@@ -261,10 +261,44 @@ function load_values(cfg) {
   const v = new Values(store, hide_positions(cfg, league));
   v.attach_league(league);
   apply_format_premiums(v, cfg);
+  bench_qb_cap(v, cfg);
   assign_tiers(v);
   apply_trending(v);
   P.values = v;
   return v;
+}
+
+/* Backup quarterbacks sit behind every starter (the user's rule, 2026-10-13: Justin Fields and Anthony Richardson
+   were ranked among usable starters). A starter is a QB who took the snaps in either of the last two played weeks
+   (12+ opportunities in a game; a bye week is covered by looking at two), or who is listed first on his depth chart
+   with nothing played yet. Everyone else who is healthy is a backup: his value is scaled down so the best backup
+   sits just under the lowest-valued starter and the rest keep their order below him. A hurt starter keeps his value. */
+const BENCH_QB_CAP = 0.95, STARTED_OPPS = 12;
+function bench_qb_cap(values, cfg) {
+  const st = load_player_status(), wk = Store.get(`nflv_wk_${parseInt(cfg.season, 10)}.json`), P = (wk && wk.players) || {};
+  let last = 0;
+  for (const o of Object.values(P)) for (const w of Object.keys(o[3] || {})) last = Math.max(last, parseInt(w, 10) || 0);
+  if (!last) return;                                                                 // nothing played yet this season
+  const qbs = values.players.filter(a => a.pos === "QB" && !a.unranked && a.sleeper_id);
+  if (qbs.length < 24) return;
+  const rec = a => P[player_key(a.name, a.pos)];
+  const started = a => { const o = rec(a); if (!o || !o[3]) return false; return [last, last - 1].some(w => (o[3][w] || [])[2] >= STARTED_OPPS); };
+  const hurt = a => { const i = (st[a.sleeper_id] || {}).inj; return !!i && i !== "Questionable"; };
+  const depth = a => (st[a.sleeper_id] || {}).depth;
+  const starter = a => started(a) || (depth(a) === 1 && !(rec(a) && rec(a)[0] > 0));
+  const starters = qbs.filter(a => starter(a) && a.team && a.team !== "FA");
+  if (starters.length < 20) return;                                                  // the week's data isn't in yet
+  const ranked = starters.slice().sort((x, y) => y.value - x.value);              // the bar is the 32nd starter, not an emergency fill-in
+  const floor = ranked[Math.min(31, ranked.length - 1)].value * BENCH_QB_CAP;
+  const backups = qbs.filter(a => !starter(a) && !hurt(a) && a.value > floor).sort((x, y) => y.value - x.value);
+  if (!backups.length) return;
+  const top = backups[0].value;
+  for (const a of backups) {
+    a.base_value = a.base_value ?? a.value;
+    a.value = pyround(floor * a.value / top);
+    a.premium = (a.premium ? a.premium + ", " : "") + "backup QB: behind every starter";
+  }
+  values.players.sort((x, y) => y.value - x.value);
 }
 
 const TIER_BANDS = [0.85, 0.70, 0.55, 0.42, 0.30, 0.20, 0.12, 0.06];
