@@ -33,7 +33,7 @@ function pts_key(cfg) {
 let nflState = null;
 async function current_nfl_week(season) {
   try {
-    if (!nflState || hoursOld(nflState.at) > 3) nflState = Object.assign(await Net.json("https://api.sleeper.app/v1/state/nfl"), { at: now_iso() });
+    if (!nflState || hoursOld(nflState.at) > 0.5) nflState = Object.assign(await Net.json("https://api.sleeper.app/v1/state/nfl"), { at: now_iso() });   // the week turns on Tuesday: re-read every half hour
     if (parseInt(nflState.season || season) === parseInt(season)) return Math.max(1, parseInt(nflState.week || 1));
   } catch (e) { /* offline: fall through */ }
   return 18;
@@ -306,7 +306,26 @@ async function nflv_league_stats(cfg, season) {
    adjusts it for home or away, the Vegas line, the weather and his team's form, the same way it does the personal
    edition's projections. */
 const ROTATION_DEPTH = { QB: 1, RB: 3, WR: 4, TE: 2 };    // deeper than this on the depth chart with no games this season: he isn't playing
-function our_projections(cfg, seasons, season, status = {}, week = 0) {
+/* Recency (2026-10-13): the last three games weigh more than the season average, and a change in opportunities over
+   those games (a quarterback change, an injury ahead of him) moves the number the same week. */
+const RECENT_GAMES = 3, RECENT_WEIGHT = 0.55, USAGE_PULL = 0.5;
+function recent_rate(sid, pos, cur, weekly, season, cfg) {
+  const c = cur[sid]; if (!c || !c.gp) return null;
+  const pk = pts_key(cfg), seasonRate = c[pk] / c.gp;
+  const games = Object.keys(weekly || {}).map(Number).sort((a, b) => a - b).filter(w => weekly[w][sid]).map(w => weekly[w][sid][pk]);
+  if (games.length < 4) return seasonRate;                                           // too few games for a trend to mean anything
+  const last = games.slice(-RECENT_GAMES), recent = last.reduce((s, x) => s + x, 0) / last.length;
+  let rate = RECENT_WEIGHT * recent + (1 - RECENT_WEIGHT) * seasonRate;
+  // usage: opportunities a game over the last three against the season (the stats cache keeps opportunities by week)
+  const wk = (Store.get(`nflv_wk_${season}.json`) || {}).players || {}, a = E.P.values && E.P.values.by_sleeper[sid], o = a && wk[E.player_key(a.name, a.pos)];
+  if (o && o[3]) {
+    const ws = Object.keys(o[3]).map(Number).sort((x, y) => x - y), opp = w => o[3][w][2] || 0;
+    const seasonOpp = ws.reduce((s, w) => s + opp(w), 0) / ws.length, lastOpp = ws.slice(-RECENT_GAMES).reduce((s, w) => s + opp(w), 0) / Math.min(RECENT_GAMES, ws.length);
+    if (seasonOpp > 0 && ws.length >= 4) { const ratio = Math.max(0.5, Math.min(1.6, lastOpp / seasonOpp)); rate *= 1 + USAGE_PULL * (ratio - 1); }   // half of a usage change carries into the number
+  }
+  return rate;
+}
+function our_projections(cfg, seasons, season, status = {}, week = 0, weekly = null) {
   const pk = pts_key(cfg), cur = seasons[season] || {}, prev = seasons[season - 1] || {}, teams = parseInt(cfg.league.teams, 10) || 12;
   const starters = { QB: parseInt(cfg.league.num_qbs, 10) >= 2 ? 2 : 1, RB: 2.5, WR: 3.5, TE: 1.2 }, prior = {};
   for (const pos of POSITIONS) {
@@ -325,7 +344,8 @@ function our_projections(cfg, seasons, season, status = {}, week = 0) {
     if (week >= 2 && g0 === 0 && depth != null && depth > (ROTATION_DEPTH[r.pos] || 1)) pts = 0;
     else if (week >= 2 && g0 === 0 && depth !== 1) pts = (prior[r.pos] || 0) * (depth === 2 ? 0.5 : 0.3);   // (unknown depth and no games: treated as deep)
     else {
-      pts = (g0 * (c ? c[pk] / c.gp : 0) * 1 + w1 * (p ? p[pk] / p.gp : 0) + 2 * (prior[r.pos] || 0)) / (g0 + w1 + 2);
+      const rate = c ? (recent_rate(sid, r.pos, cur, weekly, season, cfg) ?? c[pk] / c.gp) : 0;         // this season at the recent rate
+      pts = (g0 * rate * 1 + w1 * (p ? p[pk] / p.gp : 0) + 2 * (prior[r.pos] || 0)) / (g0 + w1 + 2);
       // a healthy non-starter who has missed most of the season's games isn't about to play a full one
       if (week >= 3 && !st.inj && depth != null && depth > 1 && g0 < 0.6 * (week - 1)) pts *= Math.max(0.25, (g0 + 0.5) / (week - 1));
     }
@@ -346,7 +366,7 @@ async function prepare(cfg, opts = {}) {
       const [seasons, weekly] = await nflv_league_stats(cfg, season);
       if (!Object.keys(seasons[season] || {}).length && !Object.keys(seasons[season - 1] || {}).length) throw new Error("no stats");
       const ctx = await week_context_nflv(cfg, week, opts.refresh).catch(() => ({}));
-      return { season, week, proj: our_projections(cfg, seasons, season, E.load_player_status(), week), ctx, seasons, weekly, trends: Object.keys(weekly).length ? team_trends(cfg, weekly) : null,
+      return { season, week, proj: our_projections(cfg, seasons, season, E.load_player_status(), week, weekly), ctx, seasons, weekly, trends: Object.keys(weekly).length ? team_trends(cfg, weekly) : null,
         status: E.load_player_status(), ours: true };
     } catch (e) {
       return { season, week, proj: {}, ctx: {}, seasons: {}, weekly: {}, trends: null, status: E.load_player_status(), valuesOnly: true };
@@ -364,8 +384,50 @@ async function prepare(cfg, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Live win probability (2026-10-13): Sleeper's live matchup points plus our projection for what is left to play.
+// ---------------------------------------------------------------------------
+const GAME_HOURS = 3.25, LIVE_SD = 0.55;                   // a game's length on the clock; the spread of what is left, as a share of the projection
+function erf(x) { const s = x < 0 ? -1 : 1; x = Math.abs(x); const t = 1 / (1 + 0.3275911 * x); const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return s * y; }
+const normal_cdf = z => 0.5 * (1 + erf(z / Math.SQRT2));
+/* How much of a team's game is played, by the clock: 0 before kickoff, 1 after. */
+function played_share(ctx, team, now) {
+  const c = ctx && ctx[team]; if (!c || !c.kickoff) return null;
+  const t = new Date(c.kickoff).getTime(); if (isNaN(t)) return null;
+  return Math.max(0, Math.min(1, (now - t) / (GAME_HOURS * 3600000)));
+}
+async function live_matchup(values, cfg, W, team) {
+  const lg = values.league; if (!lg || !lg.league_id || !W || !W.week || W.valuesOnly) return null;
+  const mus = await Net.json(`${E.SLEEPER_URL}/league/${lg.league_id}/matchups/${W.week}`, null, 30000).catch(() => null);
+  if (!Array.isArray(mus)) return null;
+  const mine = mus.find(m => m.roster_id === team.roster_id); if (!mine || mine.matchup_id == null) return null;
+  const opp = mus.find(m => m.matchup_id === mine.matchup_id && m.roster_id !== team.roster_id); if (!opp) return null;
+  const now = Date.now(), ctx = W.ctx || {};
+  const side = m => {
+    const starters = (m.starters || []).filter(s => s && s !== "0"), pp = m.players_points || {}, sp = m.starters_points || [];
+    let mean = 0, varc = 0, done = 0, left = 0, playing = 0;
+    starters.forEach((sid, i) => {
+      const actual = parseFloat(pp[sid] != null ? pp[sid] : (sp[i] != null ? sp[i] : 0)) || 0;
+      const a = values.by_sleeper[sid], tm = a ? a.team : (lg.players[sid] || {}).team, f = played_share(ctx, tm, now);
+      const proj = (W.proj[sid] && parseFloat(W.proj[sid].pts)) || (a && POSITIONS.includes(a.pos) ? 0 : 0);
+      const share = f === null ? (actual > 0 ? 1 : 0) : f;                           // no game in the context: a bye, or a kicker/defense without a projection
+      const rest = (1 - share) * proj;
+      mean += actual + rest; varc += Math.pow(LIVE_SD * rest, 2);
+      if (share >= 1) done++; else if (share > 0) playing++; else left++;
+    });
+    return { mean, sd: Math.sqrt(varc), actual: parseFloat(m.points || 0), done, playing, left, n: starters.length };
+  };
+  const A = side(mine), B = side(opp), sd = Math.sqrt(A.sd * A.sd + B.sd * B.sd);
+  const p = sd > 0 ? normal_cdf((A.mean - B.mean) / sd) : (A.mean > B.mean ? 1 : A.mean < B.mean ? 0 : 0.5);
+  const oppTeam = lg.teams.find(t => t.roster_id === opp.roster_id);
+  return { week: W.week, p, me: A, them: B, opponent: oppTeam ? oppTeam.team_name : `Roster ${opp.roster_id}`, final: A.playing === 0 && A.left === 0 && B.playing === 0 && B.left === 0, started: A.done + A.playing + B.done + B.playing > 0 };
+}
+// ---------------------------------------------------------------------------
 // Lineup helper
 // ---------------------------------------------------------------------------
+/* A star: a top name by value (the first three tiers, or the top of his position). The lineup help never sits one
+   for a lesser player, and his weekly grade never reads Sit; only being out, on IR, on bye or without a team does that. */
+const STAR_RANK = { QB: 12, RB: 12, WR: 15, TE: 6 }, STAR_LOCK = 1000;   // QB 8 -> 12 on the 13-season repeat rates (tools/values/fit_tiers.py, 2026-10-13)
+const is_star = a => !!a && !a.unranked && !a.is_pick && ((a.tier || 9) <= 3 || (a.pos_rank || 99) <= (STAR_RANK[a.pos] || 0));
 function lineup_helper(values, cfg, team, W, aggressiveness = 0.6) {
   const lg = values.league, proj = W.proj, ctx = W.ctx, trends = W.trends, pstatus = W.status;
   const all_slots = (lg.roster_positions || []).filter(p => !["BN", "IR", "TAXI"].includes(p));
@@ -389,7 +451,20 @@ function lineup_helper(values, cfg, team, W, aggressiveness = 0.6) {
   const R = Object.values(rows);
   // keep whoever starts now unless the bench is clearly better (half a point): a 6.2-for-6.2 swap is noise, and a bench
   // player projected for nothing never replaces a starter projected for nothing (the user's rule, 2026-10-07)
-  const starting = new Set((team.starters || []).map(String)), keep = a => a._pts + (starting.has(String(a.sleeper_id || "")) ? 0.5 : 0);
+  // The user's rule (2026-10-12): the top players start unless a change is clear-cut. Projections are noisy, so a
+  // bench player needs a real margin over whoever starts now (a point, or a tenth of his number) and a much bigger one
+  // over a star: a top name by value (the first two tiers, or the first few at his position) who is healthy and playing
+  // stays in, and a star on the bench comes in, unless the other man beats him by three and a half points or a quarter.
+  // Stars are locked in (the user's rule, 2026-10-12): a star who is healthy and has a game is never benched for a
+  // lesser player, whatever the projections say this week; only another star with the higher number takes his slot.
+  // Out, IR, bye and no team are the exceptions. A lesser current starter keeps a smaller edge against the bench.
+  const starting = new Set((team.starters || []).map(String));
+  const edge = a => {
+    const r = rows[a.id] || {};
+    if (!(a._pts > 0) || r.out || r.bye || r.noTeam) return 0;
+    return (is_star(a) ? STAR_LOCK : 0) + (starting.has(String(a.sleeper_id || "")) ? Math.max(1, 0.1 * a._pts) : 0);
+  };
+  const keep = a => a._pts + edge(a);
   const rec = best_lineup_by(R.map(r => Object.assign({}, r.asset, { _pts: r.pts })), ours, keep);
   const base_rec = best_lineup_by(R.map(r => Object.assign({}, r.asset, { _pts: r.base })), ours, keep);
   const base_names = new Set(base_rec.starters.filter(([, p]) => p).map(([, p]) => p.name));
@@ -831,7 +906,7 @@ function waiver_check(values, cfg, team, drop, add, W, opts = {}) {
   return { verdict, tone, reasons: stop.concat(good, note), lineup_gain: lu_gain, faab };
 }
 
-const DYN_VET_AGE = { QB: 33, RB: 27, WR: 29, TE: 30 };
+const DYN_VET_AGE = E.AGE_DECLINE;                           // the slide has started: dropping him costs little future (the user's age cliffs)
 const POS_TYPICAL = E.DMV_TYPICAL;                          // a typical starter's points a game: the cap for one-game samples (the engine's table)
 const gradeLetter = score => (E.GRADE_CUTS.find(([c]) => score >= c) || [0, "F"])[1];
 function _one_move(values, cfg, roster, add, drop, metric, metric_name, parts, starters, before, floor) {
@@ -943,7 +1018,9 @@ function week_grades(values, cfg, W) {
   for (const [pos, l] of Object.entries(rows)) {
     l.sort((x, y) => y[1] - x[1]);
     l.forEach(([sid, pts], i) => {
-      const x = (i + 1) / (teams * slots[pos]), [, letter, label] = WEEK_CUTS.find(([c]) => x <= c);
+      let x = (i + 1) / (teams * slots[pos]);
+      if (x > 0.75 && is_star(values.by_sleeper[sid])) x = 0.75;              // a star with a game is a Start at worst, never a Sit
+      const [, letter, label] = WEEK_CUTS.find(([c]) => x <= c);
       out[sid] = { letter, label, cls: "g" + letter[0].toLowerCase(), pts, posRank: i + 1 };
     });
   }
@@ -994,7 +1071,7 @@ function player_card(values, cfg, a, W) {
      either way  -> "good fit" swaps with teams deep where the user is thin and thin where the user is deep
    Each idea comes with a package of about even value (within 15%) from the other side's spare parts. */
 const TI_POS = E.POSITIONS;
-const VET_AGE = { QB: 29, RB: 26, WR: 27, TE: 28 };
+const VET_AGE = E.AGE_DECLINE;                               // sell a year early rather than a year late (the user's age cliffs, engine AGE_CLIFF - 2)
 function trade_targets(values, cfg, me, week, n = 6) {
   const lg = values.league, all = lg.teams, starters = lg.roster_positions_starters || cfg.league.starters;
   const rec = t => { const [w, l, ti] = String(t.record || "0-0").split("-").map(x => parseInt(x, 10) || 0); const g = w + l + (ti || 0); return { w, l, g, pct: g ? (w + 0.5 * (ti || 0)) / g : 0.5 }; };
@@ -1252,6 +1329,6 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
   return { band: band[1], tone: band[2], score, pct, lens, lensTxt, reasons, sweeteners, need, message, summary, owner, mode: B.mode, thin: B.thin, deep: B.deep, trades: T };
 }
 
-return { NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
+return { NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
   waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades };
 })();

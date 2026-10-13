@@ -108,7 +108,8 @@ function restoreSides(saved) {
   let dropped = 0;
   for (const k of ["A", "B"]) {
     const s = (saved || {})[k] || {};
-    S.sides[k] = { team: s.team ?? (k === "A" ? S.cfg && S.cfg.my_roster_id : null) ?? null, mode: s.mode || "neutral", items: [] };
+    const planMode = k === "A" && S.cfg && S.cfg.plan ? S.cfg.plan : null;     // the manager's plan (set with the GM) is the default lens on your side
+    S.sides[k] = { team: s.team ?? (k === "A" ? S.cfg && S.cfg.my_roster_id : null) ?? null, mode: s.mode || planMode || "neutral", items: [] };
     if (S.values) for (const id of s.items || []) { const a = sideAsset(k, id); if (a) S.sides[k].items.push(a); else dropped++; }
   }
   if (dropped) { S.sidesDropped = (S.sidesDropped || 0) + dropped; saveUi(); }
@@ -158,7 +159,7 @@ function header() {
     $("#bannerUpd").onclick = () => runUpdate();
   } else b.classList.add("hidden");
 }
-$("#leagueBtn").onclick = () => leaguesSheet();
+$("#leagueBtn").onclick = () => { if (S.tab !== "league") leaguesSheet(); };   // on the League tab the list is already on the page, so the header is just the name there
 
 // ---------------------------------------------------------------------------
 // Shared bits of markup
@@ -292,7 +293,7 @@ function gameLogHtml(r, a, yr) {
     : `<tr class="nog"><td>${x.week}</td><td colspan="${cols.length + 2}">No game</td></tr>`).join("");
   return tabs + `<div class="glog"><table><thead><tr><th>WK</th><th>OPP</th>${cols.map(([h]) => `<th>${h}</th>`).join("")}<th>PTS</th></tr></thead><tbody>${body}</tbody></table></div>
     <p class="note muted" style="margin-top:6px">${games.length} game${games.length === 1 ? "" : "s"} · ${avg.toFixed(1)} points a game in your league's scoring</p>
-    <p class="credit" style="text-align:left;padding-top:2px">Stats from nflverse</p>`;
+    <p class="credit" style="text-align:left;padding-top:2px">Points by week from Sleeper; stats from nflverse</p>`;
 }
 /* Why our grade differs from the market, in his own numbers (the grade's parts and his status), not a canned line. */
 function gradeWhy(a, up) {
@@ -303,11 +304,12 @@ function gradeWhy(a, up) {
   if (!up && gap <= -1.5) R.push("he's scoring more than his usage says, and that fades");
   if (up) {
     if (p >= 60) R.push("he's producing like a starter"); else if (o >= 60) R.push("he's getting a starter's share of the ball");
-    if (!rd && r >= 75) R.push(age <= 25.5 ? "his prime is still ahead of him" : pos === "QB" ? "pocket passers hold their value into their mid-30s" : "his age curve still has good years in it");
+    if (!rd && r >= 75) R.push(age <= 25.5 ? "his prime is still ahead of him" : pos === "QB" ? "quarterbacks hold their value into their late 30s" : "his age curve still has good years in it");
     if (s != null && s >= 65) R.push("his situation is built for a tight end");
     if (!R.length) R.push(!rd && age <= 26 && p < 35 ? "he's young enough to still be a lottery ticket" : rd ? "his points say more than his price does" : "his numbers say more than his price does");
   } else {
-    if (!rd && r < 45 && age >= 27) R.push(age >= 29 ? "his age curve says the cliff is close" : "his age curve is past its peak");
+    const stage = E.age_stage(pos, age);                                             // the user's cliffs: RB 29, WR 31, QB 40, TE 37, the slide two years before
+    if (!rd && r < 45 && stage) R.push(stage === "cliff" ? `he's past the ${pos} cliff (${E.AGE_CLIFF[pos]})` : stage === "near" ? "his age curve says the cliff is close" : "his age curve is past its peak");
     if (o < 30) R.push(st.depth > 3 ? `he's buried on the depth chart (${pos}${st.depth})` : "he isn't getting the ball");
     else if (p < 35) R.push(age >= 25 || a.ogames >= 20 ? (o >= 60 ? "his points don't match the ball he's getting" : "his points are down") : "he hasn't produced yet");
     else if (p < 60) R.push("his production doesn't match his price");
@@ -539,6 +541,7 @@ function renderTrade(el) {
       ${lens && s.items.length ? `<div class="lens-note">${k === "A" ? (lens === "contend" ? "Valued to win now: production up, picks and youth down." : "Valued for a rebuild: picks and youth up, older players down.")
         : `Priced through your ${MODE_LABEL[lens].toLowerCase()} lens${s.mode !== "neutral" ? `; ${MODE_LABEL[s.mode]} is how they see it` : ""}.`}</div>` : ""}
       ${!redraft && qbBump > 0 && hasQB(k) ? `<div class="lens-note">Starting QBs cost +${qbBump}% in trades: you overpay for a QB.</div>` : ""}
+      ${!redraft && k === "A" && s.items.length && S.cfg.league.use_market !== false && Hist.market_cached() && Hist.market_cached().mults ? `<div class="lens-note">${esc(marketText())}</div>` : ""}
       <div class="list">${s.items.map(a => assetRow(a, { x: true, trend: false, right: lensRight(a) })).join("")}</div>
       <button class="add-row" data-add="${k}" ${tradeFull() ? 'data-lock="tradesize"' : ""}><span class="plus">+</span>${s.items.length ? "Add another" : (redraft ? "Add a player" : "Add a player or pick")}${tradeFull() ? " " + Pro.tag() : ""}</button></section>`;
   };
@@ -905,6 +908,7 @@ async function loadHistory(body, force) {
     if (box()) box().innerHTML = loading("Adding up what happened since…");
     const data = await Hist.outcomes(S.cfg, S.values, hist);
     H.data = data; H.at = Date.now();
+    try { Hist.market_save(Hist.market_fit(data.trades, parseInt(S.cfg.season, 10))); S.result = null; } catch (e) { /* the market fit never blocks the sheet */ }
     if (box()) drawHistory(body);
   } catch (e) {
     console.error(e);
@@ -1232,7 +1236,7 @@ async function weekData(refresh = false) {
   const key = E.P.id + "|" + S.cfg.season;
   if (!refresh && S.W && S.Wkey === key && Date.now() - S.Wat < 15 * 60000) return S.W;
   if (S.Wloading && !refresh) return S.Wloading;
-  S.Wloading = Week.prepare(S.cfg, { refresh }).then(W => { S.W = W; S.Wkey = key; S.Wat = Date.now(); S.Wloading = null; return W; },
+  S.Wloading = Week.prepare(S.cfg, { refresh }).then(W => { S.W = W; S.Wkey = key; S.Wat = Date.now(); S.Wloading = null; try { Score.snapshot(S.cfg, S.values, W); } catch (e) { /* the scorecard never blocks the screen */ } return W; },
     e => { S.Wloading = null; throw e; });
   return S.Wloading;
 }
@@ -1274,10 +1278,26 @@ function renderTeam(el) {
   const body = $("#tbody");
   if (S.team.seg === "roster") return drawRoster(body, t);
   body.innerHTML = loading(E.PLAY ? "Loading…" : "Getting this week's projections…");
-  weekData().then(W => {
+  freshRosters().then(() => weekData()).then(W => {
     if (!body.isConnected) return;
-    if (S.team.seg === "lineup") drawLineup(body, t, W); else if (S.team.seg === "trades") drawTrades(body, t, W); else drawWaivers(body, t, W);
+    const t2 = teamById(t.roster_id) || t;                                        // the team as just refreshed
+    if (S.team.seg === "lineup") drawLineup(body, t2, W); else if (S.team.seg === "trades") drawTrades(body, t2, W); else drawWaivers(body, t2, W);
   }, e => { body.innerHTML = `<div class="empty">Couldn't load this week's data. Check your connection and try again.</div>`; });
+}
+/* The rosters as Sleeper has them right now: a quiet re-import when the last one is more than a few minutes old, so
+   the lineup the manager just set in Sleeper is the lineup the app judges (the user's complaint, 2026-10-13). */
+const ROSTERS_FRESH = 3 * 60000;
+async function freshRosters(force = false) {
+  const lg = S.values && S.values.league;
+  if (!lg || !lg.league_id || !navigator.onLine || S.busy) return false;
+  const age = lg.imported ? Date.now() - new Date(lg.imported).getTime() : Infinity;
+  if (!force && age < ROSTERS_FRESH) return false;
+  if (S.rostersLoading) return S.rostersLoading;
+  const pid = E.P.id;
+  S.rostersLoading = E.sleeper_import(S.cfg, lg.league_id, () => {}, (app().sleeper || {}).user_id)
+    .then(() => { if (E.P.id === pid) { S.values = E.load_values(S.cfg); S.W = null; header(); } return true; }, () => false)
+    .finally(() => { S.rostersLoading = null; });
+  return S.rostersLoading;
 }
 
 function drawRoster(body, t) {
@@ -1286,13 +1306,13 @@ function drawRoster(body, t) {
   const lu = E.best_lineup(roster, starters), st = new Set(lu.starters.filter(([, p]) => p).map(([, p]) => p.id));
   const tot = roster.reduce((s, a) => s + a.value, 0);
   const rank = 1 + teams().filter(x => E.team_assets(S.values, S.cfg, x).reduce((s, a) => s + a.value, 0) > tot).length;
-  let h = `<section class="card stat-card"><div><div class="big-num">${fmt(tot)}</div><div class="hint">team value</div></div>
+  let h = `<section class="card stat-card tone-orange"><div><div class="big-num">${fmt(tot)}</div><div class="hint">team value</div></div>
     <div><div class="big-num">${E.ordinal(rank)}</div><div class="hint">of ${teams().length} teams</div></div></section>${teamRead(roster, st, rank)}<section class="card flush">`;
   for (const [pos, label] of [["QB", "Quarterbacks"], ["RB", "Running backs"], ["WR", "Wide receivers"], ["TE", "Tight ends"], ["K", "Kickers"], ["DEF", "Defenses"], ["PICK", "Draft picks"]]) {
     const g = roster.filter(a => a.pos === pos);
     if (pos !== "PICK") g.sort((a, b) => b.value - a.value);                        // picks keep Sleeper's order: season, then round
     if (!g.length) continue;
-    h += `<div class="grp">${label}${pos === "PICK" ? `<a class="grp-note lnk" id="toDraft">Draft helper</a>` : ""}</div>` + g.map(a => assetRow(a, { tag: st.has(a.id) ? `<span class="tag-start">Starter</span>` : "" })).join("");
+    h += `<div class="grp pos-${pos}">${label}${pos === "PICK" ? `<a class="grp-note lnk" id="toDraft">Draft helper</a>` : ""}</div>` + g.map(a => assetRow(a, { tag: st.has(a.id) ? `<span class="tag-start">Starter</span>` : "" })).join("");
   }
   body.innerHTML = h + `</section>`;
   bindCards(body);
@@ -1315,7 +1335,8 @@ function teamRead(roster, st, rank) {
   const step = a => gIdx(gradeOf(a, true).g) - gIdx(gradeOf(a).g);
   const sells = pl.filter(a => step(a) <= -2 && gIdx(gradeOf(a, true).g) <= gIdx("C+")).sort((a, b) => b.value - a.value);   // the market has him at C+ or better
   const holds = pl.filter(a => step(a) >= 2 && gIdx(gradeOf(a).g) <= gIdx("B-")).sort((a, b) => b.value - a.value);          // we have him at B- or better
-  const top = rank <= Math.ceil(n / 3), bottom = rank > n - Math.ceil(n / 3), strong = score >= 72, young = age < 26.5, old = age >= 27.5;
+  const toCliff = mean(aged, a => (E.AGE_CLIFF[a.pos] || 99) - a.age);            // years the core has left before its cliffs, on average (the user's age model)
+  const top = rank <= Math.ceil(n / 3), bottom = rank > n - Math.ceil(n / 3), strong = score >= 72, young = age < 26.5, old = aged.length > 0 && toCliff <= 2.5;
   let title, text;
   if (rd) { title = top ? "Contender" : bottom ? "Long shot" : "In the hunt"; text = `The starters grade ${g} on average for this season. In redraft, most points wins: play the hot hand and use the waiver wire.`; }
   else if (top && strong && !old) { title = "Contender"; text = `The starters grade ${g} on average and are ${ageTxt} years old on average. Built to win now and later. Don't pay for picks; use them to buy players who help this year.`; }
@@ -1329,39 +1350,48 @@ function teamRead(roster, st, rank) {
   let extra = "";
   if (sells.length) extra += `<div class="sub-h">The market has these higher than we do${rd ? "" : ": sell candidates"}</div>` + sells.slice(0, 4).map(row).join("");
   if (holds.length) extra += `<div class="sub-h">The market has these lower than we do${rd ? "" : ": hold, or buy more"}</div>` + holds.slice(0, 4).map(row).join("");
-  return `<section class="card"><h2>Team read: ${esc(title)}</h2><p class="note">${text}</p>${extra}</section>`;
+  return `<section class="card tone-orange"><h2>Team read: ${esc(title)}</h2><p class="note">${text}</p>${extra}</section>`;
 }
 
 function drawLineup(body, t, W) {
   const L = W.valuesOnly ? Week.lineup_by_value(S.values, S.cfg, t, W) : Week.lineup_helper(S.values, S.cfg, t, W);
+  if (!W.valuesOnly && t.roster_id === S.cfg.my_roster_id) { try { Score.saveLineup(S.cfg, W, t.roster_id, L); } catch (e) { /* never blocks */ } }   // the scorecard keeps the call
   const num = x => W.valuesOnly ? fmt(x) : x.toFixed(1);
   const starts = L.changes.filter(c => c.action === "start"), benches = L.changes.filter(c => c.action === "bench");
   const better = L.gain > (W.valuesOnly ? 1 : 0.05);
-  let h = `<section class="card stat-card"><div><div class="big-num">${num(L.rec_total)}</div><div class="hint">${W.valuesOnly ? "best lineup value" : `projected points, week ${L.week}`}</div></div>
+  let h = `<div id="liveCard"></div><section class="card stat-card tone-blue"><div><div class="big-num">${num(L.rec_total)}</div><div class="hint">${W.valuesOnly ? "best lineup value" : `projected points, week ${L.week}`}</div></div>
     ${L.has_current ? `<div><div class="big-num ${better ? "good" : ""}">${better ? "+" + num(L.gain) : "✓"}</div><div class="hint">${better ? "if you make the changes" : "lineup is set"}</div></div>` : ""}</section>`;
-  if (L.has_current && L.changes.length) {
-    h += `<section class="card"><h2>Changes to make</h2><div class="list">
-      ${starts.map((c, i) => { const b = c.instead !== undefined ? c.instead : benches[i]; return `<div class="swap-row"><div><span class="good">Start</span> <b>${plinkName(c.name)}</b>${c.flag ? `<span class="flag ${esc(c.flag)}">${esc(c.flag)}</span>` : ""}${W.valuesOnly ? "" : ` <span class="muted">${num(c.pts)} pts</span>`}</div>
-        ${b ? `<div class="s">instead of ${plinkName(b.name)}${W.valuesOnly ? "" : ` (${num(b.pts)})`}${b.flag ? " · " + esc(b.flag.toLowerCase()) : ""}</div>` : ""}</div>`; }).join("")}
-      ${benches.filter(c => !starts.some(s => s.instead && s.instead.name === c.name) && (starts.some(s => s.instead !== undefined) || benches.indexOf(c) >= starts.length)).map(c => `<div class="swap-row"><div><span class="bad">Bench</span> <b>${plinkName(c.name)}</b>${c.flag ? ` <span class="muted">${esc(c.flag.toLowerCase())}</span>` : ""}</div></div>`).join("")}</div></section>`;
+  if (L.has_current && L.changes.length) {                       // one line a swap: who comes in, who sits, the points of each
+    const lone = benches.filter(c => !starts.some(s => s.instead && s.instead.name === c.name) && (starts.some(s => s.instead !== undefined) || benches.indexOf(c) >= starts.length));
+    h += `<section class="card tone-green"><h2>Changes to make</h2><div class="list">
+      ${starts.map((c, i) => { const b = c.instead !== undefined ? c.instead : benches[i]; return `<div class="swap"><span class="swap-tag in">Start</span><div class="swap-who"><b>${plinkName(c.name)}</b>${c.flag ? `<span class="flag ${esc(c.flag)}">${esc(c.flag)}</span>` : ""}${b ? `<div class="s">over ${plinkName(b.name)}${b.flag ? ` <span class="muted">${esc(b.flag.toLowerCase())}</span>` : ""}</div>` : ""}</div>
+        ${W.valuesOnly ? "" : `<div class="swap-pts"><b>${num(c.pts)}</b>${b ? `<small>${num(b.pts)}</small>` : ""}</div>`}</div>`; }).join("")}
+      ${lone.map(c => `<div class="swap"><span class="swap-tag out">Bench</span><div class="swap-who"><b>${plinkName(c.name)}</b>${c.flag ? ` <span class="muted">${esc(c.flag.toLowerCase())}</span>` : ""}</div></div>`).join("")}</div>
+      <p class="hint" style="margin-top:8px">Your top players stay in unless the other man is clearly better this week.</p></section>`;
+  } else if (L.has_current) {
+    h += `<section class="card tone-green set-card"><b>Lineup is set.</b> Your top players are in and nobody on the bench is clearly better this week.</section>`;
   }
   const warn = L.flags.filter(f => / is empty$/.test(f));            // OUT / BYE / Q already show as tags on the players
   if (warn.length) h += `<p class="note warn">${warn.map(esc).join("<br>")}</p>`;
   const WG = W.valuesOnly ? {} : Week.week_grades(S.values, S.cfg, W), wgOf = x => { const a = x.id && S.values.by_id[x.id]; return a && WG[a.sleeper_id]; };
-  h += `<section class="card flush"><div class="grp">Best lineup${Object.keys(WG).length ? `<span class="grp-note">this week's grade</span>` : ""}</div>${L.recommended.map(x => { const g = wgOf(x); return `<div class="item" data-card-name="${esc(x.id || "")}">
-      <span class="slot">${esc(SLOT_LABEL(x.slot))}</span><div class="nm"><div class="n">${x.name === "(empty)" || x.pos === "DEF" ? esc(x.name) : `<a class="plink" data-pcard="${esc(x.id || x.pid || x.name)}">${esc(x.name)}</a>`}${x.flag ? `<span class="flag ${esc(x.flag)}">${esc(x.flag)}</span>` : ""}</div>
+  h += `<section class="card flush tone-blue"><div class="grp">Best lineup${Object.keys(WG).length ? `<span class="grp-note">this week's grade</span>` : ""}</div>${L.recommended.map(x => { const g = wgOf(x); return `<div class="item" data-card-name="${esc(x.id || "")}">
+      <span class="slot ${esc(slotClass(x.slot))}">${esc(SLOT_LABEL(x.slot))}</span><div class="nm"><div class="n">${x.name === "(empty)" || x.pos === "DEF" ? esc(x.name) : `<a class="plink" data-pcard="${esc(x.id || x.pid || x.name)}">${esc(x.name)}</a>`}${x.flag ? `<span class="flag ${esc(x.flag)}">${esc(x.flag)}</span>` : ""}</div>
       <div class="s">${esc(x.opp ? (x.opp.startsWith("@") ? "at " + x.opp.slice(1) : "vs " + x.opp) : "")}</div></div><div class="v">${g ? `<span class="grade sm ${g.cls}">${esc(g.letter)}</span> ` : ""}<b>${num(x.pts)}</b></div></div>`; }).join("")}</section>`;
   const extra = L.notes.map(n => `<p class="note">${esc(n)}</p>`).join("") +
     (L.def_options && L.def_options.length ? `<div class="sub-h">Defenses you could pick up</div>` + L.def_options.map(d => `<div class="kv"><span>${esc(d.team)} ${d.home === false ? "at" : "vs"} ${esc(d.opp || "?")}</span><b>${d.adj.toFixed(1)}</b></div>`).join("") : "") +
     (W.valuesOnly ? `<p class="note muted">Starters are picked by each player's value for this season, and players listed as out are skipped. After changing your lineup in Sleeper, tap Refresh rosters on the League tab.</p>`
       : W.ours ? `<p class="note muted">Points are Dynasty Mover's own projections: each player's scoring this season and last, adjusted for home or away, the Vegas line, the weather at kickoff and his team's recent form. Schedule and lines from nflverse (CC BY 4.0); weather from the National Weather Service.</p>`
       : `<p class="note muted">Points are Sleeper's projections, adjusted for the matchup, weather, betting lines and recent form.</p>`);
-  h += `<section class="card">${more("How this works", extra)}${W.valuesOnly ? "" : `<button class="btn ghost block" id="wref" style="margin-top:12px">Refresh projections</button>`}</section>`;
+  const lgi = S.values.league && S.values.league.imported ? ago(S.values.league.imported) : null;
+  h += `<section class="card">${more("How this works", extra)}${W.valuesOnly ? "" : `<button class="btn ghost block" id="wref" style="margin-top:12px">Refresh rosters and projections</button>${lgi ? `<div class="hint" style="text-align:center;margin-top:6px">Rosters from Sleeper ${esc(lgi)}</div>` : ""}`}</section>`;
   body.innerHTML = h;
+  liveCard(body, t, W);
   $$("[data-card-name]", body).forEach(it => it.onclick = () => { const a = S.values.by_id[it.dataset.cardName]; if (a) card(a); });
-  if ($("#wref")) $("#wref").onclick = () => { body.innerHTML = loading("Refreshing…"); weekData(true).then(W2 => drawLineup(body, t, W2), e => toast("Couldn't refresh. Check your connection.")); };
+  if ($("#wref")) $("#wref").onclick = () => { body.innerHTML = loading("Refreshing rosters and projections…"); freshRosters(true).then(() => weekData(true)).then(W2 => drawLineup(body, teamById(t.roster_id) || t, W2), e => toast("Couldn't refresh. Check your connection.")); };
 }
 
+/* The colour of a lineup slot: the position's own, flex slots their own. */
+const slotClass = s => { const u = String(s || "").toUpperCase(); return ["QB", "RB", "WR", "TE", "K", "DEF"].includes(u) ? u : /SUPER|^SF$/.test(u) ? "SF" : "FLEX"; };
 /* A pickup's case in plain words, from the same numbers the score uses. */
 function whyPlain(parts, a, fallback = "better long-term value") {
   const q = parts(a), bits = [], pts = n => { const r = Math.round(n); return `${r} pt${r === 1 ? "" : "s"}`; };
@@ -1438,7 +1468,7 @@ function drawTrades(body, t, W) {
   if (tm.week && tm.week <= 3) when = (when ? when + " " : "") + "Records are still early, so struggling teams may not be selling yet.";
   else if (tm.week && tm.week <= 9) when = (when ? when + " " : "") + "Teams that start slow usually start listening around now.";
   const chip = (txt, cls) => `<span class="ti-chip ${cls}">${esc(txt)}</span>`;
-  let h = `<section class="card ti-head"><div class="kicker">Your situation</div>
+  let h = `<section class="card ti-head tone-purple"><div class="kicker">Your situation</div>
       <div class="ti-rec"><b>${esc(me.record)}</b><span>${E.ordinal(me.place)} of ${me.teams}</span>${chip(DIR[0], "dir-" + me.direction)}</div>
       ${(() => { const P = E.project_standings(S.values, S.cfg), my = P && P.by[t.roster_id]; if (!my || !P.weeks_left) return "";
         const own = E.team_assets(S.values, S.cfg, t).find(a => a.is_pick && a.pick.round === 1 && a.original === t.roster_id && a.proj_slot);
@@ -1449,7 +1479,7 @@ function drawTrades(body, t, W) {
   const KIND = { buy: "Buy", sell: "Sell", fit: "Good fit" };
   const mini = a => `<div class="mini" data-card="${esc(a.id)}">${avatar(a)}<div class="mini-t"><b>${esc(a.name)}</b><span>${gradeChip(a, false)} ${fmt(a.value)}</span></div></div>`;
   T.ideas.forEach((x, i) => {
-    h += `<section class="card idea">
+    h += `<section class="card idea tone-purple">
       <div class="idea-top"><span class="idea-kind k-${x.kind}">${KIND[x.kind]}</span><b class="idea-team">${esc(x.team.team_name)}</b><span class="muted">${esc(x.team.record || "")}</span></div>
       <div class="idea-cols"><div><div class="sub-h">You get</div>${x.get.map(mini).join("")}</div><div><div class="sub-h">You give</div>${x.give.map(mini).join("")}</div></div>
       <ul class="idea-why">${x.why.map(w => `<li>${linkify(w, x.get.concat(x.give))}</li>`).join("")}</ul>
@@ -1549,7 +1579,7 @@ function drawWaivers(body, t, W) {
   const defenses = hasDef ? Week.defense_streamers(S.values, S.cfg, W) : [];
   const moves = Week.roster_moves(S.values, S.cfg, t, W, { n: 6, per_group: 2, fas, metric: M, defenses });
   let h = waiverCheckCard(t, fas, W, M) + weakSpots(t, fas, W, M);
-  h += `<section class="card"><h2>Suggested pickups</h2>`;
+  h += `<section class="card tone-green"><h2>Suggested pickups</h2>`;
   h += moves.length ? `<div class="list">${moves.map(m => `<div class="move" data-card="${esc(m.add.id)}">
       <div class="move-main">${badge(m.add.pos)}<div class="nm"><div class="n">Add ${esc(m.add.name)}</div>
         <div class="s">${m.drop ? "Drop " + plink(m.drop) : "Open roster spot"}</div></div>
@@ -1733,7 +1763,7 @@ function card(a, opts = {}) {
             <div class="bg-move ${M.dir}">${M.dir === "up" ? "▲ Rising" : (M.dir === "down" ? "▼ Falling" : "– Steady")}${M.amt ? ` <span>${M.amt > 0 ? "+" : "−"}${fmt(Math.abs(M.amt))} in 30 days</span>` : ""}</div>
             <div class="bg-value">Value ${fmt(a.value)}</div>
             ${!a.is_pick && a.pred ? `<div class="bg-scope">Forecast: ${E.is_redraft(S.cfg) ? `${a.pred.ros.toFixed(1)} pts a game the rest of this season` : `${a.pred.next.toFixed(1)} pts a game next season · ${Math.round(a.pred.play * 100)}% to play 4+ games`}</div>` : ""}
-            ${a.is_pick ? "" : `<div class="bg-scope">${E.is_redraft(S.cfg) ? "Grade: rest of this season" : "Grade: dynasty outlook"}${C.week && !C.week.none && C.week.grade ? ` · This week <span class="grade sm ${C.week.grade.cls}">${esc(C.week.grade.letter)}</span> ${esc(C.week.grade.label.toLowerCase())}` : C.week && C.week.bye ? " · Bye this week" : ""}</div>`}</div></div>${edgeLine(a, G)}${epLine(a)}</div>
+            ${a.is_pick ? "" : `<div class="bg-scope">${E.is_redraft(S.cfg) ? "Grade: rest of this season" : "Grade: dynasty outlook"}${C.week && !C.week.none && C.week.grade ? ` · This week <span class="grade sm ${C.week.grade.cls}">${esc(C.week.grade.letter)}</span> ${esc(C.week.grade.label.toLowerCase())}` : C.week && C.week.bye ? " · Bye this week" : ""}</div>`}</div></div>${edgeLine(a, G)}${epLine(a)}${lastCallHtml(a)}</div>
       <div class="tiles">
         <div class="tile"><div class="v">${a.rank ? "#" + a.rank : "—"}</div><div class="l">overall</div></div>
         <div class="tile"><div class="v">${a.pos_rank ? a.pos + a.pos_rank : "—"}</div><div class="l">${a.is_pick ? "draft pick" : "at position"}</div></div>
@@ -1870,35 +1900,78 @@ function rosterBuilder(rid, seg) {
 function drawBuilder(body, t, B) {
   const lg = S.values.league, box = $("#rbBody", body), save = () => E.manual_save(lg, S.values), redraw = () => drawBuilder(body, t, B);
   if (B.seg === "players") {
-    const roster = E.team_assets(S.values, S.cfg, t).filter(a => !a.is_pick), on = new Set(roster.map(a => a.id)), size = (lg.roster_positions || []).length;
-    let h = `<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <input type="search" id="rbq" placeholder="Add a player" value="${esc(B.q)}" autocomplete="off"></div><div class="list" id="rbRes"></div>
-      <div class="grp">On the roster <span class="grp-note">${roster.length} of ${size}</span></div><div class="list">`;
-    for (const [pos, label] of [["QB", "Quarterbacks"], ["RB", "Running backs"], ["WR", "Wide receivers"], ["TE", "Tight ends"], ["K", "Kickers"], ["DEF", "Defenses"]]) {
-      const g = roster.filter(a => a.pos === pos).sort((a, b) => b.value - a.value);
-      if (g.length) h += `<div class="grp">${label}</div>` + g.map(a => assetRow(a, { x: true, trend: false })).join("");
-    }
-    if (!roster.length) h += `<div class="empty">No players yet. Search above and tap a player to add him.</div>`;
-    box.innerHTML = h + `</div>`;
-    const res = $("#rbRes", body), q = $("#rbq", body);
+    // The lineup board (the user's ask, 2026-10-12): one row per slot of the league's lineup, the bench below. Tap an
+    // empty slot to pick a player for it (a list by position, with search); tap × on a player to clear his slot.
+    const roster = E.team_assets(S.values, S.cfg, t).filter(a => !a.is_pick), on = new Set(roster.map(a => a.id));
     const slots = lg.roster_positions || [], poolPos = E.POSITIONS.concat(slots.includes("K") ? ["K"] : [], slots.includes("DEF") ? ["DEF"] : []);
-    const search = async () => {
-      B.q = q.value.trim();
-      if (!B.q) { res.innerHTML = ""; return; }
-      const typed = B.q, free = a => !on.has(a.id) && !isRostered(a, t);
-      const more = await E.pool_search(typed, S.values, 8, poolPos).catch(() => []);     // kickers, defenses and deep benches: Sleeper's list
-      if (q.value.trim() !== typed) return;
-      const seen = new Set(), hits = E.search_players(typed, S.values, 12).concat(more).filter(a => !seen.has(a.id) && seen.add(a.id) && free(a)).slice(0, 14);
-      const none = slots.includes("K") || slots.includes("DEF") ? "No free player matches." : "No free player matches. Kickers and defenses need a K or DEF slot in the lineup: League > League settings > Starting lineup.";
-      res.innerHTML = hits.map(a => assetRow(a, { act: "add", trend: false, right: `<span class="plus">+</span>` })).join("") || `<div class="empty">${none}</div>`;
-      $$(".item[data-act='add']", res).forEach(it => it.onclick = () => {
-        const a = S.values.by_id[it.dataset.id] || hits.find(x => x.id === it.dataset.id);
-        if (!a) return;
-        E.manual_add_player(lg, t, a); save(); toast(`Added ${a.name}`, 1200); B.q = ""; redraw();
-      });
-    };
-    q.oninput = search; search();
-    if (B.q === "" && !roster.length) q.focus();
+    const LABEL = { QB: "Quarterbacks", RB: "Running backs", WR: "Wide receivers", TE: "Tight ends", K: "Kickers", DEF: "Defenses" };
+    const eligible = sl => { const u = String(sl).toUpperCase(); return ["QB", "RB", "WR", "TE", "K", "DEF"].includes(u) ? [u] : E.FLEX_ELIGIBLE[u] || poolPos; };
+    const free = a => !on.has(a.id) && !isRostered(a, t);
+    if (B.review) {                                                 // the screenshot import's review list
+      const RV = B.review;
+      box.innerHTML = `<div class="row" style="margin-bottom:10px"><button class="btn ghost sm" id="rvBack">‹ Lineup</button><span class="hint">${RV.items.length ? "Players read from the screenshot. Untick any that are wrong." : "No players could be read from that picture."}</span></div>
+        <div class="list">${RV.items.map((it, i) => it.match ? `<label class="rv-row"><input type="checkbox" data-rv="${i}" ${it.on ? "checked" : ""}>${assetRow(it.match, { trend: false, right: `<span class="hint">${esc(it.name)}${it.pos ? " · " + esc(it.pos) : ""}</span>` })}</label>`
+          : `<div class="rv-row miss"><div class="nm"><div class="n">${esc(it.name)}${it.pos ? ` <span class="muted">${esc(it.pos)}</span>` : ""}</div><div class="s">Not found. Add him from the lineup board.</div></div></div>`).join("")}</div>
+        ${RV.raw ? `<p class="note muted">What the model saw: ${esc(RV.raw)}</p>` : ""}
+        <button class="btn primary block big" id="rvAdd" style="margin-top:14px" ${RV.items.some(it => it.match && it.on) ? "" : "disabled"}>Add the ticked players</button>`;
+      $("#rvBack", box).onclick = () => { B.review = null; redraw(); };
+      $$("[data-rv]", box).forEach(cb => cb.onchange = () => { RV.items[+cb.dataset.rv].on = cb.checked; $("#rvAdd", box).disabled = !RV.items.some(it => it.match && it.on); });
+      $$(".rv-row .item", box).forEach(it => { it.onclick = e => { e.preventDefault(); const cb = it.closest("label").querySelector("input"); cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); }; });
+      $("#rvAdd", box).onclick = () => { let n = 0; for (const it of RV.items) if (it.match && it.on && free(it.match)) { E.manual_add_player(lg, t, it.match); n++; } save(); toast(`${n} added`, 1500); B.review = null; redraw(); };
+      return;
+    }
+    if (B.pick) {                                                   // the picker for one slot
+      const P = B.pick, posList = P.positions, many = posList.length > 1;
+      let h = `<div class="row" style="margin-bottom:10px"><button class="btn ghost sm" id="rbBack">‹ Lineup</button><span class="hint">Pick a player for <b>${esc(SLOT_LABEL(P.slot))}</b></span></div>
+        ${many ? `<div class="rb-pos">${[["", "All"]].concat(posList.map(x => [x, x])).map(([v, l]) => `<button data-pos="${v}" class="pos-chip ${v} ${(B.pos || "") === v ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
+        <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="search" id="rbq" placeholder="Search by name${posList.includes("DEF") ? " or team" : ""}" value="${esc(B.q)}" autocomplete="off"></div><div class="list" id="rbRes"></div>`;
+      box.innerHTML = h;
+      $("#rbBack", box).onclick = () => { B.pick = null; B.q = ""; redraw(); };
+      $$("[data-pos]", box).forEach(b => b.onclick = () => { B.pos = b.dataset.pos || null; redraw(); });
+      const res = $("#rbRes", box), q = $("#rbq", box), want = B.pos && posList.includes(B.pos) ? [B.pos] : posList;
+      const row = a => assetRow(a, { act: "add", trend: false, right: `<span class="plus">+</span>` });
+      let gen = 0;
+      const search = async () => {
+        B.q = q.value.trim();
+        const typed = B.q, my = ++gen, k = E.norm(typed);
+        const ranked = S.values.players.filter(a => want.includes(a.pos) && !a.unranked && free(a)).sort((x, y) => y.value - x.value);   // by value first
+        const more = (await E.pool_players(S.values, want).catch(() => [])).filter(free)                                   // then Sleeper's list: kickers, defenses, deep benches
+          .sort((x, y) => (x.pos === "DEF" || x.pos === "K" ? x.team.localeCompare(y.team) || x.name.localeCompare(y.name) : x.name.localeCompare(y.name)));
+        if (my !== gen) return;
+        const all = ranked.concat(more).filter(a => !k || E.norm(a.name).includes(k) || (a.pos === "DEF" && a.team.toLowerCase() === k)), shown = all.slice(0, typed ? 40 : 60);
+        res.innerHTML = shown.map(row).join("") + (all.length > shown.length ? `<div class="empty">${all.length - shown.length} more: type a name to narrow the list.</div>` : "") || `<div class="empty">No free player matches.</div>`;
+        $$(".item[data-act='add']", res).forEach(it => it.onclick = () => {
+          const a = S.values.by_id[it.dataset.id] || shown.find(x => x.id === it.dataset.id);
+          if (!a) return;
+          E.manual_add_player(lg, t, a); save(); toast(`${a.name} in at ${SLOT_LABEL(P.slot)}`, 1400); B.pick = null; B.q = ""; B.pos = null; redraw();
+        });
+      };
+      q.oninput = search; search();
+      if (!B.q) q.focus();
+      return;
+    }
+    // the board: starters by value into their slots (fixed positions first, then the flex slots), the rest on the bench
+    const pool = roster.slice().sort((x, y) => y.value - x.value), used = new Set(), rows = slots.map(sl => ({ slot: sl, a: null }));
+    const fill = pred => { for (const r of rows) { if (r.a || !pred(r.slot)) continue; const el = eligible(r.slot); const a = pool.find(x => !used.has(x.id) && el.includes(x.pos)); if (a) { used.add(a.id); r.a = a; } } };
+    fill(sl => ["QB", "RB", "WR", "TE", "K", "DEF"].includes(String(sl).toUpperCase()));
+    fill(sl => !!E.FLEX_ELIGIBLE[String(sl).toUpperCase()]);
+    fill(sl => ["BN", "IR", "TAXI"].includes(String(sl).toUpperCase()));
+    const extra = pool.filter(a => !used.has(a.id));                   // more players than slots: still on the team, listed below
+    const what = sl => { const el = eligible(sl); return el.length === 1 ? (el[0] === "DEF" ? "a defense" : el[0] === "K" ? "a kicker" : "a " + el[0]) : /SUPER|^SF$/.test(String(sl).toUpperCase()) ? "a QB, RB, WR or TE" : /FLEX|WRRB|REC/.test(String(sl).toUpperCase()) ? "an " + el.join("/") : "a player"; };
+    const line = (r, i) => `<div class="slot-row ${r.a ? "" : "open"}" data-i="${i}"><span class="slot ${esc(slotClass(r.slot))}">${esc(SLOT_LABEL(r.slot))}</span>
+      ${r.a ? `${avatar(r.a)}<div class="nm"><div class="n"><a class="plink" data-pcard="${esc(r.a.id)}">${esc(r.a.name)}</a>${statusFlag(r.a)}</div><div class="s">${esc(sub(r.a))}</div></div><div class="v">${gradeRight(r.a)}</div><button class="x" data-x="${esc(r.a.id)}" aria-label="Remove">×</button>`
+           : `<span class="slot-empty">Tap to add ${esc(what(r.slot))}</span><span class="plus">+</span>`}</div>`;
+    const starters = rows.filter(r => !["BN", "IR", "TAXI"].includes(String(r.slot).toUpperCase())), bench = rows.filter(r => ["BN", "IR", "TAXI"].includes(String(r.slot).toUpperCase()));
+    let h = `<div class="grp">Starters <span class="grp-note">${starters.filter(r => r.a).length} of ${starters.length}</span></div><div class="list">${starters.map((r, i) => line(r, rows.indexOf(r))).join("")}</div>`;
+    if (bench.length) h += `<div class="grp">Bench <span class="grp-note">${bench.filter(r => r.a).length} of ${bench.length}</span></div><div class="list">${bench.map(r => line(r, rows.indexOf(r))).join("")}</div>`;
+    if (extra.length) h += `<div class="grp">Also on the team</div><div class="list">${extra.map(a => assetRow(a, { x: true, trend: false })).join("")}</div>`;
+    const shot = typeof GM !== "undefined" && GM.available && GM.available();
+    h += `${shot ? `<div class="btns" style="margin-top:12px"><button class="btn soft block" id="rbShot">Import from a screenshot</button></div><input type="file" id="rbShotFile" accept="image/*" style="display:none">` : ""}
+      <p class="note muted" style="margin-top:10px">Players sit in the slots by value; the lineup help on My team picks the week's starters. Tap a name for his card, × to take him off the team.${shot ? " Import from a screenshot reads a roster picture from Sleeper, ESPN, Yahoo or any league site and adds the players it finds; long rosters take two pictures." : ""}</p>`;
+    box.innerHTML = h;
+    if (shot) { $("#rbShot", box).onclick = () => $("#rbShotFile", box).click(); $("#rbShotFile", box).onchange = e => { const f = e.target.files && e.target.files[0]; if (f) importScreenshot(f, lg, t, B, poolPos, free, redraw); }; }
+    $$(".slot-row.open", box).forEach(r => r.onclick = () => { const sl = rows[+r.dataset.i].slot; B.pick = { slot: sl, positions: eligible(sl) }; B.pos = null; B.q = ""; redraw(); });
     $$("[data-x]", box).forEach(b => b.onclick = e => {
       e.stopPropagation();
       const a = S.values.by_id[b.dataset.x], key = String((a && a.sleeper_id) || b.dataset.x);
@@ -2031,21 +2104,13 @@ function draftRow(r, st, why) {
 
 function renderLeague(el) {
   const p = E.load_profiles(), a = app();
-  let h = Pro.ON ? Pro.accountCard() : "";
-  if (S.cfg) {
-    const v = S.values, lg = v && v.league;
-    h += `<section class="card"><div class="kicker">Current league</div><h2 class="league-title">${esc((p.profiles[E.P.id] || {}).name || S.cfg.league.name)}</h2>
-      <div class="hint">${esc(formatText(S.cfg))}</div>
-      <div class="kv" style="margin-top:10px"><span>Player values</span><b>${v ? esc(ago(v.meta.fetched)) : "not downloaded"}</b></div>
-      ${lg ? `<div class="kv"><span>Rosters</span><b>${esc(ago(lg.imported))}</b></div>` : ""}
-      <div class="btns" style="margin-top:12px"><button class="btn primary" id="upd">Update values</button>${lg ? (lg.league_id ? `<button class="btn ghost" id="reimp">Refresh rosters</button>` : `<button class="btn ghost" id="editTeam">Edit rosters</button>`) : ""}</div>
-      ${lg ? `<button class="btn ghost block" id="thist" style="margin-top:8px">Trade history${proTag() ? " " + proTag() : ""}</button>` : ""}
-      ${lg && !E.is_redraft(S.cfg) ? `<button class="btn ghost block" id="toDraftL" style="margin-top:8px">Rookie draft helper</button>` : ""}
-      ${more("Having trouble?", `<p class="note">If this league looks wrong (players missing, odd values, something that won't load), start it over: everything saved for it on this phone is removed and it is downloaded again from Sleeper. Your other leagues aren't touched.</p>
-        ${lg && lg.league_id ? `<button class="btn ghost block" id="redoLeague">Start this league over</button>` : ""}
-        <button class="link-btn danger" id="rmLeague" style="display:block;margin:12px auto 0">Remove this league from this phone</button>`)}</section>`;
-  }
+  // Your leagues first, then the ways to add one, then the open league and its settings (the user's order, 2026-10-12)
+  let h = "";
   const have = Object.entries(p.profiles);
+  if (have.length) {                                       // every league with its remove button, even when there is just one (2026-10-07)
+    h += `<section class="card flush"><div class="grp">Your leagues</div>${have.map(([id, pr]) => `<div class="item" data-prof="${esc(id)}"><div class="nm"><div class="n">${esc(pr.name)}</div></div>
+      ${id === p.active ? '<span class="tag-start">Open</span>' : ""}<button class="x" data-del="${esc(id)}" aria-label="Remove ${esc(pr.name)}">×</button></div>`).join("")}</section>`;
+  }
   if (locked() && have.length) h += `<section class="card"><h2>Add another league ${Pro.tag()}</h2><div class="hint">Basic includes one league. Pro keeps all your leagues in one app.</div>
       <button class="btn soft block" data-lock="leagues" style="margin-top:12px">Add more leagues with Pro</button></section>`;
   else h += `<section class="card"><h2>${S.cfg ? "Add another league" : "Add your league"}</h2><div class="hint">Enter your Sleeper username to see your leagues.</div>
@@ -2053,10 +2118,25 @@ function renderLeague(el) {
     <div id="lres" class="list"></div>
     ${more("Other ways to add a league", `<label class="lbl">Sleeper league ID</label><div class="row"><input type="text" id="lid" inputmode="numeric" placeholder="Long number from Sleeper"><button class="btn ghost" id="addId">Add</button></div>
       <label class="lbl" style="margin-top:12px">League not on Sleeper (build the rosters yourself)</label><div class="row"><input type="text" id="mName" placeholder="League name"><button class="btn ghost" id="addManual">Create</button></div>`)}</section>`;
-  if (have.length) {                                       // every league with its remove button, even when there is just one (2026-10-07)
-    h += `<section class="card flush"><div class="grp">Your leagues</div>${have.map(([id, pr]) => `<div class="item" data-prof="${esc(id)}"><div class="nm"><div class="n">${esc(pr.name)}</div></div>
-      ${id === p.active ? '<span class="tag-start">Open</span>' : ""}<button class="x" data-del="${esc(id)}" aria-label="Remove ${esc(pr.name)}">×</button></div>`).join("")}</section>`;
+  h += Pro.ON ? Pro.accountCard() : "";
+  if (S.cfg) {
+    const v = S.values, lg = v && v.league;
+    const others = Object.entries(p.profiles);                   // the title is a drop-down of your leagues (the user's ask, 2026-10-12)
+    h += `<section class="card"><div class="kicker">Current league</div>${others.length > 1
+      ? `<select class="league-pick" id="lgPick" aria-label="Switch league">${others.map(([id, pr]) => `<option value="${esc(id)}" ${id === E.P.id ? "selected" : ""}>${esc(pr.name)}</option>`).join("")}</select>`
+      : `<h2 class="league-title">${esc((p.profiles[E.P.id] || {}).name || S.cfg.league.name)}</h2>`}
+      <div class="hint">${esc(formatText(S.cfg))}</div>
+      <div class="kv" style="margin-top:10px"><span>Player values</span><b>${v ? esc(ago(v.meta.fetched)) : "not downloaded"}</b></div>
+      ${lg ? `<div class="kv"><span>Rosters</span><b>${esc(ago(lg.imported))}</b></div>` : ""}
+      ${lg && lg.league_id && !E.is_redraft(S.cfg) && marketText() ? `<div class="hint" style="margin-top:8px">${esc(marketText())}</div>` : ""}
+      <div class="btns" style="margin-top:12px"><button class="btn primary" id="upd">Update values</button>${lg ? (lg.league_id ? `<button class="btn ghost" id="reimp">Refresh rosters</button>` : `<button class="btn ghost" id="editTeam">Edit rosters</button>`) : ""}</div>
+      ${lg ? `<button class="btn ghost block" id="thist" style="margin-top:8px">Trade history${proTag() ? " " + proTag() : ""}</button>` : ""}
+      ${lg && !E.is_redraft(S.cfg) ? `<button class="btn ghost block" id="toDraftL" style="margin-top:8px">Rookie draft helper</button>` : ""}
+      ${more("Having trouble?", `<p class="note">If this league looks wrong (players missing, odd values, something that won't load), start it over: everything saved for it on this phone is removed and it is downloaded again from Sleeper. Your other leagues aren't touched.</p>
+        ${lg && lg.league_id ? `<button class="btn ghost block" id="redoLeague">Start this league over</button>` : ""}
+        <button class="link-btn danger" id="rmLeague" style="display:block;margin:12px auto 0">Remove this league from this phone</button>`)}</section>`;
   }
+  if (S.cfg && S.values) h += scoreCard();
   if (S.cfg) {
     const L = S.cfg.league, sf = parseInt(L.num_qbs) >= 2, lg = S.values && S.values.league;
     const settings = `<label class="lbl">League type</label><select id="sType"><option value="dynasty">Dynasty</option><option value="dynasty_bestball">Dynasty best ball</option><option value="redraft">Redraft (one season)</option></select>
@@ -2064,6 +2144,8 @@ function renderLeague(el) {
         <label class="switch"><span class="txt">Half-point PPR</span><input type="checkbox" id="sHalf" ${parseFloat(L.ppr) === 0.5 ? "checked" : ""}><span class="track"></span></label>
         <label class="switch"><span class="txt">Superflex (2 QBs)</span><input type="checkbox" id="sSF" ${sf ? "checked" : ""}><span class="track"></span></label>
         ${lg && lg.platform === "manual" ? "" : `<label class="switch"><span class="txt">Hide kickers and defenses</span><input type="checkbox" id="sHide" ${L.hide_k_def !== false ? "checked" : ""}><span class="track"></span></label>`}
+        ${lg && lg.league_id && !E.is_redraft(S.cfg) ? `<label class="switch"><span class="txt">Price trades to this league's market</span><input type="checkbox" id="sMarket" ${L.use_market !== false ? "checked" : ""}><span class="track"></span></label>` : ""}
+        ${Store.native && Native.reminder ? `<label class="switch"><span class="txt">Tuesday morning: tell me the GM report is ready</span><input type="checkbox" id="sRemind" ${Native.reminderOn && Native.reminderOn() ? "checked" : ""}><span class="track"></span></label>` : ""}
         <div class="row num-row"><span class="spacer">Tight end bonus %</span><input type="number" id="sTE" min="0" max="100" value="${esc(L.te_premium_bonus_pct || 0)}"></div>
         <div class="row num-row"><span class="spacer">Extra value for starting QBs %</span><input type="number" id="sQB" min="0" max="100" value="${esc(sf ? L.sf_qb_bonus_pct : (L.qb_bonus_pct ?? 8))}"></div>
         ${sf ? `<div class="row num-row"><span class="spacer">Extra for QBs 25 and under %</span><input type="number" id="sYQB" min="0" max="100" value="${esc(L.sf_young_qb_bonus_pct)}"></div>` : ""}
@@ -2096,6 +2178,8 @@ function renderLeague(el) {
 
   const on = (id, fn) => { const x = $("#" + id); if (x) x.onclick = fn; };
   on("upd", () => runUpdate());
+  const lp = $("#lgPick");
+  if (lp) lp.onchange = e => switchTo(e.target.value, "league");
   on("reimp", () => runImport(S.values.league.league_id, { refreshOnly: true }));
   on("editTeam", () => rosterBuilder(S.cfg.my_roster_id ?? (teams()[0] || {}).roster_id));
   on("toDraftL", () => { S.rank.pos = "DRAFT"; go("rank"); });
@@ -2125,6 +2209,8 @@ function renderLeague(el) {
     $("#sHalf").onchange = e => change({ half_ppr: e.target.checked });
     $("#sSF").onchange = e => change({ superflex: e.target.checked });
     if ($("#sHide")) $("#sHide").onchange = e => change({ hide_k_def: e.target.checked });
+    if ($("#sMarket")) $("#sMarket").onchange = e => change({ use_market: e.target.checked });
+    if ($("#sRemind")) $("#sRemind").onchange = e => { Native.reminder(e.target.checked); toast(e.target.checked ? "Every Tuesday at 9, on this phone" : "Reminder off", 1800); };
     $$("[data-slot]", el).forEach(i => i.onchange = () => {                           // the lineup of a league built by hand
       const counts = {}; $$("[data-slot]", el).forEach(x => { counts[x.dataset.slot] = x.value; });
       const lgm = S.values.league; E.manual_set_lineup(lgm, S.cfg, counts); E.manual_save(lgm, S.values);
@@ -2141,22 +2227,140 @@ function renderLeague(el) {
   const u = $("#sUser");
   if (u) u.onkeydown = e => { if (e.key === "Enter") findLeagues(); };
   on("addId", () => { const id = $("#lid").value.trim(); if (/^\d{6,}$/.test(id)) addSleeper(id); else toast("That doesn't look like a Sleeper league ID."); });
-  on("addManual", async () => {
-    const name = $("#mName").value.trim() || "My league";
-    const pid = E.profile_new(name);
-    E.set_profile(pid);
-    S.cfg = E.P.cfg; S.cfg.league.name = name; S.cfg.my_roster_id = 1; E.save_config(S.cfg);
-    const lgm = E.manual_league(S.cfg, name); E.manual_add_team(lgm, "My team"); E.manual_save(lgm, null);   // one team to start: yours
-    loadActive(); header(); renderLeague(el);
-    await runUpdate();
-    if (E.P.id === pid && S.values) { S.team.id = 1; go("team"); rosterBuilder(1); }
-  });
+  on("addManual", () => manualSetup($("#mName").value.trim() || "My league", el));
   $$("[data-prof]", el).forEach(it => it.onclick = e => { if (e.target.closest("[data-del]")) return; switchTo(it.dataset.prof); });
   $$("[data-del]", el).forEach(b => b.onclick = () => removeLeague(b.dataset.del, el));
   $$("#theme button").forEach(b => b.onclick = () => { saveApp({ theme: b.dataset.v }); applyTheme(); renderLeague(el); });
   $$("#look button").forEach(b => b.onclick = () => { saveApp({ look: b.dataset.v }); applyTheme(); renderLeague(el); });
 }
 
+/* Wait for a background refresh or update to finish before switching or creating a league: the engine writes to the
+   league that is active at the time, so a switch in the middle would put one league's data under another's name. */
+async function idle(maxMs = 90000) {
+  if (!S.auto && !S.busy) return;
+  const t0 = Date.now(); toast("Finishing an update…", 1500);
+  while ((S.auto || S.busy) && Date.now() - t0 < maxMs) await new Promise(r => setTimeout(r, 200));
+}
+/* A league built by hand starts with its format (the user's ask, 2026-10-12): dynasty or redraft, the scoring,
+   superflex, the number of teams and the starting lineup are chosen here, before any player is added. */
+function manualSetup(name, el) {
+  const d = E.DEFAULT_CONFIG.league, st = { type: "dynasty", ppr: 1, sf: false, te: 0, teams: d.teams, counts: { QB: 1, RB: 2, WR: 3, TE: 1, FLEX: 2, SUPER_FLEX: 0, K: 0, DEF: 0, BN: 16 } };
+  const body = openSheet(`<div class="sheet-head"><h2>Set up ${esc(name)}</h2><button class="close" aria-label="Close">×</button></div>
+    <p class="note muted" style="margin-top:0">Your league's format first: it shapes the values, the grades, the lineup help and the draft helper. You can change any of it later under League settings.</p>
+    <label class="lbl">League type</label><select id="muType"><option value="dynasty">Dynasty</option><option value="dynasty_bestball">Dynasty best ball</option><option value="redraft">Redraft (one season)</option></select>
+    <label class="lbl" style="margin-top:12px">Scoring</label><div class="seg" id="muPpr">${[["1", "Full PPR"], ["0.5", "Half PPR"], ["0", "Standard"]].map(([v, l]) => `<button data-v="${v}" class="${v === "1" ? "on" : ""}">${l}</button>`).join("")}</div>
+    <div class="divide" style="margin-top:10px">
+      <label class="switch"><span class="txt">Superflex (2 QBs)</span><input type="checkbox" id="muSF"><span class="track"></span></label>
+      <div class="row num-row"><span class="spacer">Tight end bonus %</span><input type="number" id="muTE" min="0" max="100" value="0"></div>
+      <div class="row num-row"><span class="spacer">Teams</span><input type="number" id="muTeams" min="4" max="32" value="${esc(d.teams)}"></div>
+    </div>
+    <label class="lbl" style="margin-top:12px">Starting lineup</label><p class="note muted" style="margin-top:0">How many of each slot your league starts, and the bench.</p>
+    <div class="divide" id="muSlots">${LINEUP_SLOTS.map(([k, l]) => `<div class="row num-row"><span class="spacer">${l}</span><input type="number" data-slot="${k}" min="0" max="${k === "BN" ? 40 : 6}" value="${st.counts[k]}"></div>`).join("")}</div>
+    <button class="btn primary block big" id="muGo" style="margin-top:16px">Create the league</button>`, { full: true });
+  $(".close", body).onclick = closeSheet;
+  const slot = k => $(`[data-slot="${k}"]`, body);
+  $("#muType", body).onchange = e => {
+    st.type = e.target.value;
+    if (st.type === "redraft" && !+slot("K").value && !+slot("DEF").value) { slot("K").value = 1; slot("DEF").value = 1; toast("Kicker and defense slots added", 1600); }   // most redraft lineups start both
+  };
+  $$("#muPpr button", body).forEach(b => b.onclick = () => { st.ppr = parseFloat(b.dataset.v); $$("#muPpr button", body).forEach(x => x.classList.toggle("on", x === b)); });
+  $("#muSF", body).onchange = e => { st.sf = e.target.checked; slot("SUPER_FLEX").value = st.sf ? Math.max(1, +slot("SUPER_FLEX").value) : 0; };
+  slot("SUPER_FLEX").onchange = e => { st.sf = +e.target.value > 0; $("#muSF", body).checked = st.sf; };
+  $("#muGo", body).onclick = async () => {
+    const counts = {}; $$("[data-slot]", body).forEach(x => { counts[x.dataset.slot] = x.value; });
+    await idle();                                            // a background refresh of the open league must finish first: its files are written to whichever league is active
+    const te = $("#muTE", body).value, teams = $("#muTeams", body).value;
+    const pid = E.profile_new(name);
+    E.set_profile(pid);
+    S.cfg = E.P.cfg; S.cfg.league.name = name; S.cfg.my_roster_id = 1;
+    E.apply_settings(S.cfg, { league_type: st.type, ppr: st.ppr, superflex: st.sf, te_premium_pct: te, teams });
+    E.save_config(S.cfg);
+    const lgm = E.manual_league(S.cfg, name); E.manual_set_lineup(lgm, S.cfg, counts); E.manual_add_team(lgm, "My team"); E.manual_save(lgm, null);   // one team to start: yours
+    closeSheet(); loadActive(); header(); renderLeague(el);
+    await runUpdate();
+    if (E.P.id === pid && S.values) { S.team.id = 1; go("team"); rosterBuilder(1); }
+  };
+}
+/* Live win probability on game days: Sleeper's live points plus our projection for what is left (week.js live_matchup).
+   Drawn into #liveCard on the lineup, refreshed every two minutes while that screen is open. */
+const LIVE_EVERY = 2 * 60000;
+async function liveCard(body, t, W) {
+  const box = $("#liveCard", body); if (!box || t.roster_id !== S.cfg.my_roster_id) return;
+  if (S.liveTimer) { clearInterval(S.liveTimer); S.liveTimer = null; }
+  const draw = async () => {
+    if (!box.isConnected) { clearInterval(S.liveTimer); S.liveTimer = null; return; }
+    let L = null; try { L = await Week.live_matchup(S.values, S.cfg, W, t); } catch (e) { L = null; }
+    if (!L || !L.started) { box.innerHTML = ""; return; }
+    const pct = Math.round(L.p * 100), tone = pct >= 60 ? "good" : pct <= 40 ? "bad" : "";
+    const line = s => `${s.actual.toFixed(1)}${L.final ? "" : ` → ${s.mean.toFixed(1)}`}`;
+    box.innerHTML = `<section class="card tone-green live-card"><div class="kicker">${L.final ? `Week ${L.week}: final` : `Live, week ${L.week}`}</div>
+      <div class="live-row"><div><div class="big-num ${tone}">${L.final ? (L.p >= 0.5 ? "Won" : "Lost") : pct + "%"}</div><div class="hint">${L.final ? "" : "chance to win"}</div></div>
+        <div class="live-sides"><div class="kv"><span>You</span><b>${line(L.me)}</b></div><div class="kv"><span>${esc(L.opponent)}</span><b>${line(L.them)}</b></div></div></div>
+      ${L.final ? "" : `<div class="hint">${L.me.playing ? `${L.me.playing} of yours playing now` : ""}${L.me.playing && L.me.left ? ", " : ""}${L.me.left ? `${L.me.left} still to play` : ""}${!L.me.playing && !L.me.left ? "Your starters are done" : ""}. Points so far from Sleeper; the rest from our projections. Updates every two minutes.</div>`}</section>`;
+  };
+  await draw();
+  if (box.innerHTML) S.liveTimer = setInterval(draw, LIVE_EVERY);
+}
+/* The scorecard: how right the app has been, from score.js. Shown once a played week is on record. */
+function scoreCard() {
+  let R = null;
+  try { R = Score.report(S.cfg, S.values, S.W); } catch (e) { return ""; }
+  if (!R) return "";
+  const p1 = R.lastProj, ps = R.seasonProj, l1 = R.lastLineup, ls = R.seasonLineup;
+  const pct = x => `${Math.round(x * 100)}%`;
+  const rows = [];
+  if (p1) rows.push(`<div class="kv"><span>Projections, week ${R.last}</span><b>off by ${p1.mae.toFixed(1)} a player · ${pct(p1.close)} within 5</b></div>`);
+  if (ps && R.weeks.length > 1) rows.push(`<div class="kv"><span>Projections, season</span><b>off by ${ps.mae.toFixed(1)} a player · ${pct(ps.close)} within 5${Math.abs(ps.bias) >= 1 ? ` · ${ps.bias > 0 ? "we ran low" : "we ran high"} by ${Math.abs(ps.bias).toFixed(1)}` : ""}</b></div>`);
+  if (l1) rows.push(`<div class="kv"><span>Our lineup, week ${R.last}</span><b>${l1.got.toFixed(1)} of a possible ${l1.best.toFixed(1)} · ${pct(l1.eff)}</b></div>`);
+  if (ls && ls.n > 1) rows.push(`<div class="kv"><span>Our lineups, season</span><b>${pct(ls.eff)} of the best possible over ${ls.n} weeks</b></div>`);
+  if (R.grades.length >= 2) rows.push(`<div class="kv"><span>Points a game by our grade</span><b>${R.grades.map(g => `${g.g} ${g.ppg.toFixed(1)}`).join(" · ")}</b></div>`);
+  if (!rows.length) return "";
+  return `<section class="card tone-green"><h2>How right we've been</h2><div class="hint">What the app said each week, measured against the points that followed. ${E.PLAY ? "Points by week from Sleeper." : ""}</div>
+    <div style="margin-top:8px">${rows.join("")}</div>
+    <p class="note muted" style="margin-top:8px">A projection within 5 points is a good call for a skill player; the best possible lineup is judged after the games, so even a perfect week lands under 100%.</p></section>`;
+}
+const lastCallHtml = a => { try { const c = Score.lastCall(S.cfg, S.values, a, S.W); return c ? `<div class="bg-scope">Week ${c.week}: we said ${c.said.toFixed(1)}, he scored ${c.got.toFixed(1)}</div>` : ""; } catch (e) { return ""; } };
+/* The screenshot import: shrink the picture, send it to the Worker's vision route, match the names it returns to
+   Sleeper's list (the value lists first, then the pool for kickers, defenses and deep benches), and show the review list. */
+async function importScreenshot(file, lg, t, B, poolPos, free, redraw) {
+  const box = $("#rbBody"), say = m => { if (box) box.innerHTML = loading(m); };   // inline: the builder is itself a sheet
+  const P = { log: say, done: (ok, m) => { if (!ok) { toast(m, 3000); redraw(); } } };
+  try {
+    P.log("Shrinking the picture…");
+    const image = await shrinkImage(file, 1400, 0.82);
+    P.log("Asking the model who is in it…");
+    const token = await GM.authToken();
+    const r = await Net.request("POST", GM.endpoint() + "/roster", { image, mime: "image/jpeg" }, { Authorization: "Bearer " + token });
+    let body = null; try { body = JSON.parse(r.body); } catch (e) { body = null; }
+    if (r.status !== 200 || !body) throw new Error((body && body.error) || `The server answered ${r.status || "nothing"}.`);
+    P.log(`${(body.players || []).length} players read. Matching…`);
+    const items = [];
+    for (const p of body.players || []) {
+      const want = p.pos && ["QB", "RB", "WR", "TE", "K", "DEF"].includes(p.pos) ? [p.pos] : poolPos;
+      let hits = E.search_players(p.name, S.values, 4).filter(a => want.includes(a.pos));
+      if (!hits.length) hits = (await E.pool_search(p.name, S.values, 4, want).catch(() => []));
+      if (!hits.length && p.pos === "DEF" && p.team) hits = (await E.pool_search(p.team, S.values, 2, ["DEF"]).catch(() => []));
+      const exact = hits.find(a => E.norm(a.name) === E.norm(p.name)), match = exact || hits.find(a => !p.team || !a.team || a.team === p.team) || hits[0] || null;
+      items.push({ name: p.name, pos: p.pos, team: p.team, match: match && free(match) ? match : null, on: !!(match && free(match)) });
+    }
+    toast(`${items.filter(x => x.match).length} of ${items.length} matched`, 1800);
+    B.review = { items, raw: body.raw || "" }; redraw();
+  } catch (e) { P.done(false, e.message || "Couldn't read the screenshot."); }
+}
+function shrinkImage(file, maxSide, quality) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, maxSide / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      res(c.toDataURL("image/jpeg", quality).split(",")[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("That file isn't a picture the phone can open.")); };
+    img.src = url;
+  });
+}
 /* The lineup editor of a league built by hand: how many of each slot it starts, and the bench. */
 const LINEUP_SLOTS = [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["FLEX", "Flex (RB/WR/TE)"], ["SUPER_FLEX", "Superflex (any)"], ["K", "Kicker"], ["DEF", "Defense"], ["BN", "Bench"]];
 function lineupRows(lg) {
@@ -2180,8 +2384,9 @@ async function findLeagues() {
   } catch (e) { box.innerHTML = `<div class="empty">Couldn't find "${esc(user)}" on Sleeper. Check the spelling.</div>`; }
 }
 
-function switchTo(pid) {
-  if (locked() && pid !== E.load_profiles().active) return Pro.lock("leagues"); E.set_profile(pid); loadActive(); header(); go("home"); toast(`Opened ${(E.load_profiles().profiles[pid] || {}).name}`); setTimeout(autoRefresh, 300); }   // the opened league's values may be stale or from an older formula
+async function switchTo(pid, tab = "home") {
+  await idle();
+  if (locked() && pid !== E.load_profiles().active) return Pro.lock("leagues"); E.set_profile(pid); loadActive(); header(); go(tab); toast(`Opened ${(E.load_profiles().profiles[pid] || {}).name}`); setTimeout(autoRefresh, 300); }   // the opened league's values may be stale or from an older formula
 
 /* A simple progress sheet: one line of status, a spinner, and the full log folded away. */
 function progressSheet(titleTxt) {
@@ -2222,6 +2427,7 @@ async function runUpdate() {
 
 async function addSleeper(leagueId) {
   leagueId = String(leagueId || "").trim();
+  await idle();
   if (!/^\d{6,}$/.test(leagueId)) { toast("Pick a league first."); return; }       // never create a "Sleeper league undefined" profile
   if (locked() && Object.keys(E.load_profiles().profiles).length) return Pro.lock("leagues");
   const have = E.load_profiles().profiles[leagueId];
@@ -2298,22 +2504,31 @@ function redoLeague() {
   }, false);
 }
 
+/* The League tab with its settings fold open and in view (from the header's league menu, the user's ask 2026-10-12). */
+function openLeagueSettings() {
+  go("league");
+  const d = $$("#view details.more").find(x => /League settings/.test((x.querySelector("summary") || {}).textContent || ""));
+  if (!d) return;
+  d.open = true;
+  setTimeout(() => d.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+}
 function leaguesSheet() {
   const p = E.load_profiles();
   if (!Object.keys(p.profiles).length) { go("league"); return; }
   const body = openSheet(`<div class="sheet-head"><h2>Your leagues</h2><button class="close" aria-label="Close">×</button></div><div class="list">${Object.entries(p.profiles).map(([id, pr]) =>
     `<div class="item" data-sw="${esc(id)}"><div class="nm"><div class="n">${esc(pr.name)}</div></div>${id === p.active ? '<b class="good">✓</b>' : ""}</div>`).join("")}</div>
-    <button class="add-btn" id="swAdd">+ Add a league</button>`);
+    <div class="btns" style="margin-top:12px"><button class="btn ghost" id="swSettings">League settings</button><button class="btn ghost" id="swAdd">+ Add a league</button></div>`);
   $(".close", body).onclick = closeSheet;
   $$("[data-sw]", body).forEach(it => it.onclick = () => { closeSheet(); switchTo(it.dataset.sw); });
   $("#swAdd").onclick = () => { closeSheet(); go("league"); };
+  $("#swSettings").onclick = () => { closeSheet(); openLeagueSettings(); };
 }
 
 // ---------------------------------------------------------------------------
 // Automatic refresh: whenever the app opens or comes back to the screen, quietly refresh rosters
 // (if older than 15 minutes) and player values (if older than 6 hours; FantasyCalc allows once an hour).
 // ---------------------------------------------------------------------------
-const ROSTERS_EVERY = 15 * 60000, VALUES_EVERY = 60 * 60000;   // on open: rosters after 15 min, values after an hour (FantasyCalc's rule)
+const ROSTERS_EVERY = 3 * 60000, VALUES_EVERY = 60 * 60000;    // on open: rosters after 3 min (a lineup set in Sleeper shows at once), values after an hour (FantasyCalc's rule)
 async function autoRefresh() {
   if (S.busy || S.auto || !S.cfg || !navigator.onLine) return;
   const pid = E.P.id, lg = S.values && S.values.league;
@@ -2337,6 +2552,25 @@ async function autoRefresh() {
   $("#sync").classList.add("hidden");
   if (changed && E.P.id === pid) refreshInPlace();
   if (updated && E.P.id === pid) toast("Values updated", 1800);
+  refreshMarket().catch(() => {});
+}
+/* This league's market, refitted from its trades once a day (Sleeper leagues only). */
+async function refreshMarket() {
+  const lg = S.values && S.values.league, pid = E.P.id;
+  if (!lg || !lg.league_id || E.is_redraft(S.cfg) || !navigator.onLine) return;
+  const m = Hist.market_cached();
+  if (m && Date.now() - new Date(m.at).getTime() < 24 * 3600000) return;
+  const hist = await Hist.ensure(S.cfg, lg, {}), data = await Hist.outcomes(S.cfg, S.values, hist);
+  if (E.P.id !== pid) return;
+  Hist.market_save(Hist.market_fit(data.trades, parseInt(S.cfg.season, 10))); S.result = null;
+}
+/* The market line: "QB +12%, picks -6% (from 23 trades)". Empty until the league has enough trades. */
+function marketText() {
+  const m = typeof Hist !== "undefined" && Hist.market_cached();
+  if (!m) return "";
+  if (!m.mults) return `This league's market: not enough trades yet (${m.n} of ${Hist.MARKET_MIN} needed).`;
+  const parts = Object.entries(m.mults).filter(([, x]) => Math.abs(x - 1) >= 0.02).map(([p, x]) => `${p === "PICK" ? "picks" : p} ${x >= 1 ? "+" : ""}${Math.round((x - 1) * 100)}%`);
+  return `This league's market, from ${m.n} trades${m.seasons && m.seasons.length > 1 ? ` since ${m.seasons[0]}` : ""}: ${parts.length ? parts.join(", ") : "pays about what our values say"}.`;
 }
 /* Reload values and league without losing the trade being built, the tab, or the scroll position. */
 function refreshInPlace() {
@@ -2352,6 +2586,8 @@ function refreshInPlace() {
   if (hadResult && S.tab === "trade" && S.sides.A.items.length && S.sides.B.items.length) analyze(false);
   window.scrollTo(0, y);
 }
+/* A notification tap: the GM tab with this week's report. */
+window.onOpenReport = () => { if (!S.cfg || !S.values) return; go("gm"); setTimeout(() => { try { GM.openReport(); } catch (e) { /* not signed in, or no league */ } }, 500); };
 window.onAppResume = () => {
   if (Pro.ON) Pro.resume();
   if (!(Pro.ON && Pro.gated())) setTimeout(autoRefresh, 400);
@@ -2368,6 +2604,7 @@ function go(tab) {
   $$("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   const el = $("#view");
   document.body.classList.toggle("gm-on", tab === "gm");
+  document.body.classList.toggle("on-league", tab === "league");
   ({ home: renderHome, trade: renderTrade, rank: renderRank, team: renderTeam, league: renderLeague, gm: el => GM.render(el) })[tab](el);
   window.scrollTo(0, 0);
 }

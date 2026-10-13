@@ -36,6 +36,8 @@ p{margin:0}
 /* header */
 .top{position:sticky;top:0;z-index:20;background:var(--surface);padding:12px 20px 12px;padding-top:calc(12px + var(--safe-top));border-bottom:1px solid var(--line)}
 .league-btn{display:flex;align-items:center;gap:4px;border:0;background:transparent;padding:0;max-width:100%;cursor:pointer}
+body.on-league .league-btn{cursor:default}
+body.on-league .league-btn svg{display:none}
 .lg-name{font-size:19px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .league-btn svg{width:18px;height:18px;flex:none;color:var(--muted)}
 .lg-sub{font-size:13px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -741,3 +743,76 @@ body.gm-on{padding-bottom:calc(var(--tabh) + var(--safe-bottom) + 78px)}
 .kit-card{margin:12px 0 4px;border:1px solid var(--accent-soft)}
 .kit-card h2{margin-top:2px}
 .kit-card .btn{margin-top:10px}
+
+/* My team: colour by section (lineup blue, pickups green, trades purple, roster orange) and by position, so each part
+   reads at a glance (the user's ask, 2026-10-12). */
+.card.tone-blue{box-shadow:inset 4px 0 0 var(--accent)}
+.card.tone-green{box-shadow:inset 4px 0 0 var(--good)}
+.card.tone-purple{box-shadow:inset 4px 0 0 var(--pick)}
+.card.tone-orange{box-shadow:inset 4px 0 0 var(--rb)}
+.card.tone-blue>h2,.card.tone-blue>.grp,.card.tone-blue>.kicker{color:var(--accent)}
+.card.tone-green>h2,.card.tone-green>.grp,.card.tone-green>.kicker{color:var(--good)}
+.card.tone-purple>h2,.card.tone-purple>.grp,.card.tone-purple>.kicker{color:var(--pick)}
+.card.tone-orange>h2,.card.tone-orange>.grp,.card.tone-orange>.kicker{color:var(--rb)}
+.card.set-card{font-size:15px;color:var(--ink2);background:var(--good-soft)}
+.card.set-card b{color:var(--good)}
+#tseg button.on[data-v="waivers"]{background:var(--good)}
+#tseg button.on[data-v="trades"]{background:var(--pick)}
+#tseg button.on[data-v="roster"]{background:var(--rb)}
+.grp.pos-QB{color:var(--qb)}.grp.pos-RB{color:var(--rb)}.grp.pos-WR{color:var(--wr)}.grp.pos-TE{color:var(--te)}.grp.pos-PICK{color:var(--pick)}.grp.pos-K,.grp.pos-DEF{color:var(--def)}
+.item .slot{width:44px;padding:4px 0;border-radius:8px;font-size:11px;font-weight:800;letter-spacing:.02em;color:#fff;background:var(--muted)}
+.item .slot.QB{background:var(--qb)}.item .slot.RB{background:var(--rb)}.item .slot.WR{background:var(--wr)}.item .slot.TE{background:var(--te)}
+.item .slot.FLEX,.item .slot.SF{background:var(--pick)}.item .slot.K,.item .slot.DEF{background:var(--def)}
+.swap{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:15px}
+.swap:last-child{border-bottom:0}
+.swap-tag{flex:none;width:52px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:4px 0;border-radius:8px}
+.swap-tag.in{background:var(--good-soft);color:var(--good)}
+.swap-tag.out{background:var(--bad-soft);color:var(--bad)}
+.swap-who{flex:1;min-width:0}
+.swap-who .s{font-size:13px;color:var(--muted);margin-top:1px}
+.swap-pts{flex:none;text-align:right;font-variant-numeric:tabular-nums;line-height:1.15}
+.swap-pts b{display:block;font-size:16px}
+.swap-pts small{font-size:12px;color:var(--muted)}
+
+/* The roster builder's position chips: tap one to pick players at that position; the count is how many you have. */
+.rb-pos{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -16px 10px;padding:0 16px}
+.rb-pos::-webkit-scrollbar{display:none}
+.pos-chip{flex:none;border:2px solid var(--line);background:var(--surface);color:var(--ink2);border-radius:12px;padding:8px 14px;font-size:14px;font-weight:800;letter-spacing:.02em;cursor:pointer;display:flex;align-items:center;gap:6px;min-height:40px}
+.pos-chip small{font-size:11px;font-weight:700;background:var(--raise);color:var(--muted);border-radius:999px;padding:1px 7px}
+.pos-chip.on{color:#fff;border-color:transparent}
+.pos-chip.on small{background:rgba(255,255,255,.25);color:#fff}
+.pos-chip.on.QB{background:var(--qb)}.pos-chip.on.RB{background:var(--rb)}.pos-chip.on.WR{background:var(--wr)}.pos-chip.on.TE{background:var(--te)}.pos-chip.on.K,.pos-chip.on.DEF{background:var(--def)}
+
+/* The roster builder's lineup board: a row per slot; an empty slot is a tap target. */
+.slot-row{display:flex;align-items:center;gap:12px;padding:9px 0;min-height:58px;border-bottom:1px solid var(--line)}
+.slot-row .slot{width:44px;flex:none;padding:4px 0;border-radius:8px;font-size:11px;font-weight:800;letter-spacing:.02em;color:#fff;background:var(--muted);text-align:center}
+.slot-row .slot.QB{background:var(--qb)}.slot-row .slot.RB{background:var(--rb)}.slot-row .slot.WR{background:var(--wr)}.slot-row .slot.TE{background:var(--te)}
+.slot-row .slot.FLEX,.slot-row .slot.SF{background:var(--pick)}.slot-row .slot.K,.slot-row .slot.DEF{background:var(--def)}
+.slot-row .slot.BN,.slot-row .slot.IR,.slot-row .slot.TAXI{background:var(--raise);color:var(--muted)}
+.slot-row.open{cursor:pointer;color:var(--muted)}
+.slot-row.open:active{background:var(--raise)}
+.slot-row .slot-empty{flex:1;font-size:15px}
+.slot-row .plus{flex:none;width:30px;height:30px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700}
+.slot-row .nm{flex:1;min-width:0}
+/* The Current league title as a drop-down of your leagues. */
+.league-pick{display:block;width:100%;margin-top:2px;padding:4px 36px 4px 0;border:0;background-color:transparent;font-size:21px;font-weight:750;letter-spacing:-.02em;color:var(--ink);line-height:1.2;cursor:pointer}
+.league-pick:focus{outline:0}
+/* The GM's plan row: win now, balanced or rebuild, asked before the first question. */
+.gm-plan{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.gm-plan-l{display:block;font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:6px}
+.gm-plan-seg{background:var(--raise)}
+.gm-plan-seg button.on[data-plan="contend"]{background:var(--good)}
+.gm-plan-seg button.on[data-plan="rebuild"]{background:var(--pick)}
+.gm-plan .hint{margin-top:6px}
+/* The live win-probability card on the lineup. */
+.live-card .live-row{display:flex;align-items:center;gap:16px;margin-top:6px}
+.live-card .live-sides{flex:1;min-width:0}
+.live-card .live-sides .kv{padding:5px 0}
+.live-card .big-num.good{color:var(--good)}.live-card .big-num.bad{color:var(--bad)}
+/* The screenshot import's review list. */
+.rv-row{display:flex;align-items:center;gap:10px}
+.rv-row input[type=checkbox]{appearance:none;-webkit-appearance:none;width:24px;height:24px;flex:none;border:2px solid var(--muted);border-radius:7px;background:var(--surface);position:relative}
+.rv-row input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
+.rv-row input[type=checkbox]:checked::after{content:"";position:absolute;left:7px;top:2px;width:6px;height:12px;border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg)}
+.rv-row .item{flex:1;min-width:0;cursor:pointer}
+.rv-row.miss{padding:11px 0;border-bottom:1px solid var(--line);color:var(--muted)}

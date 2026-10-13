@@ -39,7 +39,45 @@ const GM = (() => {
   const tagOf = a => { if (a.is_pick || !(a.ours > 0)) return ""; const d = gIdx(gradeOf(a, true).g) - gIdx(gradeOf(a).g); return d >= 2 ? " Buy" : d <= -2 ? " Sell" : ""; };
   const epTag = a => { const e = a.ep; if (!e || e.g < 3) return ""; const gap = (e.exp - e.pts) / e.g; return gap >= 2 ? ` EP+${gap.toFixed(1)}` : gap <= -2 ? ` EP${gap.toFixed(1)}` : ""; };
   const fcTag = a => (a.pred ? (E.is_redraft(S.cfg) ? ` ROS${a.pred.ros.toFixed(1)}` : ` NX${a.pred.next.toFixed(1)}`) : "");   // our forecast: rest of this season / next season, points a game
-  const line = a => a.is_pick ? a.name.replace(" · ", ", ") : `${a.name} (${a.pos} ${a.age != null ? Math.floor(a.age) : "?"} ${a.team || "FA"}) ${Math.round(a.value)} ${gradeOf(a).g}${tagOf(a)}${epTag(a)}${fcTag(a)}`;
+  // the app's own judgments on a player, so the GM reads him the way the app does: star (never benched healthy), his
+  // age stage on the house cliffs, and for a QB whether he is scoring like a usable starter this season
+  const ppgNow = a => { const wk = Store.get(`nflv_wk_${parseInt(S.cfg.season, 10)}.json`), o = wk && wk.players && wk.players[E.player_key(a.name, a.pos)]; return o && o[0] >= 3 ? o[2] / o[0] : null; };
+  const appTags = a => {
+    if (a.is_pick) return "";
+    const t = [];
+    if (Week.is_star(a)) t.push("STAR");
+    const st = E.is_redraft(S.cfg) ? "" : E.age_stage(a.pos, a.age);
+    if (st === "cliff") t.push(`past the ${a.pos} cliff`); else if (st === "near") t.push("cliff next year"); else if (st === "decline") t.push("declining");
+    if (a.pos === "QB" && !E.is_redraft(S.cfg)) { const p = ppgNow(a), u = parseInt(S.cfg.league.num_qbs, 10) >= 2 ? E.QB_USABLE.sf : E.QB_USABLE.one; if (p != null) t.push(p >= u ? `usable QB ${p.toFixed(1)}/g` : p < u - 3 ? `not scoring ${p.toFixed(1)}/g` : `${p.toFixed(1)}/g`); }
+    return t.length ? ` [${t.join(", ")}]` : "";
+  };
+  const line = a => a.is_pick ? a.name.replace(" · ", ", ") : `${a.name} (${a.pos} ${a.age != null ? Math.floor(a.age) : "?"} ${a.team || "FA"}) ${Math.round(a.value)} ${gradeOf(a).g}${tagOf(a)}${epTag(a)}${fcTag(a)}${appTags(a)}`;
+  // ---- the manager's plan: win now, balanced or rebuild, asked first and kept with the league ----
+  const PLANS = [["contend", "Win now"], ["neutral", "Balanced"], ["rebuild", "Rebuild"]];
+  const plan = () => (S.cfg && S.cfg.plan) || null;
+  const planLabel = p => (PLANS.find(x => x[0] === p) || [])[1] || "";
+  function setPlan(p) {
+    S.cfg.plan = p; E.save_config(S.cfg);
+    if (S.sides && S.sides.A && (S.sides.A.team == null || S.sides.A.team === S.cfg.my_roster_id)) { S.sides.A.mode = p; saveUi(); }   // the trade screen's lens on your side follows
+    briefCache = { key: null, text: "" };
+  }
+  /* The app's house rules, written from the engine's own constants so the GM and the app can never disagree. */
+  function houseRules(rd, sf) {
+    const out = ["# House rules (how this app judges players; follow them)"];
+    if (rd) { out.push("- Redraft: points only. Age, runway, youth and draft slot count for nothing; the best roster scores the most this season. Most players can be replaced: sell the name, keep the points."); }
+    else {
+      const C = E.AGE_CLIFF;
+      out.push(`- Age cliffs: RB ${C.RB}, WR ${C.WR}, TE ${C.TE}, QB ${C.QB}; the slide starts two years before each. Sell a year early rather than a year late. Player lines carry "declining", "cliff next year" or "past the cliff".`);
+      out.push("- Young talent is the currency: never trade away or drop a young player with long-term value for a short-term fill-in.");
+      out.push(`- Usable quarterbacks: a QB scoring ${sf ? E.QB_USABLE.sf : E.QB_USABLE.one}+ points a game this season is a usable starter and worth more than his reputation says; one well under it is worth less. Player lines show his points a game.${sf ? " Superflex: a young starting QB is the hardest asset to acquire; never give one away." : ""}`);
+    }
+    out.push(`- Stars start: a player tagged STAR who is healthy and has a game is never benched for a lesser player, whatever one week's projection says; only out, IR, bye or no team changes that. Only another star with the higher number takes his slot.`);
+    out.push("- Never recommend starting a player projected for nothing; when two are close, the one starting now stays.");
+    out.push("- Pickups: never drop a producing starter for a player who has not played unless he has a real role or is the hottest add in the league. Bids follow impact and demand, not value; a kicker or defense is a minimum bid.");
+    out.push("- Grades: F is for a player with nothing going (no team, no role, or old and unproductive); anyone with a role, a starting job, youth or a rising trend is at least a D.");
+    out.push("- Trades: within 5% of value is fair, 5 to 12% a slight edge, over 25% lopsided. The smallest sweetener that gets to yes is the right one.");
+    return out;
+  }
   const profiles = () => Week.team_profiles(S.values, S.cfg).teams;       // record, place, mode, thin/deep, trade habits (week.js)
   const habits = I => { const T = I.trades || {}; if (!T.n) return "no trades this season"; return `${T.n} ${T.n === 1 ? "trade" : "trades"} this season${T.picksGot || T.picksGave ? `, picks taken ${T.picksGot} / given ${T.picksGave}` : ""}${T.multi ? `, took the extra pieces ${T.multi}x` : ""}`; };
 
@@ -70,6 +108,14 @@ const GM = (() => {
     if (bits.length) out.push(bits.join("; ") + ".");
     out.push(me ? `The manager you work for runs ${me.team_name}.` : "The manager hasn't marked which team is theirs; ask if it matters.");
     out.push(`Values as of ${String((v.meta && v.meta.fetched) || "").slice(0, 16).replace("T", " ")}.`);
+    out.push("");
+    out.push("# The manager's plan");
+    out.push(plan() ? `${planLabel(plan()).toUpperCase()}${plan() === "contend" ? ": buy this season's points with picks and prospects; sell nothing young unless it wins now." : plan() === "rebuild" ? ": sell players near the age cliff for youth and picks; this season's wins don't matter." : ": keep the window open and the future healthy; take the better side of value either way."} Advise for this plan in every answer. If the app's read of the team (Direction, below) disagrees with it, say so once, then advise for the plan.`
+      : "NOT SET. Before anything else, ask the manager which plan this season is: rebuild, balanced, or win now (one short question, then give a provisional answer for the most likely one). The app's Plan buttons above the chat save it.");
+    out.push("");
+    out.push(...houseRules(rd, sf));
+    try { const sc = Score.briefLine(c, v, W); if (sc) out.push(sc); } catch (e) { /* no record yet */ }
+    try { const mt = marketText(); if (mt && c.league.use_market !== false) out.push(mt + " The app's trade verdicts are priced with it."); } catch (e) { /* none */ }
     out.push("");
     out.push("# How to read the numbers");
     out.push(`Player lines read: Name (position age team) value grade, then Buy or Sell when our grade and the price disagree. Value is the Dynasty Mover trade value (10,000 is the top asset in this format; QBs carry a premium because they cost more in trades${sf ? ", more so in superflex" : ""}). Grade is our outlook for ${rd ? "the rest of this season" : "the next few seasons"}, A+ down to F; the market grade is simply where the value ranks. Buy means our grade is two steps above what his price says; Sell means two below. Picks show the slot they project to from the original owner's projected finish.`);
@@ -307,11 +353,14 @@ const GM = (() => {
     const left = Math.max(0, cap - used);
     root.innerHTML = `<section class="card gm-head"><div class="gm-title">${ICON} Your GM${c.messages.length ? `<button class="btn sm ghost gm-new" id="gmClear" title="Start a new chat">New chat</button>` : ""}</div>
         <div class="hint">Knows your league: rosters, values, grades, odds, this week. Ask anything.</div>
-        <div class="gm-meta">${used ? `${used} ${used === 1 ? "question" : "questions"} today · ${left} left` : `${cap} questions a day`}${c.messages.length ? ` · ${c.messages.filter(m => m.role === "user").length} in this chat` : ""}</div></section>
+        <div class="gm-meta">${used ? `${used} ${used === 1 ? "question" : "questions"} today · ${left} left` : `${cap} questions a day`}${c.messages.length ? ` · ${c.messages.filter(m => m.role === "user").length} in this chat` : ""}</div>
+        <div class="gm-plan"><span class="gm-plan-l">${plan() ? "This season's plan" : "First, what's the plan this season?"}</span><div class="seg gm-plan-seg" id="gmPlan">${PLANS.map(([k, l]) => `<button data-plan="${k}" class="${plan() === k ? "on" : ""}">${l}</button>`).join("")}</div>
+          ${plan() ? "" : `<div class="hint">The GM, the trade screen and the team read all advise for it. You can change it any time.</div>`}</div></section>
       <div class="gm-chat" id="gmChat">${c.messages.map(m => bubble(m)).join("")}</div>
       ${(() => { const w = S.W && S.W.week; return w && !reportFor(w) ? `<div class="gm-chips"><button id="gmReportChip" class="accent">${ICON} Get my week ${w} GM report</button></div>` : ""; })()}
       ${c.messages.length ? "" : `<div class="gm-chips">${SUGGEST[E.is_redraft(S.cfg) ? "redraft" : "dynasty"].map(q => `<button data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`}
       <div class="gm-input">${c.messages.length ? `<button class="btn ghost gm-newbtn" id="gmClear2" title="New chat" aria-label="New chat">New</button>` : ""}<textarea id="gmQ" rows="1" placeholder="Ask your GM…" aria-label="Your question" ${pending ? "disabled" : ""}></textarea><button class="btn primary" id="gmSend" aria-label="Send" ${pending ? "disabled" : ""}>Send</button></div>`;
+    $$("#gmPlan button", root).forEach(b => b.onclick = () => { setPlan(b.dataset.plan); toast(`Plan: ${planLabel(b.dataset.plan)}`, 1400); render(root); });
     const ta = $("#gmQ", root);
     const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };
     ta.oninput = grow;
@@ -334,6 +383,62 @@ const GM = (() => {
   function setBusy(on) { const ta = $("#gmQ"), b = $("#gmSend"); if (ta) { ta.disabled = on; if (!on) { ta.value = ""; ta.style.height = "auto"; } } if (b) b.disabled = on; }
 
   // ---- sending ----
+  // ---- the GM's tools: the app's own numbers for the players a question names, and its verdict on a trade ----
+  function namedPlayers(q) {
+    const text = " " + E.norm(String(q).replace(/[^\w\s'.-]/g, " ")) + " ", out = [], seen = new Set();   // punctuation off, so "Goff?" is Goff
+    const rostered = new Map(); for (const t of teams()) for (const pid of t.players || []) rostered.set(String(pid), t);
+    for (const a of S.values.players) {
+      if (a.is_pick || seen.has(a.id)) continue;
+      const full = E.norm(a.name), last = full.split(" ").slice(-1)[0];
+      let hit = text.includes(" " + full + " ");
+      if (!hit && last.length >= 4 && text.includes(" " + last + " ")) {         // a last name alone, when only one player carries it
+        const same = S.values.players.filter(x => !x.is_pick && E.norm(x.name).split(" ").slice(-1)[0] === last);
+        hit = same.length === 1 || (same.length > 1 && rostered.has(String(a.sleeper_id)) && same.filter(x => rostered.has(String(x.sleeper_id))).length === 1);
+      }
+      if (hit) { seen.add(a.id); out.push(a); }
+      if (out.length >= 8) break;
+    }
+    return out.map(a => ({ a, team: rostered.get(String(a.sleeper_id)) || null }));
+  }
+  function playerFacts(a, team, W) {
+    const bits = [], sid = String(a.sleeper_id || ""), rd = E.is_redraft(S.cfg);
+    bits.push(`${a.name} (${a.pos} ${a.age != null ? Math.floor(a.age) : "?"} ${a.team || "FA"}): ${team ? `on ${team.team_name}${team.roster_id === S.cfg.my_roster_id ? " (the manager's team)" : ""}` : "free agent"}. Value ${Math.round(a.value)}, market grade ${gradeOf(a).g}${a.ours > 0 ? `, our grade ${gradeOf(a, true).g}` : ""}${appTags(a)}.`);
+    const st = E.load_player_status()[sid] || {};
+    if (st.inj) bits.push(`Injury: ${st.inj}.`); if (st.depth != null) bits.push(`Depth chart: ${a.pos}${st.depth}.`);
+    if (W && W.proj && W.proj[sid]) { const p = W.proj[sid], c = W.ctx && W.ctx[a.team]; bits.push(`This week: ${(+p.pts).toFixed(1)} projected${c ? ` ${c.home ? "vs" : "at"} ${c.opp}` : ""}${(() => { const g = Week.week_grades(S.values, S.cfg, W)[sid]; return g ? `, weekly grade ${g.letter} (${g.label})` : ""; })()}.`); }
+    else if (W && W.ctx && a.team && !W.ctx[a.team]) bits.push("This week: no game (bye).");
+    const wk = (Store.get(`nflv_wk_${parseInt(S.cfg.season, 10)}.json`) || {}).players || {}, o = wk[E.player_key(a.name, a.pos)], ppr = parseFloat(S.cfg.league.ppr || 0);
+    if (o && o[3]) { const ws = Object.keys(o[3]).map(Number).sort((x, y) => x - y), pts = w => { const g = o[3][w]; return g[0] + ppr * (g[1] - g[0]); }; bits.push(`Season: ${(ws.reduce((s, w) => s + pts(w), 0) / ws.length).toFixed(1)} a game over ${ws.length} games; last three: ${ws.slice(-3).map(w => `wk${w} ${pts(w).toFixed(1)}`).join(", ")}; opportunities a game ${(ws.reduce((s, w) => s + (o[3][w][2] || 0), 0) / ws.length).toFixed(1)}.`); }
+    if (a.ep && a.ep.g >= 3) { const gap = (a.ep.exp - a.ep.pts) / a.ep.g; if (Math.abs(gap) >= 1) bits.push(`Usage says ${gap > 0 ? "more points are coming" : "he is running hot"} (${gap > 0 ? "+" : ""}${gap.toFixed(1)} a game vs his expected points).`); }
+    if (a.pred) bits.push(rd ? `Our forecast: ${a.pred.ros.toFixed(1)} a game the rest of this season.` : `Our forecast: ${a.pred.next.toFixed(1)} a game next season, ${Math.round(a.pred.play * 100)}% to play 4+ games.`);
+    return bits.join(" ");
+  }
+  function tradeFacts(named, W) {
+    const me = teamById(S.cfg.my_roster_id); if (!me) return null;
+    const mine = named.filter(x => x.team && x.team.roster_id === me.roster_id).map(x => x.a), theirs = named.filter(x => x.team && x.team.roster_id !== me.roster_id);
+    if (!mine.length || !theirs.length) return null;
+    const other = theirs[0].team, get = theirs.filter(x => x.team.roster_id === other.roster_id).map(x => x.a);
+    const mode = (S.cfg.plan && S.cfg.plan !== "neutral") ? S.cfg.plan : "neutral";
+    const side = l => E.evaluate_side ? E.evaluate_side(l.map(a => ({ asset: a, alts: [] })), mode, S.cfg) : null;
+    const A = side(mine), B = side(get); if (!A || !B) return null;
+    const give = A.adj || A.raw || 0, gets = B.adj || B.raw || 0, pct = Math.round(((gets - give) / Math.max(give, gets, 1)) * 100);
+    const out = [`The manager gives ${mine.map(a => a.name).join(" + ")} (${Math.round(give)}) to ${other.team_name} for ${get.map(a => a.name).join(" + ")} (${Math.round(gets)}): ${pct >= 0 ? "+" : ""}${pct}% for the manager by this app's values${mode !== "neutral" ? `, priced for the ${mode === "contend" ? "win-now" : "rebuild"} plan` : ""}.`];
+    try {
+      const I = E.trade_impact(S.values, S.cfg, me, other, mine.map(x => ({ asset: x })), get.map(x => ({ asset: x }))), sd = I && I.sides && I.sides.A;
+      if (sd) out.push(`The simulator (${I.weeks_left} weeks left): the manager's playoff odds ${Math.round(sd.playoff[0] * 100)}% -> ${Math.round(sd.playoff[1] * 100)}%, title odds ${Math.round(sd.title[0] * 100)}% -> ${Math.round(sd.title[1] * 100)}%, projected wins ${(+sd.wins[0]).toFixed(1)} -> ${(+sd.wins[1]).toFixed(1)}${sd.future ? `, roster value in two seasons ${Math.round(sd.future[0])} -> ${Math.round(sd.future[1])}` : ""}${sd.pick ? `; their own ${sd.pick.name} projects ${sd.pick.before.label} -> ${sd.pick.after.label}` : ""}.`);
+    } catch (e) { /* no schedule (a league built by hand) */ }
+    return out.join(" ");
+  }
+  function toolsFor(q, W) {
+    try {
+      const named = namedPlayers(q); if (!named.length) return "";
+      const out = ["", "# About the players you asked about (the app's numbers, computed for this question)"];
+      for (const x of named) out.push("- " + playerFacts(x.a, x.team, W));
+      const tr = /\b(for|trade|swap|deal|give|get)\b/i.test(q) ? tradeFacts(named, W) : null;
+      if (tr) { out.push(""); out.push("# The trade you asked about (the trade screen's verdict and the simulator)"); out.push(tr); }
+      return out.join("\n");
+    } catch (e) { console.error(e); return ""; }
+  }
   async function send(q, tag = null) {
     q = String(q || "").trim();
     if (!q || pending || !available()) return;
@@ -346,7 +451,7 @@ const GM = (() => {
       const W = S.W || await weekData().catch(() => null);
       let TR = null;
       try { const [ad, dr] = await Promise.all([E.trending_list("adds", 10, S.values, true), E.trending_list("drops", 10, S.values, true)]); TR = { adds: ad.rows || [], drops: dr.rows || [], at: ad.fetched }; } catch (e) { TR = null; }
-      const text = briefText(W, TR);
+      const text = briefText(W, TR) + toolsFor(q, W);                          // the GM's tools: the app's numbers for what was asked
       a.status = "Thinking…"; drawChat(true);
       let token = "";
       if (keyed()) token = "key:" + cfg().key;
@@ -407,5 +512,12 @@ const GM = (() => {
   const tb = document.getElementById("tabGM");
   if (tb && !cfg()) tb.remove();
 
-  return { render, open, send, available, tradeQuestion, playerQuestion, briefText, homeCard, bindHome, openReport, icon: () => ICON };
+  /* The sign-in the Worker checks, for other screens that call it (the screenshot import). */
+  async function authToken() {
+    if (keyed()) return "key:" + cfg().key;
+    if (typeof Account !== "undefined" && Account.ON) return await Account.token();
+    if (DEV) return "dev";
+    throw new Error("Sign in first.");
+  }
+  return { render, open, send, available, endpoint, authToken, tradeQuestion, playerQuestion, briefText, homeCard, bindHome, openReport, icon: () => ICON };
 })();

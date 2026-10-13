@@ -6,7 +6,7 @@
 const Draft = (() => {
 const FILE = "draft.json";                  // per league: {season, taken: {prospectId: {by, mine, pick, src, name}}}
 const POS = ["QB", "RB", "WR", "TE"];
-const VET = { QB: 32, RB: 27, WR: 29, TE: 30 };
+const VET = E.AGE_DECLINE;                     // starters whose slide has begun (the user's age cliffs, two years before each)
 
 /* What this league's format does to a prospect's grade: superflex lifts QBs, a 1-QB league drops them (a rookie QB
    rarely starts for you there), TE premium lifts TEs a little. */

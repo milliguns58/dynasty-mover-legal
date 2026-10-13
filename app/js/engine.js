@@ -11,6 +11,11 @@ const E = (() => {
 const FC_URL = "https://api.fantasycalc.com/values/current";
 const SLEEPER_URL = "https://api.sleeper.app/v1";
 const POSITIONS = ["QB", "RB", "WR", "TE"];
+/* The age cliffs (the user's rule, 2026-10-12): the age a player's dynasty value falls off, and the age the slide
+   starts, two years before. Every age threshold in the app reads these. */
+const AGE_CLIFF = { QB: 40, RB: 29, WR: 31, TE: 37 };
+const AGE_DECLINE = Object.fromEntries(Object.entries(AGE_CLIFF).map(([p, a]) => [p, a - 2]));
+const age_stage = (pos, age) => (age === null || age === undefined ? "" : age >= (AGE_CLIFF[pos] || 99) ? "cliff" : age >= (AGE_CLIFF[pos] || 99) - 1 ? "near" : age >= (AGE_DECLINE[pos] || 99) ? "decline" : "");
 const HIDDEN_POSITIONS = ["K", "DEF", "DST", "P"];
 const MODES = ["neutral", "contend", "rebuild"];
 const FLEX_ELIGIBLE = {
@@ -41,11 +46,13 @@ const DEFAULT_CONFIG = {
       rebuild: { pick: 1.30, young: 1.20, prime: 1.0, aging: 0.75 },    // rebuilding: picks and youth are the currency
     },
     verdict_pct: { even: 5, slight: 12, lopsided: 25 },
+    // The user's age model (2026-10-12): the cliff is RB 29, WR 31, QB about 40, TE 37 (the Travis Kelce curve: slowed
+    // at about 35, close to done at 37-38); the decline starts two years before each cliff. AGE_CLIFF below is the table.
     age_curve: {
-      QB: [[24, 1.05], [28, 1.02], [31, 0.95], [34, 0.8], [37, 0.6]],
-      RB: [[22, 1.08], [24, 1.05], [26, 0.95], [27, 0.85], [28, 0.7], [30, 0.5]],
-      WR: [[22, 1.06], [25, 1.03], [28, 0.95], [30, 0.82], [32, 0.65]],
-      TE: [[23, 1.05], [26, 1.02], [29, 0.92], [31, 0.78], [33, 0.6]],
+      QB: [[24, 1.05], [28, 1.03], [33, 1.0], [36, 0.96], [38, 0.9], [39, 0.8], [40, 0.65], [42, 0.45]],
+      RB: [[22, 1.08], [24, 1.05], [26, 1.0], [27, 0.97], [28, 0.9], [29, 0.75], [30, 0.6], [32, 0.4]],
+      WR: [[22, 1.06], [25, 1.03], [28, 1.0], [29, 0.97], [30, 0.9], [31, 0.75], [32, 0.6], [34, 0.4]],
+      TE: [[23, 1.05], [26, 1.02], [30, 1.0], [33, 0.97], [35, 0.9], [36, 0.82], [37, 0.7], [38, 0.55], [40, 0.4]],
     },
     consolidation_bonus_pct: 8, depth_weight: 0.25,
   },
@@ -179,6 +186,7 @@ function load_config() {
     M.contend = clone(DEFAULT_CONFIG.adjustments.modes.contend); M.rebuild = clone(DEFAULT_CONFIG.adjustments.modes.rebuild);
     cfg.adjustments.modes_v2 = true; Store.set(f("config.json"), cfg);
   }
+  if (cfg.adjustments) cfg.adjustments.age_curve = clone(DEFAULT_CONFIG.adjustments.age_curve);   // the age model is the app's, never a saved copy (the user's cliffs, 2026-10-12)
   return cfg;
 }
 function save_config(cfg) { Store.set(f("config.json"), cfg); }
@@ -817,7 +825,7 @@ const DMV = {"w26":0.0858,"w25":0.0407,"w24":0.0163,"k":2.0755,"best":0.0513,"E_
    the values and ranks the Pro app trades on. DMV: our own dynasty view (the research age curves and the breakout bump);
    this gives the grades. Where the two disagree, the user gets a buy or sell hint the market doesn't show. */
 const DMV_MKT = {"w26":1.2308,"w25":0.3516,"w24":0.1384,"best_QB":0.2754,"best_RB":0.0042,"best_WR":0.0,"best_TE":0.0799,"E_QB":2.4573,"E_RB":2.0561,"E_WR":1.9325,"E_TE":1.6575,"S_QB":6.3241,"S_RB":19.8025,"S_WR":37.3424,"S_TE":64.0041,"R_QB":4.2772,"R_RB":-1.632,"R_WR":1.0846,"R_TE":1.3444,"peak_QB":28.7639,"peak_RB":23.0034,"peak_WR":25.0003,"peak_TE":27.4564,"dec_QB":0.1019,"dec_RB":0.142,"dec_WR":0.0921,"dec_TE":0.1034,"young":0.6011,"D_QB":2033.7033,"D_RB":2902.7461,"D_WR":2029.4478,"D_TE":1419.4604,"L":128.1501,"kd":7.4094,"C":82304.0844,"ped":0.2743};
-const DMV_MODEL = 4;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
+const DMV_MODEL = 8;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
 const DMV_TYPICAL = { QB: 14, RB: 9, WR: 8, TE: 6 };          // a typical starter's points a game (half-PPR): the anchor for thin samples
 const DMV_REPLACEMENT = { QB: 12, RB: 6.5, WR: 6, TE: 4 };   // a replacement-level player's points a game (half-PPR): the redraft anchor for thin samples
 const DMV_PRIOR_ADJ = { QB: 0.55 };                      // 1QB leagues: QBs are worth about half of superflex
@@ -830,7 +838,7 @@ const DMV_ADJUST = {
 };
 async function nflv_stats(year, weekly, maxHours) {
   const name = `nflv_${weekly ? "wk" : "reg"}_${year}.json`, c = Store.get(name);
-  if (c && c.v === 5 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;
+  if (c && c.v === 6 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;
   let players = {};
   const teams = {};                                                 // team context: pass attempts, carries and EPA, for the prediction models
   const log = {};                                                   // weekly file: each game's stat line, for the game log
@@ -870,10 +878,53 @@ async function nflv_stats(year, weekly, maxHours) {
     }
   } catch (e) { if (c) return c.players; if (!weekly) throw e; }   // no weekly file yet before week 1
   for (const T of Object.values(teams)) T[4] = weekly ? Object.keys(T[4]).length : (T[4].g || 0);   // -> games
-  Store.set(name, { v: 5, fetched: now_iso(), players, teams });
+  // Points by week from Sleeper (2026-10-12): nflverse's weekly file has been missing games this season, so for the
+  // season in play Sleeper's weekly stats set every player's points, games and game-log line; nflverse still adds the
+  // deeper numbers (target share, EPA, team context) where its rows exist.
+  if (weekly) { try { await sleeper_week_overlay(year, players, log); } catch (e) { /* offline: nflverse's numbers stand */ } }
+  Store.set(name, { v: 6, fetched: now_iso(), players, teams });
   if (weekly && Object.keys(log).length) Store.set(`nflv_log_${year}.json`, { v: 1, fetched: now_iso(), players: log });
   if (!weekly) Store.set(`nflv_car_${year}.json`, { v: 1, fetched: now_iso(), players: car });
   return players;
+}
+/* Sleeper's weekly stats for the season in play, laid over the nflverse table: for every player and week Sleeper has a
+   game for, the points (standard and PPR), the game count and the game-log stat line come from Sleeper; a week nflverse
+   had no row for also adds its attempts, targets, carries, yards and touchdowns to the season sums. */
+const SLEEPER_STATS = "https://api.sleeper.com/stats/nfl";
+async function sleeper_week_overlay(year, players, log) {
+  const st = await Net.json(`${SLEEPER_URL}/state/nfl`).catch(() => null);
+  if (!st || String(st.season) !== String(year)) return;                       // only the season in play; past seasons' files are settled
+  const last = st.season_type === "regular" ? parseInt(st.week, 10) || 0 : 18;
+  if (!last) return;
+  const sl = await sleeper_players().catch(() => ({})), n = v => Math.round((parseFloat(v) || 0) * 10) / 10;
+  const weeks = await Promise.all(Array.from({ length: last }, (_, i) =>
+    Net.json(`${SLEEPER_STATS}/${year}/${i + 1}?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE`, null, 60000).catch(() => null)));
+  const seen = {}, had = {};
+  for (const k of Object.keys(log)) had[k] = new Set(Object.keys(log[k]));
+  weeks.forEach((rows, i) => {
+    if (!Array.isArray(rows)) return;
+    for (const r of rows) {
+      const s = r.stats || {}, p = sl[String(r.player_id)] || {}, pos = p.position || r.position;
+      if (!POSITIONS.includes(pos) || !(parseFloat(s.gp) > 0)) continue;
+      const nm = p.full_name || `${p.first_name || ""} ${p.last_name || ""}`.trim();
+      if (!nm) continue;
+      const k = player_key(nm, pos), w = String(r.week || i + 1), std = n(s.pts_std), ppr = n(s.pts_ppr);
+      const o = players[k] || (players[k] = [0, 0, 0, 0, 0, 0, 0, 0, r.team || p.team || "", 0, 0, 0, 0, 0, 0, 0, 0]);
+      (seen[k] = seen[k] || {})[w] = [std, ppr, n(s.pass_att) + n(s.rec_tgt) + n(s.rush_att)];
+      const L = log[k] || (log[k] = {}), old = L[w] || [];
+      L[w] = [r.opponent || old[0] || "", std, ppr, n(s.pass_cmp), n(s.pass_att), n(s.pass_yd), n(s.pass_td), n(s.pass_int), n(s.rush_att), n(s.rush_yd), n(s.rush_td), n(s.rec), n(s.rec_tgt), n(s.rec_yd), n(s.rec_td)];
+      if (!o[8]) o[8] = r.team || p.team || "";
+      if (!(had[k] && had[k].has(w))) {                                       // a game nflverse didn't have: its usage joins the season sums
+        o[4] += n(s.rush_yd); o[5] += n(s.rush_td); o[9] += n(s.pass_att); o[10] += n(s.rec_tgt); o[11] += n(s.rush_att);
+        o[12] += n(s.rec_yd); o[13] += n(s.rec_td) + n(s.rush_td) + n(s.pass_td); o[16] += n(s.rec);
+      }
+    }
+  });
+  for (const [k, byw] of Object.entries(seen)) {                              // Sleeper's weeks replace the points, games and totals
+    const o = players[k], gs = Object.values(byw);
+    o[3] = byw; o[0] = gs.length;
+    o[1] = Math.round(gs.reduce((a, g) => a + g[0], 0) * 10) / 10; o[2] = Math.round(gs.reduce((a, g) => a + g[1], 0) * 10) / 10;
+  }
 }
 /* Team context from the stats cache (after nflv_stats): {team: {att_pg, pass_epa_pa, car_pg, rush_epa_pc, g}}. */
 function nflv_team_ctx(year, weekly) {
@@ -920,20 +971,18 @@ async function nflv_draft() {
   Store.set("nflv_draft.json", { v: 2, fetched: now_iso(), picks });
   return picks;
 }
-/* Age curves: the share of a player's peak production at each age (our research; tools/values/README.md "Age curves").
-   QBs: points from running age like a runner's (peak 25-26, cliff 27-29), points from passing like a passer's (peak 30-31,
-   ~90% at 36). RBs: prime 24-26, 8-16% dip at 27-28, a 25% cliff at 29. WRs: rise to 25, prime to 28, cliff at 30, except
-   elite WRs (2+ top-12 seasons) who fade slowly into their mid-30s. */
+/* Age curves: the share of a player's peak production at each age, on the user's age model (2026-10-12): the cliff is
+   RB 29, WR 31, QB about 40, TE 37 (the Travis Kelce curve: slowed at about 35, still useful, close to done at 37-38),
+   and the slide starts two years before each cliff. QBs: points from running fade like a runner's, points from passing
+   hold into the late 30s. Elite WRs and TEs (2+ top seasons) slide a little more slowly. tools/values/README.md. */
 const DMV_CURVES = {
-  QB_mobile: { 21: .70, 22: .78, 23: .86, 24: .94, 25: 1, 26: 1, 27: .97, 28: .88, 29: .78, 30: .69, 31: .60, 32: .47, 33: .36, 34: .25, 36: .14, 38: .08, 40: .04, 42: .01 },
-  QB_pocket: { 21: .36, 22: .42, 24: .58, 26: .75, 28: .90, 29: .96, 30: 1, 31: 1, 32: .98, 34: .94, 36: .90, 38: .82, 39: .70, 40: .50, 41: .30, 42: .15, 43: .07, 45: .02 },
-  RB: { 20: .60, 21: .72, 22: .84, 23: .93, 24: .98, 25: 1, 26: .99, 27: .90, 28: .84, 29: .63, 30: .52, 31: .38, 32: .26, 33: .17, 34: .10, 35: .05, 37: .01 },
-  WR: { 20: .55, 21: .65, 22: .77, 23: .88, 24: .95, 25: 1, 28: 1, 29: .96, 30: .90, 31: .80, 32: .65, 33: .50, 34: .37, 35: .25, 37: .10, 39: .02 },
-  WR_elite: { 20: .55, 21: .65, 22: .77, 23: .88, 24: .95, 25: 1, 28: 1, 29: .98, 30: .95, 31: .90, 32: .84, 33: .76, 34: .62, 35: .45, 36: .30, 37: .18, 39: .04 },
-  // TE: a steep learning curve 21-23 (blocking + routes), prime 24-27 (peak 27.4), a slight dip 28-29, a cliff from 30
-  // (in-line wear). Elite TEs (2+ top-6 seasons: Kelce, Gonzalez, Gates, Witten) hold into their early 30s.
-  TE: { 21: .45, 22: .55, 23: .68, 24: .85, 25: .94, 26: .98, 27: 1, 28: .98, 29: .94, 30: .82, 31: .68, 32: .54, 33: .42, 34: .32, 35: .22, 37: .08, 39: .02 },
-  TE_elite: { 21: .45, 22: .55, 23: .68, 24: .85, 25: .94, 26: .98, 27: 1, 28: 1, 29: .97, 30: .92, 31: .86, 32: .78, 33: .68, 34: .56, 35: .42, 37: .20, 39: .05 },
+  QB_mobile: { 21: .70, 22: .78, 23: .86, 24: .94, 25: 1, 26: 1, 27: .98, 28: .94, 29: .88, 30: .82, 31: .75, 32: .66, 33: .58, 34: .50, 36: .36, 38: .22, 40: .10, 42: .03 },
+  QB_pocket: { 21: .36, 22: .42, 24: .58, 26: .75, 28: .90, 29: .96, 30: 1, 31: 1, 34: .98, 36: .96, 38: .90, 39: .80, 40: .65, 41: .45, 42: .28, 43: .12, 45: .02 },
+  RB: { 20: .60, 21: .72, 22: .84, 23: .93, 24: .98, 25: 1, 26: 1, 27: .96, 28: .88, 29: .72, 30: .58, 31: .42, 32: .28, 33: .17, 34: .10, 35: .05, 37: .01 },
+  WR: { 20: .55, 21: .65, 22: .77, 23: .88, 24: .95, 25: 1, 28: 1, 29: .97, 30: .90, 31: .76, 32: .62, 33: .48, 34: .35, 35: .24, 37: .10, 39: .02 },
+  WR_elite: { 20: .55, 21: .65, 22: .77, 23: .88, 24: .95, 25: 1, 28: 1, 29: .99, 30: .95, 31: .86, 32: .76, 33: .64, 34: .50, 35: .36, 37: .15, 39: .04 },
+  TE: { 21: .45, 22: .55, 23: .68, 24: .85, 25: .94, 26: .98, 27: 1, 28: 1, 30: .98, 32: .95, 33: .93, 34: .90, 35: .84, 36: .74, 37: .60, 38: .45, 39: .32, 40: .20, 42: .06 },
+  TE_elite: { 21: .45, 22: .55, 23: .68, 24: .85, 25: .94, 26: .98, 27: 1, 28: 1, 30: .99, 32: .97, 33: .96, 34: .93, 35: .88, 36: .80, 37: .68, 38: .54, 39: .40, 41: .20, 43: .06 },
 };
 const DMV_NOW_WEIGHT = 0.2;                                // the rest of this season counts 20%: dynasty is about the seasons ahead
 const DMV_HORIZON = 7, DMV_MAX_GROWTH = 1.6, DMV_WR_YEAR2 = 1.25, DMV_ALPHA_TS = 0.25, DMV_ALPHA_BEST = 0.5;
@@ -978,6 +1027,19 @@ function breakout(f) {
   if (f.g[0] >= 2 && f.g[1] >= 6 && f.ppg[1] > 0) sig = Math.max(sig, clip((f.ppg[0] / f.ppg[1] - 1) / 0.3));
   if (f.exp === 0 && f.g[0] >= 2) sig = Math.max(sig, clip((f.ppg[0] - 5) / 6));
   return 1 + DMV_BREAKOUT_BASE + DMV_BREAKOUT_MAX * sig;
+}
+/* Usable quarterbacks (the user's rule, 2026-10-12: "usable QBs don't get enough trade value"). In dynasty the model
+   leaned on reputation and age, so a 23-point-a-game Goff sat behind a 13-point Nix. A QB's scoring this season (with
+   last season filling in under eight games) now moves his value: from a usable starter's number (15 a game in superflex,
+   17 in 1QB) up to 8 more a game earns up to +40%; a QB well under it with a real sample loses up to 25%. */
+const QB_USABLE = { sf: 15, one: 17 }, QB_USABLE_SPAN = 8, QB_USABLE_UP = 0.4, QB_USABLE_DOWN = 0.25;
+function qb_usable_mult(f, sf) {
+  const g0 = f.g[0] || 0, g1 = Math.min(4, f.g[1] || 0);
+  if (g0 + g1 < 4) return 1;                                                      // too few games to say
+  const now = g0 >= 8 ? f.ppg[0] : (g0 * (f.ppg[0] || 0) + g1 * (f.ppg[1] || 0)) / (g0 + g1);
+  const usable = sf ? QB_USABLE.sf : QB_USABLE.one, clip = x => Math.max(0, Math.min(1, x));
+  if (now >= usable) return 1 + QB_USABLE_UP * clip((now - usable) / QB_USABLE_SPAN);
+  return 1 - QB_USABLE_DOWN * clip((usable - 3 - now) / 6);                        // the slide starts three points under the usable line
 }
 function dmv_value(f, redraft, ours) {
   const p = ours ? DMV : DMV_MKT, pos = f.pos;
@@ -1196,13 +1258,23 @@ async function src_dmv(cfg, curve, ours) {
         cur: st[0], y1: st[1], y2: st[2], ep: ep[k], snaps: snaps[k], teamCtx: s.team ? tctx[s.team] : null, week });
     }
     let v = dmv_value(f, redraft, ours);
+    const qm = pos === "QB" && !redraft ? qb_usable_mult(f, sf) : 1;                 // a QB who scores now is a usable starter (the user's rule, 2026-10-12); applied below
     if (pos === "QB" && !sf) v *= DMV_PRIOR_ADJ.QB;
     const adj = DMV_ADJUST[sid];
     if (adj) v *= adj[0];
     if (!(v >= 30)) continue;                                                       // (also drops a NaN)
     players.push({ key: k, name, pos, team: s.team || "FA", age: Math.round(age * 10) / 10, sleeper_id: sid, value: v,
       raw: (adj ? adj[1] + ". " : "") + `DMV ${Math.round(v)} (${f.ppg[0] ? f.ppg[0].toFixed(1) + " ppg this year" : f.ppg[1] ? f.ppg[1].toFixed(1) + " ppg last year" : d ? "drafted #" + d[2] : "no games"})`,
-      _rookie: d && d[0] === season, _f: ours ? f : undefined, ep: f.ep || null });
+      _rookie: d && d[0] === season, _f: ours ? f : undefined, ep: f.ep || null, _qm: qm });
+  }
+  // the usable-QB rule moves value between quarterbacks, not from the other positions: the producers gain what the
+  // names who aren't scoring give up, so the QB group's total (and its place against RB/WR) stays where the model put it
+  {
+    const qbs = players.filter(x => x.pos === "QB").sort((x, y) => y.value - x.value);
+    qbs.slice(0, 5).forEach(x => { x._qm = Math.min(1, x._qm); });              // the elite are priced already; the lift is for the usable tier below them
+    const wsum = qbs.reduce((t, x) => t + x.value, 0), msum = qbs.reduce((t, x) => t + x.value * x._qm, 0);
+    const norm = wsum > 0 ? msum / wsum : 1;
+    for (const x of players) { if (x.pos === "QB") x.value *= x._qm / norm; delete x._qm; }
   }
   if (ours) { grade_scores(players, cfg, redraft); for (const x of players) delete x._f; return players; }
   // picks: the rookie class's values by draft slot (this year's class once it's drafted, else last year's)
@@ -1844,10 +1916,18 @@ function qb_trade_mult(asset, cfg) {
   const share = r <= starters ? 1 : Math.max(0, 1 - (r - starters) / starters);
   return 1 + pct / 100 * share;
 }
+/* This league's market (history.js market_fit): what its managers pay for each position, as a multiplier on the value
+   in trades. Off with league.use_market === false, or until the league has enough trades. */
+function league_market_mult(asset, cfg) {
+  if (!asset || is_redraft(cfg) || cfg.league.use_market === false) return 1;
+  const m = Store.get(f("market.json"));
+  if (!m || m.v !== 1 || !m.mults) return 1;
+  return m.mults[asset.is_pick ? "PICK" : asset.pos] || 1;
+}
 function adjusted_value(asset, mode, cfg) {
   let v = +asset.value;
   if (asset.pos === "TE") v *= 1 + parseFloat(cfg.league.te_premium_bonus_pct || 0) / 100;
-  v *= qb_trade_mult(asset, cfg);
+  v *= qb_trade_mult(asset, cfg) * league_market_mult(asset, cfg);
   if (!is_redraft(cfg) && mode !== "neutral") {
     const M = cfg.adjustments.modes[mode] || {};
     if (asset.is_pick) v *= parseFloat(M.pick ?? 1.0);
@@ -1901,7 +1981,7 @@ function evaluate_side(matches, mode, cfg) {
     const a = m.asset;
     const cat = is_redraft(cfg) ? "" : category(a, cfg);
     const av = adjusted_value(a, mode, cfg);
-    const qbm = qb_trade_mult(a, cfg);
+    const qbm = qb_trade_mult(a, cfg) * league_market_mult(a, cfg);
     rows.push({ id: a.id, name: a.name, pos: a.pos, team: a.team, age: a.age, value: a.value, priced: a.value * qbm, adjusted: av, category: cat, tier: a.tier, pos_rank: a.pos_rank,
       trend: a.trend, estimated: !!a.estimated, unranked: !!a.unranked, alts: (m.alts || []).slice(0, 3).map(x => x.name) });
     raw += a.value * qbm;                                     // the market side of a trade carries the QB trade premium too
@@ -2365,7 +2445,7 @@ function manual_add_player(league, team, a) {
 /* Players the value lists don't carry (kickers, defenses, deep benches) from Sleeper's player list, for rosters
    built by hand. A defense is named by its team, and Sleeper's id for one is the team code (KC, NE). */
 let pool_cache = null;
-async function pool_search(query, values, limit = 8, positions = POSITIONS) {
+async function pool_players(values, positions = POSITIONS) {
   const players = await sleeper_players().catch(() => null);
   if (!players) return [];
   if (!pool_cache || pool_cache.src !== players) {
@@ -2380,7 +2460,11 @@ async function pool_search(query, values, limit = 8, positions = POSITIONS) {
     }
     pool_cache = { src: players, list };
   }
-  const pool = pool_cache.list.filter(a => positions.includes(a.pos) && !(values && values.by_sleeper[a.sleeper_id]));
+  return pool_cache.list.filter(a => positions.includes(a.pos) && !(values && values.by_sleeper[a.sleeper_id]));
+}
+async function pool_search(query, values, limit = 8, positions = POSITIONS) {
+  const pool = await pool_players(values, positions);
+  if (!pool.length) return [];
   const code = String(query).trim().toUpperCase();
   const def = positions.includes("DEF") && code.length <= 3 ? pool.filter(a => a.pos === "DEF" && a.team === code) : [];   // "KC" finds the Chiefs
   return def.concat(search_players(query, values, limit, pool).filter(a => !def.includes(a))).slice(0, limit);
@@ -2424,6 +2508,7 @@ function apply_settings(cfg, s) {
   if (["dynasty", "redraft", "dynasty_bestball"].includes(s.league_type)) lg.type = s.league_type;
   if (s.half_ppr === true) lg.ppr = 0.5;
   else if (s.half_ppr === false && parseFloat(lg.ppr ?? 1) === 0.5) lg.ppr = 1;
+  if (s.ppr !== undefined && s.ppr !== null && !isNaN(parseFloat(s.ppr))) lg.ppr = Math.max(0, Math.min(2, parseFloat(s.ppr)));   // full 1, half 0.5, standard 0
   if (s.superflex !== undefined && s.superflex !== null) {
     lg.num_qbs = s.superflex ? 2 : 1;
     let st = (lg.starters || []).slice();
@@ -2434,6 +2519,7 @@ function apply_settings(cfg, s) {
   }
   if (s.te_premium_pct !== undefined && s.te_premium_pct !== null) lg.te_premium_bonus_pct = Math.max(0, Math.min(100, parseInt(s.te_premium_pct) || 0));
   if (s.hide_k_def !== undefined && s.hide_k_def !== null) lg.hide_k_def = !!s.hide_k_def;
+  if (s.use_market !== undefined && s.use_market !== null) lg.use_market = !!s.use_market;
   if (s.qb_premium_pct !== undefined && s.qb_premium_pct !== null) { const v = Math.max(0, Math.min(100, parseInt(s.qb_premium_pct) || 0)); if (parseInt(lg.num_qbs || 1) >= 2) lg.sf_qb_bonus_pct = v; else lg.qb_bonus_pct = v; }
   if (s.young_qb_premium_pct !== undefined && s.young_qb_premium_pct !== null) lg.sf_young_qb_bonus_pct = Math.max(0, Math.min(100, parseInt(s.young_qb_premium_pct) || 0));
   if (s.qb_trade_pct !== undefined && s.qb_trade_pct !== null) lg.qb_trade_bump_pct = Math.max(0, Math.min(100, parseInt(s.qb_trade_pct) || 0));
@@ -2490,7 +2576,7 @@ const read_log = () => Store.get(f("trades.json")) || [];
 
 // ---------------------------------------------------------------------------
 return {
-  PLAY, update_wait_minutes, model_changed, src_dmv, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
+  PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
   pyround, clone, now_iso, today_iso, ordinal, fmt, fmt_signed, fmt_pct, compact, norm, title, player_key, ppr_bucket,
   is_bestball, is_redraft, league_kind, league_kind_label,
   load_profiles, save_profiles, set_profile, profile_new, profile_rename, profile_delete, load_config, save_config,
@@ -2500,7 +2586,7 @@ return {
   parse_pick_query, resolve_pick, search_players, find_asset,
   category, age_factor, adjusted_value, qb_trade_mult, roster_spot_cost, lineup_value, best_lineup, best_lineup_by, lineup_total, depth_of,
   analyze_trade, verdict_for, pick_equivalent, league_view_text,
-  sleeper_user_leagues, sleeper_import, find_team, team_assets, apply_settings, manual_league, manual_add_team, manual_save, manual_set_rounds, manual_roll_season, manual_lineup_counts, manual_set_lineup, manual_add_player, pool_search,
+  sleeper_user_leagues, sleeper_import, find_team, team_assets, apply_settings, manual_league, manual_add_team, manual_save, manual_set_rounds, manual_roll_season, manual_lineup_counts, manual_set_lineup, manual_add_player, pool_search, pool_players,
   load_history, record_history, price_series, price_changes, log_trade, read_log,
 };
 })();

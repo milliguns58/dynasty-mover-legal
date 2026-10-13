@@ -1,10 +1,10 @@
 {
- "versionCode": 16,
- "versionName": "3.1.1",
- "notes": "Kickers and defenses in leagues built by hand: set your starting lineup (slots, K, DEF, bench) under League settings, then add kickers and defenses to your roster.",
+ "versionCode": 17,
+ "versionName": "3.2",
+ "notes": "3.2: the app scores itself (How right we've been), trades are priced to your league's own market, projections lean on the last three games, live win probability on game days, a GM that asks for your plan and runs the app's numbers on the players you name, roster import from a screenshot, kickers and defenses in leagues built by hand, and a Tuesday reminder when your GM report is ready.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
  },
- "published": "2026-10-12"
+ "published": "2026-10-13"
 }

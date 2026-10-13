@@ -340,5 +340,47 @@ async function outcomes(cfg, values, hist) {
   return { trades, saved, fetched: hist.fetched, seasons: hist.chain.map(lid => hist.seasons[lid].season) };
 }
 
-return { cached, ensure, outcomes, draft_of, week_of, season_of, FILE };
+/* This league's market (2026-10-13): one multiplier per position and one for picks, fitted to the league's accepted
+   trades so that both sides come out about even at what its managers actually pay. Each trade is a vector of the
+   difference between the two sides' totals by position (the value at the time when known, else today's); the fit is
+   ridge least squares pulled toward 1, scaled so the volume-weighted mean stays 1, clipped to +-25%. Eight trades
+   or more before it is used. */
+const MARKET_FILE = "market.json", MARKET_POS = ["QB", "RB", "WR", "TE", "PICK"], MARKET_MIN = 8, MARKET_CLIP = 0.25;
+function market_fit(trades, seasonNow) {
+  const rows = [];
+  for (const t of trades || []) {
+    if (t.kind !== "sleeper" || !t.sides || t.sides.length !== 2) continue;
+    const tot = side => { const v = Object.fromEntries(MARKET_POS.map(p => [p, 0])); for (const x of side.got || []) { const key = x.kind === "pick" || (x.asset && x.asset.is_pick) ? "PICK" : (x.asset && x.asset.pos) || ""; if (!(key in v)) continue; v[key] += x.then != null ? x.then : (x.value || 0); } return v; };
+    const A = tot(t.sides[0]), B = tot(t.sides[1]), sumA = Object.values(A).reduce((s, x) => s + x, 0), sumB = Object.values(B).reduce((s, x) => s + x, 0);
+    if (sumA < 300 || sumB < 300) continue;                                        // a dump or a pick swap says nothing about the market
+    const scale = (sumA + sumB) / 2;
+    rows.push({ d: MARKET_POS.map(p => (A[p] - B[p]) / scale), w: MARKET_POS.map(p => (A[p] + B[p]) / scale), season: t.season });
+  }
+  const n = rows.length;
+  if (n < MARKET_MIN) return { n, mults: null, at: new Date().toISOString() };
+  // (D'D + lambda I) m = lambda 1, with lambda set so a dozen trades still mostly listen to the prior
+  const k = MARKET_POS.length, lambda = 2.5, M = Array.from({ length: k }, () => Array(k).fill(0)), rhs = Array(k).fill(lambda);
+  for (const r of rows) for (let i = 0; i < k; i++) { for (let j = 0; j < k; j++) M[i][j] += r.d[i] * r.d[j]; }
+  for (let i = 0; i < k; i++) M[i][i] += lambda;
+  const m = solve(M, rhs);
+  if (!m) return { n, mults: null, at: new Date().toISOString() };
+  const vol = MARKET_POS.map((_, i) => rows.reduce((s, r) => s + r.w[i], 0)), vsum = vol.reduce((s, x) => s + x, 0) || 1;
+  const mean = m.reduce((s, x, i) => s + x * vol[i], 0) / vsum;
+  const mults = {};
+  MARKET_POS.forEach((p, i) => { mults[p] = Math.round(Math.max(1 - MARKET_CLIP, Math.min(1 + MARKET_CLIP, (vol[i] > 0 ? m[i] / mean : 1))) * 1000) / 1000; });
+  return { n, mults, at: new Date().toISOString(), seasons: [...new Set(rows.map(r => r.season))].sort() };
+}
+function solve(A, b) {                                                             // Gaussian elimination, small and dense
+  const n = b.length, M = A.map((r, i) => r.concat([b[i]]));
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-12) return null;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < n; r++) { if (r === c) continue; const f = M[r][c] / M[c][c]; for (let j = c; j <= n; j++) M[r][j] -= f * M[c][j]; }
+  }
+  return M.map((r, i) => r[n] / r[i]);
+}
+function market_save(fit) { Store.set(E.f(MARKET_FILE), Object.assign({ v: 1 }, fit)); return fit; }
+const market_cached = () => { const c = Store.get(E.f(MARKET_FILE)); return c && c.v === 1 ? c : null; };
+return { cached, ensure, outcomes, draft_of, week_of, season_of, FILE, market_fit, market_save, market_cached, MARKET_MIN };
 })();

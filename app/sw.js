@@ -1,10 +1,10 @@
 /* The web version's service worker: the app's own files are kept so the page opens offline and installs to the
    home screen. Data (Sleeper, nflverse, the Worker, Firebase) is never cached here; the app keeps that in IndexedDB.
    The version is written in by tools/web/build_web.py; a new version replaces the old cache on the next open. */
-const VERSION = "3.1.1.16";
+const VERSION = "3.2.17";
 const CACHE = "dynasty-mover-" + VERSION;
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon.png", "icon-512.png", "css/app.css", "css/retro.css",
-  "js/edition.js", "js/store.js", "js/predict_params.js", "js/engine.js", "js/predict.js", "js/week.js", "js/history.js", "js/draft.js",
+  "js/edition.js", "js/store.js", "js/predict_params.js", "js/engine.js", "js/predict.js", "js/week.js", "js/score.js", "js/history.js", "js/draft.js",
   "js/faces-data.js", "js/pixel.js", "js/account.js", "js/pro.js", "js/update.js", "js/ui.js", "js/gm.js"];
 
 self.addEventListener("install", e => {
