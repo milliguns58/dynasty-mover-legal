@@ -60,8 +60,8 @@ html,body{overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent}
 </section>
 <div class="toast" id="toast" role="status"></div>
 
-<script src="js/edition.js?v=3.2.17"></script>
-<script src="js/store.js?v=3.2.17"></script>
+<script src="js/edition.js?v=3.2.1.19"></script>
+<script src="js/store.js?v=3.2.1.19"></script>
 <script>
 /* The engine reads its files synchronously, so the stored files are loaded into memory first (Store.ready), then the
    app's scripts run in order, the same order the Android build uses. */
@@ -69,13 +69,13 @@ html,body{overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent}
   var files = ["predict_params", "engine", "predict", "week", "score", "history", "draft", "faces-data", "pixel", "account", "pro", "update", "ui", "gm"];
   function load(i) {
     if (i >= files.length) { var b = document.getElementById("boot"); if (b) b.classList.add("gone"); return; }
-    var s = document.createElement("script"); s.src = "js/" + files[i] + ".js?v=3.2.17";
+    var s = document.createElement("script"); s.src = "js/" + files[i] + ".js?v=3.2.1.19";
     s.onload = function () { load(i + 1); };
     s.onerror = function () { var b = document.getElementById("boot"); if (b) b.lastChild.textContent = "Couldn't load " + files[i] + ".js. Check the connection and reload."; };
     document.body.appendChild(s);
   }
   Store.ready.then(function () { load(0); }, function () { load(0); });
-  if ("serviceWorker" in navigator) { window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js?v=3.2.17").catch(function () {}); }); }
+  if ("serviceWorker" in navigator) { window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js?v=3.2.1.19").catch(function () {}); }); }
 })();
 </script>
 </body>
