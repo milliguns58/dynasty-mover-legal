@@ -816,3 +816,27 @@ body.gm-on{padding-bottom:calc(var(--tabh) + var(--safe-bottom) + 78px)}
 .rv-row input[type=checkbox]:checked::after{content:"";position:absolute;left:7px;top:2px;width:6px;height:12px;border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg)}
 .rv-row .item{flex:1;min-width:0;cursor:pointer}
 .rv-row.miss{padding:11px 0;border-bottom:1px solid var(--line);color:var(--muted)}
+/* Power rankings: fits a phone width, no sideways scroll; ranks as coloured chips by thirds. */
+table.pr{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}
+table.pr th,table.pr td{padding:7px 1px;text-align:center;border-bottom:1px solid var(--line)}
+table.pr th{font-size:10px;font-weight:800;letter-spacing:.03em;color:var(--muted);cursor:pointer}
+table.pr th.on{color:var(--accent)}
+table.pr th.pr-team,table.pr td.pr-team{text-align:left;width:34%;padding-right:6px}
+table.pr td.pr-team .n{font-weight:700;font-size:13px;line-height:1.2;overflow-wrap:anywhere}
+table.pr td.pr-team .s{font-size:11px;color:var(--muted);margin-top:2px}
+table.pr tbody tr{cursor:pointer}
+table.pr tbody tr:active td{background:var(--raise)}
+.pr-chip{display:inline-block;min-width:26px;padding:3px 0;border-radius:7px;font-weight:800;font-size:12px;font-variant-numeric:tabular-nums}
+.pr-chip.pr-hi{background:var(--good-soft);color:var(--good)}.pr-chip.pr-mid{background:var(--warn-soft);color:var(--warn)}.pr-chip.pr-lo{background:var(--bad-soft);color:var(--bad)}
+.pr-tier{font-weight:800}
+.pr-tier.pr-hi{color:var(--good)}.pr-tier.pr-mid{color:var(--warn)}.pr-tier.pr-lo{color:var(--bad)}
+/* The projection record on the scorecard. */
+table.acc{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+table.acc th{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);text-align:right;padding:6px 4px;border-bottom:1px solid var(--line)}
+table.acc td{text-align:right;padding:7px 4px;border-bottom:1px solid var(--line)}
+table.acc th:first-child,table.acc td:first-child{text-align:left}
+/* The scorecard's headline: one big number and the sentence that explains it. */
+.sc-big{display:flex;align-items:center;gap:14px;margin-bottom:10px}
+.sc-big b{font-size:34px;font-weight:800;letter-spacing:-.03em;color:var(--good);flex:none}
+.sc-big span{font-size:15px;color:var(--ink2);line-height:1.35}
+table.acc td.warn{color:var(--warn)}
