@@ -1,10 +1,10 @@
 {
- "versionCode": 17,
- "versionName": "3.2",
- "notes": "3.2: the app scores itself (How right we've been), trades are priced to your league's own market, projections lean on the last three games, live win probability on game days, a GM that asks for your plan and runs the app's numbers on the players you name, roster import from a screenshot, kickers and defenses in leagues built by hand, and a Tuesday reminder when your GM report is ready.",
+ "versionCode": 19,
+ "versionName": "3.2.1",
+ "notes": "3.2.1: How right we've been shows, in plain words, how close our weekly point estimates landed and how we fine-tune them; each player card shows what we said vs what he scored. Power rankings; rookies valued by draft position; proven stars keep their best seasons; pickups only with a real role.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
  },
- "published": "2026-10-13"
+ "published": "2026-10-15"
 }
