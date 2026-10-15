@@ -66,7 +66,7 @@ const Pro = (() => {
   // ---------------------------------------------------------------------------
   function signInScreen(mode) {
     const up = mode === "signup";
-    gate(`${hero("Dynasty Mover", "Know if a dynasty trade is fair before you hit accept.")}
+    gate(`${hero("Dynasty Mover", "Know the trade before you hit accept.")}
       <section class="card">
         <h2>${up ? `Start your free ${Account.trialDays}-day trial` : "Welcome back"}</h2>
         <div class="hint">${up ? "No card needed. Just an email and a password." : "Sign in to your account."}</div>
@@ -116,8 +116,30 @@ const Pro = (() => {
         <span class="plan-price">${esc(g ? `${g.price} ${per}`.trim() : p.fallback)}</span></button>`;
     }).join("");
   }
+  /* Other ways to pay (the web version only; the Play app must use Play Billing): the owner's Cash App, PayPal and
+     Venmo from the edition file. The buyer sends the amount with the sign-in email in the note; the owner switches
+     the account on from the admin page. Hidden when nothing is filled in. */
+  function otherWays(amount, what) {
+    const pay = (window.PRO && window.PRO.pay) || {}, rows = [];
+    if (pay.cashapp) rows.push(`<div class="kv"><span>Cash App</span><b>${esc(pay.cashapp)}</b></div>`);
+    if (pay.paypal) rows.push(`<div class="kv"><span>PayPal</span><b><a data-link="${esc(pay.paypal)}" class="lnk">${esc(pay.paypal.replace(/^https?:\/\//, ""))}</a></b></div>`);
+    if (pay.venmo) rows.push(`<div class="kv"><span>Venmo</span><b>${esc(pay.venmo)}</b></div>`);
+    if (!rows.length) return "";
+    const email = (() => { try { return (Account.status ? Account.status() : {}).email || null; } catch (e) { return null; } })();
+    return `<div class="sub-h" style="margin-top:16px">Other ways to pay</div>${rows.join("")}
+      <p class="note">Send <b>${esc(amount)}</b> for ${esc(what)} and put <b>${email ? esc(email) : "your sign-in email"}</b> in the note. Your account is switched on within a day, usually sooner. No subscription: it runs out when the time is up and you can pay again.</p>`;
+  }
   function paywallBody(s) {
     const pending = Account.billing.pending;
+    if (Store.web) {                                                 // no store on the web: a Play subscription carries over, or pay another way
+      const plan = P.plans.find(x => x.id === pickPlan) || P.plans[0];
+      return `<section class="card">
+        <div class="plans">${planList()}</div>
+        <p class="note" style="margin-top:12px">Pro bought in the Android app on Google Play carries over to this account here: sign in with the same email.</p>
+        ${otherWays(plan.fallback.replace(/ a (month|year)$/, "") + (plan.id === "yearly" ? " for a year" : " for a month"), "Dynasty Mover Pro")}
+        <button class="link-btn" id="pwRestore" style="display:block;margin:10px auto 0">I've paid: check my account</button>
+      </section>`;
+    }
     return `<section class="card">
         <div class="plans">${planList()}</div>
         <button class="btn primary block big" id="pwBuy" style="margin-top:14px">Subscribe</button>
@@ -130,7 +152,7 @@ const Pro = (() => {
       pickPlan = b.dataset.plan;
       $$("[data-plan]", root).forEach(x => x.classList.toggle("on", x === b));
     });
-    $("#pwBuy", root).onclick = () => Account.buy(pickPlan);
+    if ($("#pwBuy", root)) $("#pwBuy", root).onclick = () => Account.buy(pickPlan);
     $("#pwRestore", root).onclick = () => { toast("Checking Google Play…"); if (Store.native && Native.billingStart) Native.billingStart(); Account.refresh(true); };
   }
   /* What each locked feature is called on the upgrade sheet. */
@@ -173,10 +195,10 @@ const Pro = (() => {
         <li>The draft helper: the board adjusted to your league's format, your picks, where you're thin, who to take next and why, and who is likely to be there when you pick</li>
         <li>Marks for who is gone as the draft goes, and a Sleeper draft followed live</li>
         <li>Who goes around each of your picks, on the pick's card</li></ul>
-      <section class="card"><button class="btn primary block big" id="kitBuy" ${pending ? "disabled" : ""}>${pending ? "Payment pending…" : `Unlock for ${esc(price)}`}</button>
+      <section class="card">${Store.web ? `<p class="note">Bought in the Android app on Google Play, the kit carries over to this account here.</p>${otherWays(price, `the ${a.label}`)}<button class="link-btn" id="kitBuy" style="display:block;margin:10px auto 0">I've paid: check my account</button>` : `<button class="btn primary block big" id="kitBuy" ${pending ? "disabled" : ""}>${pending ? "Payment pending…" : `Unlock for ${esc(price)}`}</button>`}
         <div class="hint" style="margin-top:10px;text-align:center">One payment through Google Play. Not a subscription.</div>
         <button class="link-btn" id="kitRestore" style="display:block;margin:10px auto 0">Restore purchase</button></section>${legal()}`);
-    $("#kitBuy", body).onclick = () => Account.buy(a.id);
+    $("#kitBuy", body).onclick = () => { if (Store.web) { toast("Checking your account…"); Account.refresh(true); } else Account.buy(a.id); };
     $("#kitRestore", body).onclick = () => { toast("Checking Google Play…"); Account.startBilling(); Account.refresh(true); };
   }
   /** The lock card a locked view shows in place of the goods. */

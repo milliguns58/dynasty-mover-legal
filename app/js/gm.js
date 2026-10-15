@@ -115,6 +115,7 @@ const GM = (() => {
     out.push("");
     out.push(...houseRules(rd, sf));
     try { const sc = Score.briefLine(c, v, W); if (sc) out.push(sc); } catch (e) { /* no record yet */ }
+    try { const A = W && W.acc; if (A && A.all) out.push(`This season's weekly projections have missed by ${A.all.mae.toFixed(1)} points a player on average (${Math.round(A.all.close * 100)}% within 5, ${A.all.n} player-weeks); the numbers in this brief are already corrected for how they ran by position. Say so when a call rests on a close projection.`); } catch (e) { /* none */ }
     try { const mt = marketText(); if (mt && c.league.use_market !== false) out.push(mt + " The app's trade verdicts are priced with it."); } catch (e) { /* none */ }
     out.push("");
     out.push("# How to read the numbers");

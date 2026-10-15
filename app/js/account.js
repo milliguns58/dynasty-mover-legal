@@ -101,7 +101,7 @@ const Account = (() => {
 
   // ---- the user's document ----
   const docName = uid => `projects/${F.projectId}/databases/(default)/documents/users/${uid}`;
-  const version = () => (Store.native && Native.version ? Native.version() : "dev");
+  const version = () => (Store.native && Native.version ? Native.version() : (window.APP_VERSION ? window.APP_VERSION + " web" : "dev"));   // the admin page's Version column
 
   async function createUser() {
     await call("POST", DOCS + ":commit", { writes: [{

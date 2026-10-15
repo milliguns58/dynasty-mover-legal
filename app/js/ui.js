@@ -253,7 +253,7 @@ function moveOf(a) {
   return { dir: pct >= 0.03 ? "up" : (pct <= -0.03 ? "down" : "flat"), amt };
 }
 const ARROW = { up: "▲", down: "▼", flat: "–" };
-const logTabs = yr => `<div class="seg log-yr">${[parseInt(S.cfg.season, 10), parseInt(S.cfg.season, 10) - 1, "career"].map(y =>
+const logTabs = yr => `<div class="seg log-yr">${[parseInt(S.cfg.season, 10), "career"].map(y =>          // this season, then the career table (the user's ask, 2026-10-14)
   `<button data-logyr="${y}" class="${String(y) === String(yr) ? "on" : ""}">${y === "career" ? "Career" : y}</button>`).join("")}</div>`;
 /* The player card's career table: one row a season, newest first, filled in as seasons arrive (st from E.career_stats). */
 function careerHtml(st, a) {
@@ -332,8 +332,10 @@ function epLine(a) {
   const e = a.ep, gap = epGap(a);
   if (!e || Math.abs(gap) < 1.5 || locked()) return "";
   const up = gap > 0, elite = !up && ["A+", "A"].includes(gradeOf(a).g);       // the best beat their usage year after year: no sell call on them
+  // the usage check informs; it gives no second verdict (the grade already counts it, and a card arguing with itself
+  // was the user's complaint, 2026-10-14)
   const head = up ? "Due for more" : elite ? "Hot, as the best usually are" : "Running hot";
-  const call = up ? "That gap usually closes: buy before it does." : elite ? "Expect a touch less, not a collapse; this isn't a sell sign on a player like him." : "That doesn't last: sell while it holds.";
+  const call = up ? "The points usually catch up with the usage; that is counted in our grade." : elite ? "Expect a touch less, not a collapse." : "Some of that comes back down; that is counted in our grade.";
   return `<div class="edge ${up ? "buy" : elite ? "lean" : "sell"} ep"><b>${head}</b> His usage was worth ${(e.exp / e.g).toFixed(1)} a game${e.tdx != null ? ` and ${e.tdx.toFixed(1)} touchdowns` : ""}; he scored ${(e.pts / e.g).toFixed(1)}${e.td != null ? ` with ${Math.round(e.td)}` : ""}. ${call} <span class="muted">Expected points, ${e.g} games.</span></div>`;
 }
 /* Where our grade and the market disagree: the edge. 2+ grade steps = buy or sell; 1 step = we lean that way. */
@@ -659,9 +661,16 @@ function analyze(scroll, animate) {
 }
 
 /* The verdict in plain words: who comes out ahead and by roughly how much. */
+/* A trade with a piece the lists don't value yet gets no verdict: no advice beats bad advice (the user's rule, 2026-10-13). */
+function thinPieces() {
+  return ["A", "B"].flatMap(k => S.sides[k].items.filter(a => a && !a.is_pick && (a.unranked || !(a.value > 0))).map(a => a.name))
+    .concat(["A", "B"].flatMap(k => S.sides[k].items.filter(a => a && a.is_pick && a.estimated).map(a => a.name.replace(/\s*\(via [^)]*\)\s*$/, ""))));
+}
 function plainVerdict(r) {
   const V = r.view || r.market, T = S.cfg.adjustments.verdict_pct, pct = V.pct, a = Math.abs(pct);
   const A = sideName("A"), B = sideName("B");
+  const thin = thinPieces();
+  if (thin.length) return { tone: "fair", thin: true, title: "Not enough to judge", line: `${thin.slice(0, 3).join(", ")} ${thin.length === 1 ? "has" : "have"} no value in the lists yet, so this app gives no verdict on this trade rather than a guess.` };
   if (r.redraft && r.lineup) {
     const w = r.verdict.winner;
     return { tone: w ? "edge" : "fair", title: r.verdict.text.replace("Team A", A).replace("Team B", B), line: "Judged on each team's starting lineup this season." };
@@ -696,7 +705,7 @@ function showResult(r, animate) {
   if (r.balance && r.balance.length && locked()) {
     h += `<section class="card"><h2>Make it fair ${Pro.tag()}</h2><div class="hint">See which player or pick would even this trade out.</div>
       <button class="btn soft block" data-lock="fair" style="margin-top:12px">Show me with Pro</button></section>`;
-  } else if (r.balance && r.balance.length) {
+  } else if (r.balance && r.balance.length && !thinPieces().length) {
     const who = r.balance[0].side === "A" ? A : B;
     h += `<section class="card"><h2>Make it fair</h2><div class="hint">${esc(who)} ${verb(who, "add")} one of these to even it out. Tap to add.</div>
       <div class="list">${r.balance.map(b => `<div class="item" data-bal="${esc(b.id)}" data-side="${b.side}"><span class="plus">+</span><div class="nm"><div class="n">${b.id && !String(b.id).startsWith("pick") ? `<a class="plink" data-pcard="${esc(b.id)}">${esc(b.name)}</a>` : esc(b.name)}</div>
@@ -1361,7 +1370,9 @@ function drawLineup(body, t, W) {
   const better = L.gain > (W.valuesOnly ? 1 : 0.05);
   let h = `<div id="liveCard"></div><section class="card stat-card tone-blue"><div><div class="big-num">${num(L.rec_total)}</div><div class="hint">${W.valuesOnly ? "best lineup value" : `projected points, week ${L.week}`}</div></div>
     ${L.has_current ? `<div><div class="big-num ${better ? "good" : ""}">${better ? "+" + num(L.gain) : "✓"}</div><div class="hint">${better ? "if you make the changes" : "lineup is set"}</div></div>` : ""}</section>`;
-  if (L.has_current && L.changes.length) {                       // one line a swap: who comes in, who sits, the points of each
+  if (W.valuesOnly) {                                            // no projections this week: the lineup is shown by value, but no changes are called (no advice beats bad advice)
+    h += `<section class="card tone-green set-card"><b>No projections for this week yet.</b> The lineup below is by value; no changes are suggested until the week's numbers are in.</section>`;
+  } else if (L.has_current && L.changes.length) {                // one line a swap: who comes in, who sits, the points of each
     const lone = benches.filter(c => !starts.some(s => s.instead && s.instead.name === c.name) && (starts.some(s => s.instead !== undefined) || benches.indexOf(c) >= starts.length));
     h += `<section class="card tone-green"><h2>Changes to make</h2><div class="list">
       ${starts.map((c, i) => { const b = c.instead !== undefined ? c.instead : benches[i]; return `<div class="swap"><span class="swap-tag in">Start</span><div class="swap-who"><b>${plinkName(c.name)}</b>${c.flag ? `<span class="flag ${esc(c.flag)}">${esc(c.flag)}</span>` : ""}${b ? `<div class="s">over ${plinkName(b.name)}${b.flag ? ` <span class="muted">${esc(b.flag.toLowerCase())}</span>` : ""}</div>` : ""}</div>
@@ -2130,6 +2141,7 @@ function renderLeague(el) {
       ${lg ? `<div class="kv"><span>Rosters</span><b>${esc(ago(lg.imported))}</b></div>` : ""}
       ${lg && lg.league_id && !E.is_redraft(S.cfg) && marketText() ? `<div class="hint" style="margin-top:8px">${esc(marketText())}</div>` : ""}
       <div class="btns" style="margin-top:12px"><button class="btn primary" id="upd">Update values</button>${lg ? (lg.league_id ? `<button class="btn ghost" id="reimp">Refresh rosters</button>` : `<button class="btn ghost" id="editTeam">Edit rosters</button>`) : ""}</div>
+      ${lg ? `<button class="btn ghost block" id="power" style="margin-top:8px">Power rankings</button>` : ""}
       ${lg ? `<button class="btn ghost block" id="thist" style="margin-top:8px">Trade history${proTag() ? " " + proTag() : ""}</button>` : ""}
       ${lg && !E.is_redraft(S.cfg) ? `<button class="btn ghost block" id="toDraftL" style="margin-top:8px">Rookie draft helper</button>` : ""}
       ${more("Having trouble?", `<p class="note">If this league looks wrong (players missing, odd values, something that won't load), start it over: everything saved for it on this phone is removed and it is downloaded again from Sleeper. Your other leagues aren't touched.</p>
@@ -2184,6 +2196,7 @@ function renderLeague(el) {
   on("editTeam", () => rosterBuilder(S.cfg.my_roster_id ?? (teams()[0] || {}).roster_id));
   on("toDraftL", () => { S.rank.pos = "DRAFT"; go("rank"); });
   on("thist", () => historySheet());
+  on("power", () => powerSheet());
   on("redoLeague", () => redoLeague());
   on("rmLeague", () => removeLeague(E.P.id, el));
   on("nextSeason", () => nextSeason());
@@ -2301,25 +2314,88 @@ async function liveCard(body, t, W) {
   await draw();
   if (box.innerHTML) S.liveTimer = setInterval(draw, LIVE_EVERY);
 }
+/* League power rankings: every team's rank by overall value, starters, each position and picks, coloured by thirds.
+   Tap a column head to sort by it, a row to open that team on My team. */
+const PR_COLS = [["overall", "OVR"], ["starters", "STR"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["picks", "PK"]];
+function powerSheet() {
+  if (!S.values || !teams().length) return;
+  S.pr = S.pr || { sort: "overall" };
+  const body = openSheet(`<div class="sheet-head"><h2>Power rankings</h2><button class="close" aria-label="Close">×</button></div><div id="prBody"></div>`, { full: true });
+  $(".close", body).onclick = closeSheet;
+  const draw = () => {
+    const P = Week.power_rankings(S.values, S.cfg), cols = PR_COLS.filter(([k]) => P.cols.includes(k)), third = Math.max(1, Math.ceil(P.n / 3));
+    const rows = P.rows.slice().sort((a, b) => (a.rank[S.pr.sort] || 99) - (b.rank[S.pr.sort] || 99));
+    const chip = r => `<span class="pr-chip ${r <= third ? "pr-hi" : r > P.n - third ? "pr-lo" : "pr-mid"}">${r}</span>`;   // not "top": the header's class
+    const tierCls = m => (m === "contending" ? "pr-hi" : m === "rebuilding" || m === "long shot" ? "pr-lo" : "pr-mid");
+    // fits a phone with no sideways scroll (a pinned column broke in the app's web view, 2026-10-15): record and tier
+    // sit under the team name, the columns are short heads with small chips
+    $("#prBody", body).innerHTML = `<div class="hint" style="margin-bottom:8px">Ranks by Dynasty Mover value. OVR the whole roster with picks, STR the best lineup, then each position and PK the picks held. Tap a column to sort, a team to open it.</div>
+      <table class="pr"><thead><tr><th class="pr-team">Team</th>${cols.map(([k, l]) => `<th data-sort="${k}" class="${S.pr.sort === k ? "on" : ""}">${l}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map(r => `<tr data-rid="${r.rid}"><td class="pr-team"><div class="n">${esc(r.team)}${r.rid === S.cfg.my_roster_id ? ' <span class="tag-start">You</span>' : ""}</div>
+        <div class="s">${esc(r.record)} · <span class="pr-tier ${tierCls(r.mode)}">${esc(r.tier)}</span></div></td>${cols.map(([k]) => `<td>${chip(r.rank[k])}</td>`).join("")}</tr>`).join("")}</tbody></table>
+      ${credits()}`;
+    $$("th[data-sort]", body).forEach(th => th.onclick = () => { S.pr.sort = th.dataset.sort; draw(); });
+    $$("tr[data-rid]", body).forEach(tr => tr.onclick = () => { S.team.id = +tr.dataset.rid; S.team.seg = "roster"; saveUi(); closeSheet(); go("team"); });
+  };
+  draw();
+}
 /* The scorecard: how right the app has been, from score.js. Shown once a played week is on record. */
 function scoreCard() {
+  // plain words first (the user's ask, 2026-10-15): one headline sentence, a short table, two short lines
   let R = null;
-  try { R = Score.report(S.cfg, S.values, S.W); } catch (e) { return ""; }
-  if (!R) return "";
-  const p1 = R.lastProj, ps = R.seasonProj, l1 = R.lastLineup, ls = R.seasonLineup;
-  const pct = x => `${Math.round(x * 100)}%`;
+  try { R = Score.report(S.cfg, S.values, S.W); } catch (e) { R = null; }
+  const tc = tradeCalls(), A = S.W && S.W.acc;
+  if (!S.W && !S.accAsked && S.cfg) { S.accAsked = true; weekData().then(() => { if (S.tab === "league" && !sheetOpen()) renderLeague($("#view")); }).catch(() => {}); }   // the projection record needs the week's data once
+  const hasA = !!(A && A.weeks.length && A.all);
+  if (!R && !tc && !hasA) return "";
+  R = R || { lastLineup: null, seasonLineup: null, grades: [], weeks: [], last: null };
+  const pct = x => `${Math.round(x * 100)}%`, pts = x => `${x.toFixed(1)} pts`;
+  let h = "";
+  if (hasA) {
+    const right = A.all.close, miss = A.all.mae;
+    h += `<div class="sc-big"><b>${pct(right)}</b><span>of our weekly point estimates landed within 5 points of what the player scored. On average we missed by ${pts(miss)}.</span></div>
+      <table class="acc"><thead><tr><th>Week</th><th>Close</th><th>Missed by</th><th>Our estimates were</th></tr></thead><tbody>
+      ${A.weeks.map(r => `<tr><td>${r.w}</td><td>${pct(r.close)}</td><td>${pts(r.mae)}</td><td class="${Math.abs(r.bias) < 0.5 ? "" : r.bias > 0 ? "warn" : "warn"}">${Math.abs(r.bias) < 0.5 ? "about right" : r.bias > 0 ? `too low by ${r.bias.toFixed(1)}` : `too high by ${(-r.bias).toFixed(1)}`}</td></tr>`).join("")}
+      </tbody></table>`;
+    const up = [], down = [], NAME = { QB: "quarterbacks", RB: "running backs", WR: "receivers", TE: "tight ends" };
+    if (A.use) for (const [pos, c] of Object.entries(A.calib)) { if (c.n < 25) continue; const d = c.a + c.b * 10 - 10; if (d >= 0.5) up.push(NAME[pos]); else if (d <= -0.5) down.push(NAME[pos]); }
+    const adj = !A.gain ? "Not enough weeks yet to fine-tune this week's estimates."
+      : !A.use ? "This week's estimates are left as they are: fine-tuning from past weeks wasn't making them better."
+      : up.length || down.length ? `This week's estimates are fine-tuned from that record: ${[up.length ? `${up.join(" and ")} nudged up` : "", down.length ? `${down.join(" and ")} nudged down` : ""].filter(Boolean).join(", ")}, because that is how they've run.`
+      : "This week's estimates match how past weeks ran, so no fine-tuning was needed.";
+    h += `<p class="note" style="margin-top:8px">"Close" means within 5 points either way. Each week is checked against what we would have said before kickoff.</p><p class="note">${esc(adj)}</p>`;
+  }
   const rows = [];
-  if (p1) rows.push(`<div class="kv"><span>Projections, week ${R.last}</span><b>off by ${p1.mae.toFixed(1)} a player · ${pct(p1.close)} within 5</b></div>`);
-  if (ps && R.weeks.length > 1) rows.push(`<div class="kv"><span>Projections, season</span><b>off by ${ps.mae.toFixed(1)} a player · ${pct(ps.close)} within 5${Math.abs(ps.bias) >= 1 ? ` · ${ps.bias > 0 ? "we ran low" : "we ran high"} by ${Math.abs(ps.bias).toFixed(1)}` : ""}</b></div>`);
-  if (l1) rows.push(`<div class="kv"><span>Our lineup, week ${R.last}</span><b>${l1.got.toFixed(1)} of a possible ${l1.best.toFixed(1)} · ${pct(l1.eff)}</b></div>`);
-  if (ls && ls.n > 1) rows.push(`<div class="kv"><span>Our lineups, season</span><b>${pct(ls.eff)} of the best possible over ${ls.n} weeks</b></div>`);
+  const l1 = R.lastLineup, ls = R.seasonLineup;
+  if (l1) rows.push(`<div class="kv"><span>Our lineup, week ${R.last}</span><b>${pts(l1.got)} of a possible ${pts(l1.best)}</b></div>`);
+  if (ls && ls.n > 1) rows.push(`<div class="kv"><span>Our lineups, season</span><b>${pct(ls.eff)} of the best possible</b></div>`);
   if (R.grades.length >= 2) rows.push(`<div class="kv"><span>Points a game by our grade</span><b>${R.grades.map(g => `${g.g} ${g.ppg.toFixed(1)}`).join(" · ")}</b></div>`);
-  if (!rows.length) return "";
-  return `<section class="card tone-green"><h2>How right we've been</h2><div class="hint">What the app said each week, measured against the points that followed. ${E.PLAY ? "Points by week from Sleeper." : ""}</div>
-    <div style="margin-top:8px">${rows.join("")}</div>
-    <p class="note muted" style="margin-top:8px">A projection within 5 points is a good call for a skill player; the best possible lineup is judged after the games, so even a perfect week lands under 100%.</p></section>`;
+  if (tc) rows.push(`<div class="kv"><span>Trade calls</span><b>right ${pct(tc.agree / tc.n)} of the time (${tc.agree} of ${tc.n})</b></div>`);
+  if (rows.length) h += `<div class="sub-h" style="margin-top:14px">Lineups, grades and trades</div>${rows.join("")}<p class="note muted" style="margin-top:6px">A trade call is right when the side we favoured went on to score more.</p>`;
+  if (!h) return "";
+  return `<section class="card tone-green"><h2>How right we've been</h2><div class="hint">Our numbers against what really happened.</div><div style="margin-top:10px">${h}</div></section>`;
 }
-const lastCallHtml = a => { try { const c = Score.lastCall(S.cfg, S.values, a, S.W); return c ? `<div class="bg-scope">Week ${c.week}: we said ${c.said.toFixed(1)}, he scored ${c.got.toFixed(1)}</div>` : ""; } catch (e) { return ""; } };
+/* Trade calls right: in the league's trades with a 5%+ edge by our values and games played since, how often the side
+   we favoured went on to score more (needs the trade history loaded once: the History sheet, or the daily market fit). */
+function tradeCalls() {
+  const D = S.hist && S.hist.data; if (!D || !D.trades) return null;
+  let agree = 0, n = 0;
+  for (const t of D.trades) {
+    if (!t.sides || t.sides.length !== 2) continue;
+    const [A, B] = t.sides, va = A.sum.now, vb = B.sum.now, pa = A.sum.pts, pb = B.sum.pts;
+    if ((A.sum.g || 0) + (B.sum.g || 0) < 6 || Math.max(va, vb) === 0 || Math.abs(va - vb) / Math.max(va, vb) < 0.05) continue;
+    n++; if ((va > vb) === (pa > pb)) agree++;
+  }
+  return n >= 5 ? { agree, n } : null;
+}
+/* Our estimate against what he scored, his last weeks (the projection record), else the live snapshot. */
+const lastCallHtml = a => {
+  try {
+    const per = S.W && S.W.acc && S.W.acc.per && S.W.acc.per[String(a.sleeper_id || "")];
+    if (per) { const ws = Object.keys(per).map(Number).sort((x, y) => y - x).slice(0, 3); if (ws.length) return `<div class="bg-scope">What we said vs what he scored: ${ws.map(w => `wk ${w}: ${per[w][0].toFixed(1)} vs ${per[w][1].toFixed(1)}`).join(" · ")}</div>`; }   // newest first, plain words
+    const c = Score.lastCall(S.cfg, S.values, a, S.W); return c ? `<div class="bg-scope">Week ${c.week}: we said ${c.said.toFixed(1)}, he scored ${c.got.toFixed(1)}</div>` : "";
+  } catch (e) { return ""; }
+};
 /* The screenshot import: shrink the picture, send it to the Worker's vision route, match the names it returns to
    Sleeper's list (the value lists first, then the pool for kickers, defenses and deep benches), and show the review list. */
 async function importScreenshot(file, lg, t, B, poolPos, free, redraw) {
@@ -2563,6 +2639,8 @@ async function refreshMarket() {
   const hist = await Hist.ensure(S.cfg, lg, {}), data = await Hist.outcomes(S.cfg, S.values, hist);
   if (E.P.id !== pid) return;
   Hist.market_save(Hist.market_fit(data.trades, parseInt(S.cfg.season, 10))); S.result = null;
+  S.hist = S.hist || { seg: null, data: null, at: 0, key: null, token: null };    // the scorecard's trade-call rate reads it
+  S.hist.data = data; S.hist.at = Date.now();
 }
 /* The market line: "QB +12%, picks -6% (from 23 trades)". Empty until the league has enough trades. */
 function marketText() {

@@ -309,7 +309,7 @@ const ROTATION_DEPTH = { QB: 1, RB: 3, WR: 4, TE: 2 };    // deeper than this on
 /* Recency (2026-10-13): the last three games weigh more than the season average, and a change in opportunities over
    those games (a quarterback change, an injury ahead of him) moves the number the same week. */
 const RECENT_GAMES = 3, RECENT_WEIGHT = 0.55, USAGE_PULL = 0.5;
-function recent_rate(sid, pos, cur, weekly, season, cfg) {
+function recent_rate(sid, pos, cur, weekly, season, cfg, upto = null) {
   const c = cur[sid]; if (!c || !c.gp) return null;
   const pk = pts_key(cfg), seasonRate = c[pk] / c.gp;
   const games = Object.keys(weekly || {}).map(Number).sort((a, b) => a - b).filter(w => weekly[w][sid]).map(w => weekly[w][sid][pk]);
@@ -319,13 +319,13 @@ function recent_rate(sid, pos, cur, weekly, season, cfg) {
   // usage: opportunities a game over the last three against the season (the stats cache keeps opportunities by week)
   const wk = (Store.get(`nflv_wk_${season}.json`) || {}).players || {}, a = E.P.values && E.P.values.by_sleeper[sid], o = a && wk[E.player_key(a.name, a.pos)];
   if (o && o[3]) {
-    const ws = Object.keys(o[3]).map(Number).sort((x, y) => x - y), opp = w => o[3][w][2] || 0;
+    const ws = Object.keys(o[3]).map(Number).filter(w => !upto || w < upto).sort((x, y) => x - y), opp = w => o[3][w][2] || 0;
     const seasonOpp = ws.reduce((s, w) => s + opp(w), 0) / ws.length, lastOpp = ws.slice(-RECENT_GAMES).reduce((s, w) => s + opp(w), 0) / Math.min(RECENT_GAMES, ws.length);
     if (seasonOpp > 0 && ws.length >= 4) { const ratio = Math.max(0.5, Math.min(1.6, lastOpp / seasonOpp)); rate *= 1 + USAGE_PULL * (ratio - 1); }   // half of a usage change carries into the number
   }
   return rate;
 }
-function our_projections(cfg, seasons, season, status = {}, week = 0, weekly = null) {
+function our_projections(cfg, seasons, season, status = {}, week = 0, weekly = null, upto = null) {
   const pk = pts_key(cfg), cur = seasons[season] || {}, prev = seasons[season - 1] || {}, teams = parseInt(cfg.league.teams, 10) || 12;
   const starters = { QB: parseInt(cfg.league.num_qbs, 10) >= 2 ? 2 : 1, RB: 2.5, WR: 3.5, TE: 1.2 }, prior = {};
   for (const pos of POSITIONS) {
@@ -344,7 +344,7 @@ function our_projections(cfg, seasons, season, status = {}, week = 0, weekly = n
     if (week >= 2 && g0 === 0 && depth != null && depth > (ROTATION_DEPTH[r.pos] || 1)) pts = 0;
     else if (week >= 2 && g0 === 0 && depth !== 1) pts = (prior[r.pos] || 0) * (depth === 2 ? 0.5 : 0.3);   // (unknown depth and no games: treated as deep)
     else {
-      const rate = c ? (recent_rate(sid, r.pos, cur, weekly, season, cfg) ?? c[pk] / c.gp) : 0;         // this season at the recent rate
+      const rate = c ? (recent_rate(sid, r.pos, cur, weekly, season, cfg, upto) ?? c[pk] / c.gp) : 0;   // this season at the recent rate
       pts = (g0 * rate * 1 + w1 * (p ? p[pk] / p.gp : 0) + 2 * (prior[r.pos] || 0)) / (g0 + w1 + 2);
       // a healthy non-starter who has missed most of the season's games isn't about to play a full one
       if (week >= 3 && !st.inj && depth != null && depth > 1 && g0 < 0.6 * (week - 1)) pts *= Math.max(0.25, (g0 + 0.5) / (week - 1));
@@ -354,7 +354,100 @@ function our_projections(cfg, seasons, season, status = {}, week = 0, weekly = n
   return proj;
 }
 
+// ---------------------------------------------------------------------------
+// Projection accuracy (2026-10-15): each past week re-projected with what was known before it, against what happened;
+// a per-position correction fitted to that record is applied to this week's projections.
+// ---------------------------------------------------------------------------
+const ACC_MIN_PTS = 3, CALIB_SHRINK = 150, CALIB_MIN_N = 25;
+function upto_week(weekly, w) {                              // this season's totals from the weeks before w
+  const cur = {};
+  for (const [v, rows] of Object.entries(weekly || {})) {
+    if (+v >= w) continue;
+    for (const [sid, r] of Object.entries(rows)) {
+      const c = cur[sid] || (cur[sid] = { gp: 0, pts_std: 0, pts_ppr: 0, pts_half_ppr: 0, name: r.name, pos: r.pos, team: r.team });
+      c.gp += 1; c.pts_std += +r.pts_std || 0; c.pts_ppr += +r.pts_ppr || 0; c.pts_half_ppr += +r.pts_half_ppr || 0; c.team = r.team || c.team;
+    }
+  }
+  return cur;
+}
+async function past_projections(cfg, W, w) {
+  if (W.ours) {
+    const weeklyBefore = Object.fromEntries(Object.entries(W.weekly || {}).filter(([v]) => +v < w));
+    return our_projections(cfg, { [W.season]: upto_week(W.weekly, w), [W.season - 1]: (W.seasons || {})[W.season - 1] || {} }, W.season, W.status || {}, w, weeklyBefore, w);
+  }
+  return await week_projections(cfg, w).catch(() => ({}));    // Sleeper keeps each past week's projection
+}
+function acc_stats(pairs) {
+  if (!pairs.length) return null;
+  let abs = 0, close = 0, bias = 0;
+  for (const x of pairs) { const d = x.y - x.p; abs += Math.abs(d); bias += d; if (Math.abs(d) <= 5) close++; }
+  return { n: pairs.length, mae: abs / pairs.length, close: close / pairs.length, bias: bias / pairs.length };
+}
+/* actual = a + b x projection by position, weighted least squares (recent weeks count more: a week's weight halves
+   every 1.5 weeks back), shrunk toward no change (a 0, b 1) by sample size. Week 1 is left out: with no games yet
+   the model runs on last season alone and misses in its own way (it ran 2.6 points low in 2026). Tested out of sample
+   on 2026 weeks 3-5 against plain, bias-only and heavier-shrink versions: this one cut the miss 4.70 -> 4.66. */
+const CALIB_HALF = 1.5;
+function fit_calib(pairs, forWeek) {
+  const out = {}, wt = x => Math.pow(0.5, Math.max(0, forWeek - 1 - x.w) / CALIB_HALF);
+  for (const pos of POSITIONS) {
+    const P = pairs.filter(x => x.pos === pos && x.w >= 2), n = P.length;
+    if (n < CALIB_MIN_N) { out[pos] = { a: 0, b: 1, n }; continue; }
+    const W = P.reduce((s, x) => s + wt(x), 0);
+    const mx = P.reduce((s, x) => s + wt(x) * x.p, 0) / W, my = P.reduce((s, x) => s + wt(x) * x.y, 0) / W;
+    let sxx = 0, sxy = 0; for (const x of P) { sxx += wt(x) * (x.p - mx) ** 2; sxy += wt(x) * (x.p - mx) * (x.y - my); }
+    let b = sxx > 0 ? sxy / sxx : 1, a = my - b * mx;
+    const k = n / (n + CALIB_SHRINK);
+    b = Math.max(0.75, Math.min(1.25, 1 + (b - 1) * k)); a = Math.max(-3, Math.min(3, a * k));
+    out[pos] = { a: Math.round(a * 100) / 100, b: Math.round(b * 1000) / 1000, n };
+  }
+  return out;
+}
+const apply_calib = (C, pos, pts) => (!C || !C[pos] || !(pts > 0) ? pts : Math.max(0, Math.round((C[pos].a + C[pos].b * pts) * 10) / 10));
+async function accuracy(cfg, W) {
+  const pk = pts_key(cfg), name = `acc.${W.season}.${W.week}.${pk}.${W.ours ? "ours" : "sl"}.json`, c = Store.get(name);
+  if (c && c.v === 2) return c;
+  const weeks = Object.keys(W.weekly || {}).map(Number).filter(w => w >= 1 && w < W.week).sort((a, b) => a - b);
+  const pairs = [], per = {};
+  for (const w of weeks) {
+    const proj = await past_projections(cfg, W, w), act = W.weekly[w] || {};
+    for (const [sid, r] of Object.entries(proj || {})) {
+      if (!POSITIONS.includes(r.pos) || !(r.pts >= ACC_MIN_PTS)) continue;
+      const a = act[sid]; if (!a) continue;                              // he didn't play: a bye or an injury, not a projection miss
+      const y = +a[pk] || 0;
+      pairs.push({ w, pos: r.pos, p: +r.pts, y });
+      (per[sid] = per[sid] || {})[w] = [Math.round(r.pts * 10) / 10, Math.round(y * 10) / 10];
+    }
+  }
+  const rows = weeks.map(w => {
+    const P = pairs.filter(x => x.w === w), raw = acc_stats(P);
+    const before = pairs.filter(x => x.w < w && x.w >= 2), C = w >= 3 && before.length >= 4 * CALIB_MIN_N ? fit_calib(before, w) : null;   // the correction as it stood that week
+    const cal = C ? acc_stats(P.map(x => ({ p: apply_calib(C, x.pos, x.p), y: x.y }))) : null;
+    return raw ? { w, n: raw.n, mae: raw.mae, close: raw.close, bias: raw.bias, maeCal: cal ? cal.mae : null } : null;
+  }).filter(Boolean);
+  const byPos = Object.fromEntries(POSITIONS.map(pos => [pos, acc_stats(pairs.filter(x => x.pos === pos))]).filter(([, v]) => v));
+  const calRows = rows.filter(r => r.maeCal != null);
+  const gain = calRows.length ? { raw: calRows.reduce((s, r) => s + r.mae * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), cal: calRows.reduce((s, r) => s + r.maeCal * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), from: calRows[0].w } : null;
+  // the correction is used only while it beats the plain numbers on the past weeks it was tested on (no advice beats bad advice)
+  const out = { v: 2, at: now_iso(), source: W.ours ? "ours" : "sleeper", weeks: rows, all: acc_stats(pairs), byPos, calib: fit_calib(pairs, W.week), per,
+    gain, use: !!(gain && gain.cal < gain.raw - 0.01) };
+  Store.set(name, out);
+  return out;
+}
+/* The correction on this week's projections; the uncorrected number stays on r.raw. */
+async function calibrate(cfg, W) {
+  if (!W || W.valuesOnly || !W.proj || !Object.keys(W.proj).length) return W;
+  try {
+    const A = await accuracy(cfg, W); W.acc = A;
+    if (A.use) for (const r of Object.values(W.proj)) { if (r.raw == null) r.raw = r.pts; r.pts = apply_calib(A.calib, r.pos, r.raw); }
+  } catch (e) { /* no record yet: the projections stand as they are */ }
+  return W;
+}
 async function prepare(cfg, opts = {}) {
+  const W = await prepare_raw(cfg, opts);
+  return calibrate(cfg, W);
+}
+async function prepare_raw(cfg, opts = {}) {
   const season = parseInt(cfg.season);
   if (E.PLAY) {
     // Public app: the weekly data comes only from sources licensed for it. Stats and our own projections from nflverse,
@@ -383,6 +476,27 @@ async function prepare(cfg, opts = {}) {
   return { season, week, proj: proj || {}, ctx: ctx || {}, seasons, weekly, trends: Object.keys(weekly).length ? team_trends(cfg, weekly) : null, status: E.load_player_status() };
 }
 
+// ---------------------------------------------------------------------------
+// League power rankings (2026-10-15): every team ranked by overall value, starting lineup value, each position's total
+// value and the picks it holds, with its record and the app's read of its direction.
+// ---------------------------------------------------------------------------
+const TIER_LABEL = { contending: "Contender", "in between": "In between", rebuilding: "Rebuilding", "in the hunt": "In the hunt", "long shot": "Long shot" };
+function power_rankings(values, cfg) {
+  const prof = team_profiles(values, cfg).teams, rd = is_redraft(cfg);
+  const rows = prof.map(I => {
+    const by = Object.fromEntries(POSITIONS.map(p => [p, I.players.filter(a => a.pos === p).reduce((s, a) => s + a.value, 0)]));
+    const picks = rd ? 0 : I.assets.filter(a => a.is_pick).reduce((s, a) => s + a.value, 0);
+    return { rid: I.t.roster_id, team: I.t.team_name, owner: I.t.owner || "", record: I.t.record || "0-0", place: I.place, mode: I.mode, tier: TIER_LABEL[I.mode] || I.mode,
+      vals: Object.assign({ overall: I.total + picks, starters: E.best_lineup(I.players, values.league.roster_positions_starters || cfg.league.starters).total }, by, rd ? {} : { picks }) };
+  });
+  const cols = ["overall", "starters"].concat(POSITIONS, rd ? [] : ["picks"]);
+  for (const c of cols) {
+    const order = rows.slice().sort((a, b) => b.vals[c] - a.vals[c]);
+    order.forEach((r, i) => { r.rank = r.rank || {}; r.rank[c] = i + 1; });
+  }
+  rows.sort((a, b) => a.rank.overall - b.rank.overall);
+  return { rows, cols, n: rows.length, redraft: rd };
+}
 // ---------------------------------------------------------------------------
 // Live win probability (2026-10-13): Sleeper's live matchup points plus our projection for what is left to play.
 // ---------------------------------------------------------------------------
@@ -730,6 +844,21 @@ function defense_streamers(values, cfg, W) {
   return rows.sort((a, b) => b.adj - a.adj);
 }
 
+/* A real role for a pickup: 2+ games this season with a starter's share of the work (opportunities a game: QB 20 pass
+   attempts, RB 8 carries plus targets, WR 4 targets, TE 3 targets), or top three on his depth chart, or the platform
+   chasing him (pickup_hype 0.3+). Kickers and defenses are judged elsewhere. */
+const ROLE_OPPS = { QB: 20, RB: 8, WR: 4, TE: 3 };
+function real_role(a, W) {
+  if (!a || !POSITIONS.includes(a.pos)) return true;
+  if (pickup_hype(a) >= 0.3) return true;
+  const d = ((W.status || {})[String(a.sleeper_id || "")] || {}).depth;
+  if (d != null && d <= 3) return true;
+  const o = ((Store.get(`nflv_wk_${W.season}.json`) || {}).players || {})[E.player_key(a.name, a.pos)];
+  if (!o || !o[3]) return false;
+  const games = Object.values(o[3]);
+  if (games.length < 2) return false;
+  return games.reduce((s, g) => s + (g[2] || 0), 0) / games.length >= (ROLE_OPPS[a.pos] || 4);
+}
 function roster_moves(values, cfg, team, W, opts = {}) {
   const n = opts.n || 6, per_group = opts.per_group || 3;
   const lg = values.league, starters = lg.roster_positions_starters || cfg.league.starters;
@@ -742,6 +871,10 @@ function roster_moves(values, cfg, team, W, opts = {}) {
   const actual = new Set((team.starters || []).map(String));                      // the players he is actually starting this week: never the drop
   const droppable = roster.filter(a => !starter_ids.has(a.id) && !actual.has(String(a.sleeper_id)) && POSITIONS.includes(a.pos)).sort((a, b) => metric(a) - metric(b));
   let picked = droppable.length ? _grouped_moves(values, cfg, roster, droppable, fas, metric, metric_name, parts, starters, before, per_group, n) : [];
+  // no advice beats bad advice (the user's rule, 2026-10-13; raised 2026-10-15 after Reggie Virgil, WR5 with one game,
+  // was suggested): a pickup is a move only with a real role. Two games with a real share of the work, or a top-three
+  // spot on his depth chart, or the league chasing him. Deep stashes stay on the Best available board.
+  if (W.week >= 2) picked = picked.filter(m => m.group === "DEF" || !m.add || real_role(m.add, W));
   if (!W.valuesOnly && !W.ours && (lg.roster_positions || []).includes("DEF")) picked = picked.concat(_defense_moves(team, opts.defenses || defense_streamers(values, cfg, W), per_group));
   if (parseInt(lg.waiver_type || 0) === 2 && parseInt(lg.waiver_budget || 0) > 0) {
     const budget = parseInt(lg.waiver_budget);
@@ -1329,6 +1462,6 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
   return { band: band[1], tone: band[2], score, pct, lens, lensTxt, reasons, sweeteners, need, message, summary, owner, mode: B.mode, thin: B.thin, deep: B.deep, trades: T };
 }
 
-return { NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
+return { NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
   waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades };
 })();

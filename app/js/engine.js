@@ -54,7 +54,7 @@ const DEFAULT_CONFIG = {
       WR: [[22, 1.06], [25, 1.03], [28, 1.0], [29, 0.97], [30, 0.9], [31, 0.75], [32, 0.6], [34, 0.4]],
       TE: [[23, 1.05], [26, 1.02], [30, 1.0], [33, 0.97], [35, 0.9], [36, 0.82], [37, 0.7], [38, 0.55], [40, 0.4]],
     },
-    consolidation_bonus_pct: 8, depth_weight: 0.25,
+    consolidation_bonus_pct: 12, depth_weight: 0.25,     // 8 -> 12 on the user's leagues' accepted 2-for-1s and 3-for-1s (tools/values/trade_formula.py, 2026-10-14)
   },
 };
 
@@ -187,6 +187,7 @@ function load_config() {
     cfg.adjustments.modes_v2 = true; Store.set(f("config.json"), cfg);
   }
   if (cfg.adjustments) cfg.adjustments.age_curve = clone(DEFAULT_CONFIG.adjustments.age_curve);   // the age model is the app's, never a saved copy (the user's cliffs, 2026-10-12)
+  if (cfg.adjustments && cfg.adjustments.consolidation_bonus_pct === 8) cfg.adjustments.consolidation_bonus_pct = DEFAULT_CONFIG.adjustments.consolidation_bonus_pct;   // leagues still on the old default move with it
   return cfg;
 }
 function save_config(cfg) { Store.set(f("config.json"), cfg); }
@@ -286,11 +287,13 @@ function bench_qb_cap(values, cfg) {
   const hurt = a => { const i = (st[a.sleeper_id] || {}).inj; return !!i && i !== "Questionable"; };
   const depth = a => (st[a.sleeper_id] || {}).depth;
   const starter = a => started(a) || (depth(a) === 1 && !(rec(a) && rec(a)[0] > 0));
+  const SL = (Store.get("sleeper_players.json") || {}).players || {};
+  const prospect = a => { const x = SL[String(a.sleeper_id)] || {}; return !is_redraft(cfg) && x.years_exp != null && +x.years_exp <= 1 && a.age != null && a.age <= 25.5; };   // a rookie or second-year QB being developed (Fernando Mendoza, 2026-10-15)
   const starters = qbs.filter(a => starter(a) && a.team && a.team !== "FA");
   if (starters.length < 20) return;                                                  // the week's data isn't in yet
   const ranked = starters.slice().sort((x, y) => y.value - x.value);              // the bar is the 32nd starter, not an emergency fill-in
   const floor = ranked[Math.min(31, ranked.length - 1)].value * BENCH_QB_CAP;
-  const backups = qbs.filter(a => !starter(a) && !hurt(a) && a.value > floor).sort((x, y) => y.value - x.value);
+  const backups = qbs.filter(a => !starter(a) && !hurt(a) && !prospect(a) && a.value > floor).sort((x, y) => y.value - x.value);
   if (!backups.length) return;
   const top = backups[0].value;
   for (const a of backups) {
@@ -859,11 +862,16 @@ const DMV = {"w26":0.0858,"w25":0.0407,"w24":0.0163,"k":2.0755,"best":0.0513,"E_
    the values and ranks the Pro app trades on. DMV: our own dynasty view (the research age curves and the breakout bump);
    this gives the grades. Where the two disagree, the user gets a buy or sell hint the market doesn't show. */
 const DMV_MKT = {"w26":1.2308,"w25":0.3516,"w24":0.1384,"best_QB":0.2754,"best_RB":0.0042,"best_WR":0.0,"best_TE":0.0799,"E_QB":2.4573,"E_RB":2.0561,"E_WR":1.9325,"E_TE":1.6575,"S_QB":6.3241,"S_RB":19.8025,"S_WR":37.3424,"S_TE":64.0041,"R_QB":4.2772,"R_RB":-1.632,"R_WR":1.0846,"R_TE":1.3444,"peak_QB":28.7639,"peak_RB":23.0034,"peak_WR":25.0003,"peak_TE":27.4564,"dec_QB":0.1019,"dec_RB":0.142,"dec_WR":0.0921,"dec_TE":0.1034,"young":0.6011,"D_QB":2033.7033,"D_RB":2902.7461,"D_WR":2029.4478,"D_TE":1419.4604,"L":128.1501,"kd":7.4094,"C":82304.0844,"ped":0.2743};
-const DMV_MODEL = 8;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
+const DMV_MODEL = 13;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
 const DMV_TYPICAL = { QB: 14, RB: 9, WR: 8, TE: 6 };          // a typical starter's points a game (half-PPR): the anchor for thin samples
 const DMV_REPLACEMENT = { QB: 12, RB: 6.5, WR: 6, TE: 4 };   // a replacement-level player's points a game (half-PPR): the redraft anchor for thin samples
 const DMV_PRIOR_ADJ = { QB: 0.55 };                      // 1QB leagues: QBs are worth about half of superflex
 const DMV_DEPTH_MAX = { QB: 2, RB: 3, WR: 5, TE: 3 };
+const DMV_ELITE_BEST = 0.35;                             // the weight a proven star's best season keeps (2026-10-15)
+// draft-position lift for rookies (by position: rookie backs earn their keep at once, rookie QBs mostly sit) and
+// second-year players, as the share added for a top pick; calibrated against the market on 2026-10-15
+const DMV_YOUNG_DRAFT = { 0: { QB: 0.1, RB: 0.6, WR: 0.25, TE: 0.2 }, 1: { QB: 0.3, RB: 0.3, WR: 0.3, TE: 0.35 } };
+const DMV_PICK_YEAR = 0.9;                                 // a pick a year further out keeps 90% (was 80%; the market keeps about 88%)
 const DMV_PICK_BOOST = [1.45, 1.15, 1.0, 1.0, 1.0];      // the market pays extra for the hope in early rookie picks (the user prefers this basis, 2026-10-06)
 /* Hand adjustments to our own values, for what stats can't see (holdouts, feuds, contract or coaching situations).
    Sleeper player ID -> [multiplier, reason]. The reason shows on the player card. */
@@ -1066,14 +1074,14 @@ function breakout(f) {
    leaned on reputation and age, so a 23-point-a-game Goff sat behind a 13-point Nix. A QB's scoring this season (with
    last season filling in under eight games) now moves his value: from a usable starter's number (15 a game in superflex,
    17 in 1QB) up to 8 more a game earns up to +40%; a QB well under it with a real sample loses up to 25%. */
-const QB_USABLE = { sf: 15, one: 17 }, QB_USABLE_SPAN = 8, QB_USABLE_UP = 0.4, QB_USABLE_DOWN = 0.25;
+const QB_USABLE = { sf: 15, one: 17 }, QB_USABLE_SPAN = 8, QB_USABLE_UP = 0.4, QB_USABLE_DOWN = 0.35;
 function qb_usable_mult(f, sf) {
   const g0 = f.g[0] || 0, g1 = Math.min(4, f.g[1] || 0);
   if (g0 + g1 < 4) return 1;                                                      // too few games to say
-  const now = g0 >= 8 ? f.ppg[0] : (g0 * (f.ppg[0] || 0) + g1 * (f.ppg[1] || 0)) / (g0 + g1);
+  const now = g0 >= 4 ? f.ppg[0] : (g0 * (f.ppg[0] || 0) + g1 * (f.ppg[1] || 0)) / (g0 + g1);   // four games of this season decide (2026-10-15)
   const usable = sf ? QB_USABLE.sf : QB_USABLE.one, clip = x => Math.max(0, Math.min(1, x));
   if (now >= usable) return 1 + QB_USABLE_UP * clip((now - usable) / QB_USABLE_SPAN);
-  return 1 - QB_USABLE_DOWN * clip((usable - 3 - now) / 6);                        // the slide starts three points under the usable line
+  return 1 - QB_USABLE_DOWN * clip((usable - 1 - now) / 6);                        // the slide starts a point under the usable line
 }
 function dmv_value(f, redraft, ours) {
   const p = ours ? DMV : DMV_MKT, pos = f.pos;
@@ -1092,7 +1100,10 @@ function dmv_value(f, redraft, ours) {
   const mean = wsum ? psum / wsum : 0;
   const full = [f.ppg[3], f.ppg[2], f.ppg[1], ppg0].filter((v, i) => [f.g[3], f.g[2], f.g[1], f.g[0]][i] >= 8);   // a best season needs eight games, this one too
   const bw0 = p["best_" + pos] ?? p.best;                     // how much the ceiling a player has shown counts (market: by position; QBs a lot)
-  const bw = ours && f.pos === "WR" && f.ts >= DMV_ALPHA_TS ? Math.max(bw0, DMV_ALPHA_BEST) : bw0;   // alpha WRs: the target share says the talent is still there
+  let bw = ours && f.pos === "WR" && f.ts >= DMV_ALPHA_TS ? Math.max(bw0, DMV_ALPHA_BEST) : bw0;   // alpha WRs: the target share says the talent is still there
+  // a proven star's best season keeps its weight through one down year (2+ top-12 WR or top-6 TE seasons; 2026-10-15:
+  // Justin Jefferson at 20.2 / 18.7 / 11.9 was WR19)
+  if ((f.elite || 0) >= 2) bw = Math.max(bw, DMV_ELITE_BEST);                       // 2+ top-12 WR / top-10 RB / top-6 TE seasons by points a game
   const gw = f.g[0] + f.g[1] + f.g[2] + f.g[3];
   const est = (gw * ((1 - bw) * mean + bw * (full.length ? Math.max(...full) : mean)) + (p.k || 0) * p["R_" + pos]) / Math.max(1e-9, gw + (p.k || 0));   // few games: pull toward replacement
   let estR = est;
@@ -1122,9 +1133,9 @@ function dmv_value(f, redraft, ours) {
     if (["IR", "PUP", "DNR", "NA"].includes(f.inj)) avail *= 0.35;              // on a reserve list: most of the season is in doubt
     else if (["Out", "Sus"].includes(f.inj)) avail *= 0.75;
     else if (f.inj === "Doubtful") avail *= 0.9;
-  } else if (["IR", "PUP", "Out", "Sus", "DNR", "NA"].includes(f.inj)) avail *= 0.8;
+  } else if (["IR", "PUP", "Out", "Sus", "DNR", "NA"].includes(f.inj)) avail *= f.age != null && f.age <= 25.5 ? 0.92 : 0.85;   // dynasty: an IR stint costs a young player little (2026-10-15)
   if (!f.team) avail *= 0.55;
-  if (f.depth && f.depth > DMV_DEPTH_MAX[pos] && !(redraft && f.inj)) avail *= 0.7;   // (redraft: an injured player's depth slot is the injury, not his role)
+  if (f.depth && f.depth > DMV_DEPTH_MAX[pos] && !f.inj) avail *= 0.7;   // an injured player's depth slot is the injury, not his role (dynasty too since 2026-10-15: Jaxson Dart)
   const playing = f.week >= 2 && f.g[0] >= 0.6 * f.week;                      // has played most of this season's games
   if ((ours || redraft) && pos === "QB" && f.depth >= 2 && !playing) avail *= 0.45;        // our grade and redraft: a backup QB scores nothing until he starts
   if (f.team && !f.g[0] && !f.inj && f.week >= 3) {                                        // healthy but not playing this season
@@ -1136,7 +1147,10 @@ function dmv_value(f, redraft, ours) {
   const games = f.g[0] + f.g[1] + f.g[2] + f.g[3];
   const kd = p.kd * (f.exp <= 3 ? 1 : 0.25 + 0.75 * Math.exp(-(f.pick || 400) / Math.max(5, p.L)));   // a top pick's pedigree is remembered for years
   const wd = kd / (kd + games);
-  const base = (1 - wd) * prodv + wd * draftv;
+  // rookies and second-year players: draft position still carries real weight in dynasty, on top of the production
+  // blend (2026-10-15: our rookie RBs ran at 0.57x and rookie WRs 0.80x of the market; young talent is the currency)
+  const youth = f.exp != null && f.exp <= 1 && f.age != null && f.age <= 25.5 && f.pick ? 1 + (DMV_YOUNG_DRAFT[f.exp][pos] || 0) * Math.max(0, 1 - (f.pick - 1) / 110) : 1;
+  const base = ((1 - wd) * prodv + wd * draftv) * youth;
   if (ours) f.wd = wd;
   const agem = ours ? breakout(f) * future_factor(f, p.disc) * (1 + p.young * Math.min(4, Math.max(0, 26 - f.age)) / 4)   // youth: room to grow
     : Math.exp(-p["dec_" + pos] * Math.max(0, f.age - (pos === "QB" ? Math.max(p["peak_" + pos], 31) : p["peak_" + pos]))) * (1 + p.young * Math.min(Math.max(0, p["peak_" + pos] - f.age), 4) / 4);   // QBs hold their peak through 31 (passers peak ~30.7)
@@ -1229,6 +1243,11 @@ async function src_dmv(cfg, curve, ours) {
   const top12 = {};                                                               // WR1 seasons: top 12 WRs by total points
   for (const yr of [y1, y2, y3]) Object.entries(yr).filter(([k]) => k.endsWith("|WR")).map(([k, o]) => [k, o[1] + 0.5 * (o[2] - o[1])])
     .sort((a, b) => b[1] - a[1]).slice(0, 12).forEach(([k]) => { top12[k] = (top12[k] || 0) + 1; });
+  // elite seasons by points a game (8+ games), for the best-season memory: a star who missed games still had a star
+  // season (Justin Jefferson's 10-game 2023)
+  const elite = {}, ELITE_N = { RB: 10, WR: 12, TE: 6 };
+  for (const yr of [y1, y2, y3]) for (const [pos, n] of Object.entries(ELITE_N))
+    Object.entries(yr).filter(([k, o]) => k.endsWith("|" + pos) && o[0] >= 8).map(([k, o]) => [k, pg(o)]).sort((a, b) => b[1] - a[1]).slice(0, n).forEach(([k]) => { elite[k] = (elite[k] || 0) + 1; });
   let week = 0;                                                                   // the latest week played this season
   for (const o of Object.values(cur)) if (o[3]) for (const w of Object.keys(o[3])) week = Math.max(week, +w);
   const top6 = {};                                                                // TE1 seasons: top 6 TEs by total points
@@ -1268,6 +1287,7 @@ async function src_dmv(cfg, curve, ours) {
     const rush = st.reduce((a, o) => a + (o ? (o[4] || 0) / 10 + 6 * (o[5] || 0) : 0), 0), all = st.reduce((a, o) => a + (o ? o[1] : 0), 0);
     f.rush = all > 0 ? Math.min(1, Math.max(0, rush / all)) : 0;
     f.top12 = top12[k] || 0;
+    f.elite = elite[k] || 0;
     f.week = week;
     f.top6 = top6[k] || 0;
     f.tpg = st[0] && st[0][0] >= 2 ? (st[0][10] || 0) / st[0][0] : st[1] && st[1][0] ? (st[1][10] || 0) / st[1][0] : 0;   // targets per game
@@ -1317,7 +1337,7 @@ async function src_dmv(cfg, curve, ours) {
   const at = n => n < cls.length ? cls[n] : (cls[cls.length - 1] || 50) * Math.pow(0.8, (n - cls.length + 1) / teams);
   const picks = [];
   if (!redraft && cls.length) for (let y = season + 1; y <= season + 3; y++) for (let rnd = 1; rnd <= 5; rnd++) {
-    const disc = Math.pow(0.8, y - (season + 1)), boost = DMV_PICK_BOOST[rnd - 1] || 1;
+    const disc = Math.pow(DMV_PICK_YEAR, y - (season + 1)), boost = DMV_PICK_BOOST[rnd - 1] || 1;
     for (const [tier, fr] of [[null, 0.5], ["early", 0.17], ["mid", 0.5], ["late", 0.83]])
       picks.push({ season: y, round: rnd, tier, value: at(Math.floor((rnd - 1 + fr) * teams)) * disc * boost });
   }
@@ -1407,6 +1427,15 @@ function forecast_runway(f) {
   return s;
 }
 const clip01 = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+/* The dynasty outlook respects the house age cliffs (2026-10-14): past the cliff the outlook is C+ at best, the year
+   before it B- at best, in the slide B at best. Redraft is points only and is left alone. The production still shows
+   in the weekly grade and the forecast; the outlook is about the seasons ahead. */
+const AGE_CAP = { cliff: 66, near: 71, decline: 76 };
+function age_cap(score, f, pos, redraft) {
+  if (redraft) return score;
+  const st = age_stage(pos, f.age);
+  return st && AGE_CAP[st] ? Math.min(score, AGE_CAP[st]) : score;
+}
 function grade_scores(players, cfg, redraft) {
   const lg = cfg.league, teams = parseInt(lg.teams, 10) || 12, sf = parseInt(lg.num_qbs, 10) >= 2, ppr = parseFloat(lg.ppr || 0);
   const starters = { QB: sf ? 2 : 1, RB: 2.5, WR: 3.5, TE: 1.2 };
@@ -1485,7 +1514,7 @@ function grade_scores(players, cfg, redraft) {
       if (f.pred) x.pred = { next: Math.round(f.pred.next * 10) / 10, play: Math.round(f.pred.play * 100) / 100, ros: Math.round(f.pred.ros * 10) / 10, horizon: redraft ? null : Math.round(forecast_horizon(f) * 10) / 10 };
       if (redraft) {                                            // most points wins: production, role, health (TEs: + situation)
         const W = pos === "TE" ? (fc != null ? GRADE_W_FC_RD_TE : GRADE_W_RD_TE) : (fc != null ? GRADE_W_FC_RD : GRADE_W_RD), sit = pos === "TE" ? te_situation(x, byTeam, players, starting, clip) : null;
-        x.score = Math.min(100, Math.round(grade_floor(100 * (W.prod * prod + W.role * role + W.health * health + (sit != null ? W.situation * sit : 0)) + qb, f, pos, prod, role, true)));
+        x.score = age_cap(Math.min(100, Math.round(grade_floor(100 * (W.prod * prod + W.role * role + W.health * health + (sit != null ? W.situation * sit : 0)) + qb, f, pos, prod, role, true))), f, pos, true);
         x.parts = [prod, null, role, health, sit].map(v => (v == null ? null : Math.round(v * 100)));
         return;
       }
@@ -1494,7 +1523,7 @@ function grade_scores(players, cfg, redraft) {
         let tscore = 100 * (W.prod * prod + W.runway * runway + W.role * role + W.situation * sit + W.health * health) + GRADE_TE_PREM * tep * prod;
         if (!redraft && role >= 0.6 && prod >= 0.35) tscore = Math.max(tscore, GRADE_FLOOR_D);
         tscore = prospect_lens(tscore, f, pos, usage, sit, group, span, redraft);
-        x.score = Math.min(100, Math.round(grade_floor(crystal_ball(tscore, f, pos, usage, redraft, boomAt[pos]), f, pos, prod, role, redraft)));
+        x.score = age_cap(Math.min(100, Math.round(grade_floor(crystal_ball(tscore, f, pos, usage, redraft, boomAt[pos]), f, pos, prod, role, redraft))), f, pos, redraft);
         x.parts = [prod, runway, role, health, sit].map(v => Math.round(v * 100));
         return;
       }
@@ -1504,7 +1533,7 @@ function grade_scores(players, cfg, redraft) {
       score = prospect_lens(score, f, pos, usage, null, group, span, redraft);
       score = crystal_ball(score, f, pos, usage, redraft, boomAt[pos]);
       score = grade_floor(score, f, pos, prod, role, redraft);
-      x.score = Math.min(100, Math.round(score));
+      x.score = age_cap(Math.min(100, Math.round(score)), f, pos, redraft);
       x.parts = [prod, runway, role, health].map(v => Math.round(v * 100));
     });
   }
