@@ -821,7 +821,12 @@ table.pr{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}
 table.pr th,table.pr td{padding:7px 1px;text-align:center;border-bottom:1px solid var(--line)}
 table.pr th{font-size:10px;font-weight:800;letter-spacing:.03em;color:var(--muted);cursor:pointer}
 table.pr th.on{color:var(--accent)}
-table.pr th.pr-team,table.pr td.pr-team{text-align:left;width:34%;padding-right:6px}
+table.pr th.pr-team,table.pr td.pr-team{text-align:left;width:31%;padding-right:6px}
+table.pr th.pr-lead,table.pr td.pr-lead{width:15%}
+table.pr td.pr-lead .pr-val{font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;line-height:1.1}
+table.pr td.pr-lead .pr-sub{font-size:9px;color:var(--muted);line-height:1.15;margin-top:1px}
+table.pr td.pr-team .pr-no{color:var(--muted);font-weight:800;font-variant-numeric:tabular-nums}
+.pr-seg{margin-bottom:10px}
 table.pr td.pr-team .n{font-weight:700;font-size:13px;line-height:1.2;overflow-wrap:anywhere}
 table.pr td.pr-team .s{font-size:11px;color:var(--muted);margin-top:2px}
 table.pr tbody tr{cursor:pointer}
@@ -840,3 +845,15 @@ table.acc th:first-child,table.acc td:first-child{text-align:left}
 .sc-big b{font-size:34px;font-weight:800;letter-spacing:-.03em;color:var(--good);flex:none}
 .sc-big span{font-size:15px;color:var(--ink2);line-height:1.35}
 table.acc td.warn{color:var(--warn)}
+/* Rankings tab: the order switch under the position chips (2026-10-16) */
+.rk-seg{margin-top:10px}
+.rk-seg button{min-height:36px;font-size:14px;padding:6px}
+.gcell .rk-num{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* the Season grade cell in dynasty rows (2026-10-16), small like the week's */
+.gcell.snc{min-width:36px}
+.gcell.snc .grade.sm{min-width:30px;height:24px;font-size:13px;border-radius:7px}
+/* three grades (dynasty rows): tighter, so the name keeps its room on a phone */
+.gcells.g3{gap:4px}
+.gcells.g3 .gcell{min-width:30px}
+.gcells.g3 .gcell.wkc{padding-right:5px;min-width:30px}
+.gcells.g3 .grade.sm{min-width:28px}
