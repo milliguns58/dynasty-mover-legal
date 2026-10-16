@@ -20,6 +20,10 @@ window.PRO = {
     { id: "draft_kit_2027", year: 2027, label: "2027 draft kit", fallback: "$10" },
   ],
   termsUrl: "https://milliguns58.github.io/dynasty-mover-legal/terms.html",
+  // Other ways to pay, shown on the WEB version's paywall only (never inside the Play app: Google requires Play Billing
+  // there). Fill in what you use; an empty one is left out, all empty hides the section. People send the amount with
+  // their sign-in email in the note, and you switch them on from the admin page (Paid a month / Paid a year).
+  pay: { cashapp: "", paypal: "", venmo: "" },           // e.g. cashapp: "$DynastyMover", paypal: "https://paypal.me/dynastymover", venmo: "@DynastyMover"
   admin: "markamilligan00@gmail.com",   // this sign-in gets a "Preview Basic plan" switch on the League tab (this phone only)
 };
 

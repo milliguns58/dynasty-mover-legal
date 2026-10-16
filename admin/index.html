@@ -289,6 +289,9 @@ function detail(uid) {
     <label>Trial</label><div class="row" style="margin-top:0"><button class="btn sm" data-ext="7">+7 days</button><button class="btn sm" data-ext="30">+30 days</button><button class="btn sm" id="dEnd">End trial now</button></div>
     <label>Free access (friends, testers, giveaways)</label>
     <div class="row" style="margin-top:0">${u.comp ? `<button class="btn sm danger" id="dCompOff">Remove free access</button>` : `<button class="btn sm primary" id="dComp">Give free access</button><button class="btn sm" id="dComp30">Free for 30 days</button>`}</div>
+    <label>Paid another way (Cash App, PayPal, Venmo: the web version's "Other ways to pay")</label>
+    <div class="row" style="margin-top:0"><button class="btn sm primary" id="dPaidM">Paid a month</button><button class="btn sm primary" id="dPaidY">Paid a year</button></div>
+    ${u.comp && u.compUntil ? `<div class="hint">Access runs to ${esc(day(u.compUntil))}.</div>` : ""}
     <label>2027 draft kit (a one-time purchase; give it to friends and testers)</label>
     <div class="row" style="margin-top:0">${u.kits && u.kits.draft_kit_2027 ? `<button class="btn sm danger" id="dKitOff">Remove the kit</button>` : `<button class="btn sm primary" id="dKit">Give the kit</button>`}</div>
     <label>Private note</label><textarea id="dNote">${esc(u.note || "")}</textarea><div class="row" style="margin-top:6px"><button class="btn sm" id="dNoteSave">Save note</button></div>
@@ -299,6 +302,10 @@ function detail(uid) {
   $("#dEnd").onclick = () => patchUser(uid, { trialEnds: new Date() }).then(() => toast("Trial ended")).catch(e => toast(e.message));
   if ($("#dComp")) $("#dComp").onclick = () => patchUser(uid, { comp: true, compUntil: null }).then(() => toast("Free access on")).catch(e => toast(e.message));
   if ($("#dComp30")) $("#dComp30").onclick = () => patchUser(uid, { comp: true, compUntil: new Date(Date.now() + 30 * DAY) }).then(() => toast("Free for 30 days")).catch(e => toast(e.message));
+  // paid by hand: a month or a year from today, or from the end of what they already have
+  const paidFrom = () => Math.max(Date.now(), u.comp && u.compUntil ? Date.parse(u.compUntil) || 0 : 0);
+  if ($("#dPaidM")) $("#dPaidM").onclick = () => patchUser(uid, { comp: true, compUntil: new Date(paidFrom() + 31 * DAY), note: ((u.note || "") + ` Paid a month ${new Date().toISOString().slice(0, 10)}.`).trim() }).then(() => toast("Pro for a month")).catch(e => toast(e.message));
+  if ($("#dPaidY")) $("#dPaidY").onclick = () => patchUser(uid, { comp: true, compUntil: new Date(paidFrom() + 366 * DAY), note: ((u.note || "") + ` Paid a year ${new Date().toISOString().slice(0, 10)}.`).trim() }).then(() => toast("Pro for a year")).catch(e => toast(e.message));
   if ($("#dCompOff")) $("#dCompOff").onclick = () => patchUser(uid, { comp: false, compUntil: null }).then(() => toast("Free access removed")).catch(e => toast(e.message));
   $("#dNoteSave").onclick = () => patchUser(uid, { note: $("#dNote").value }).then(() => toast("Saved")).catch(e => toast(e.message));
   if ($("#dKit")) $("#dKit").onclick = () => patchUser(uid, { kits: { draft_kit_2027: true } }).then(() => toast("Draft kit given")).catch(e => toast(e.message));
