@@ -867,7 +867,7 @@ const DMV = {"w26":0.0858,"w25":0.0407,"w24":0.0163,"k":2.0755,"best":0.0513,"E_
    the values and ranks the Pro app trades on. DMV: our own dynasty view (the research age curves and the breakout bump);
    this gives the grades. Where the two disagree, the user gets a buy or sell hint the market doesn't show. */
 const DMV_MKT = {"w26":1.2308,"w25":0.3516,"w24":0.1384,"best_QB":0.2754,"best_RB":0.0042,"best_WR":0.0,"best_TE":0.0799,"E_QB":2.4573,"E_RB":2.0561,"E_WR":1.9325,"E_TE":1.6575,"S_QB":6.3241,"S_RB":19.8025,"S_WR":37.3424,"S_TE":64.0041,"R_QB":4.2772,"R_RB":-1.632,"R_WR":1.0846,"R_TE":1.3444,"peak_QB":28.7639,"peak_RB":23.0034,"peak_WR":25.0003,"peak_TE":27.4564,"dec_QB":0.1019,"dec_RB":0.142,"dec_WR":0.0921,"dec_TE":0.1034,"young":0.6011,"D_QB":2033.7033,"D_RB":2902.7461,"D_WR":2029.4478,"D_TE":1419.4604,"L":128.1501,"kd":7.4094,"C":82304.0844,"ped":0.2743};
-const DMV_MODEL = 17;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
+const DMV_MODEL = 20;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
 const DMV_TYPICAL = { QB: 14, RB: 9, WR: 8, TE: 6 };          // a typical starter's points a game (half-PPR): the anchor for thin samples
 const DMV_REPLACEMENT = { QB: 12, RB: 6.5, WR: 6, TE: 4 };   // a replacement-level player's points a game (half-PPR): the redraft anchor for thin samples
 const DMV_PRIOR_ADJ = { QB: 0.55 };                      // 1QB leagues: QBs are worth about half of superflex
@@ -1324,7 +1324,7 @@ async function src_dmv(cfg, curve, ours) {
     if (!(v >= 30)) continue;                                                       // (also drops a NaN)
     players.push({ key: k, name, pos, team: s.team || "FA", age: Math.round(age * 10) / 10, sleeper_id: sid, value: v,
       raw: (adj ? adj[1] + ". " : "") + `DMV ${Math.round(v)} (${f.ppg[0] ? f.ppg[0].toFixed(1) + " ppg this year" : f.ppg[1] ? f.ppg[1].toFixed(1) + " ppg last year" : d ? "drafted #" + d[2] : "no games"})`,
-      _rookie: d && d[0] === season, _f: ours ? f : undefined, ep: f.ep || null, _qm: qm });
+      _rookie: d && d[0] === season, _f: ours ? f : undefined, ep: f.ep || null, _qm: qm, dpick: d ? d[2] : null, exp: exp ?? null });
   }
   // the usable-QB rule moves value between quarterbacks, not from the other positions: the producers gain what the
   // names who aren't scoring give up, so the QB group's total (and its place against RB/WR) stays where the model put it
@@ -1614,7 +1614,7 @@ function te_situation(x, byTeam, players, starting, clip) {
 function attach_ours(assets, ours, redraft) {
   const mine = Object.fromEntries(ours.map(x => [x.sleeper_id, x.value]));
   const card = Object.fromEntries(ours.map(x => [x.sleeper_id, x]));
-  for (const a of assets) { const c = !a.is_pick && card[a.sleeper_id]; if (c && c.score != null) { a.oscore = c.score; a.oparts = c.parts; a.ogames = c.games; a.opatient = c.patient; a.ep = c.ep || null; a.pred = c.pred || null; if (!(a.age > 0) && c.age > 0) a.age = c.age; } }   // some lists carry no age
+  for (const a of assets) { const c = !a.is_pick && card[a.sleeper_id]; if (c) { a.dpick = c.dpick ?? null; a.exp = c.exp ?? null; } if (c && c.score != null) { a.oscore = c.score; a.oparts = c.parts; a.ogames = c.games; a.opatient = c.patient; a.ep = c.ep || null; a.pred = c.pred || null; if (!(a.age > 0) && c.age > 0) a.age = c.age; } }   // some lists carry no age
   const set = assets.filter(a => !a.is_pick && a.sleeper_id && mine[a.sleeper_id] != null);
   const market = set.map(a => a.value).sort((x, y) => y - x);
   const key = a => (a.oscore != null ? a.oscore * 1e6 : 0) + mine[a.sleeper_id];               // by the grade, then by our value
@@ -1637,10 +1637,15 @@ async function attach_orank(cfg, assets, results, log) {
   const by = r => { const m = new Map(); for (const p of (r && r.players) || []) { if (!(+p.value > 0)) continue; if (p.sleeper_id) m.set(String(p.sleeper_id), +p.value); m.set("k:" + (p.key || player_key(p.name, p.pos)), +p.value); } return m; };
   const look = (m, a) => (m ? ((a.sleeper_id && m.get(String(a.sleeper_id))) ?? m.get("k:" + player_key(a.name, a.pos))) : undefined);
   const got = (name, fn) => { const r = results.find(x => x.name === name); return r ? Promise.resolve(r) : fn(); };
-  const fc = await got("fantasycalc", () => src_fantasycalc(cfg)), curve = rank_curve(fc.players);
+  // the paid Pro edition (and the web app, which runs it) never calls FantasyCalc: its terms are non-commercial only
+  // (store/SOURCES.md). Pro starts from DynastyProcess alone (GPL-3, credited); Pro redraft has no allowed list and
+  // keeps our model's own order (2026-10-16).
+  const commercial = typeof window !== "undefined" && window.EDITION === "pro";
+  const fc = commercial ? null : await got("fantasycalc", () => src_fantasycalc(cfg)).catch(() => null), curve = fc ? rank_curve(fc.players) : null;
   const dp = is_redraft(cfg) ? null : await got("dynastyprocess", () => src_dynastyprocess(cfg, curve)).catch(() => null);
+  if (!fc && !dp) throw new Error("no outside list this edition may use");
   const dm = await got("dmv", () => src_dmv(cfg, curve));
-  const M = by(fc), P = dp ? by(dp) : null, D = by(dm), players = assets.filter(a => !a.is_pick);
+  const M = by(fc || dp), P = fc && dp ? by(dp) : null, D = by(dm), players = assets.filter(a => !a.is_pick);
   // a list put on FantasyCalc's scale by rank, among the players both carry
   const scaler = L => {
     const both = players.filter(a => look(M, a) > 0 && look(L, a) > 0);
@@ -1660,10 +1665,13 @@ async function attach_orank(cfg, assets, results, log) {
     const b = base(a), o = ours(a) != null ? ours(a) / (lean[a.pos] || 1) : null;
     if (!b && !o) continue;
     a.orank = b ? (o ? pyround(b * Math.pow(Math.min(ORANK_HI, Math.max(ORANK_LO, o / b)), ORANK_W)) : pyround(b)) : pyround(o * ORANK_UNLISTED);
+    // for Market vs ours (2026-10-16): the outside market's value and our model's own view, on the same scale
+    a.omkt = b ? pyround(b) : null; a.oview = o ? pyround(o) : null;
     n++;
   }
-  log(`Our rank: ${n} players, starting from FantasyCalc${dp ? " and DynastyProcess" : ""}`);
-  return dp ? ["fantasycalc", "dynastyprocess"] : ["fantasycalc"];
+  const used = [fc && "fantasycalc", dp && "dynastyprocess"].filter(Boolean);
+  log(`Our rank: ${n} players, starting from ${used.map(u => SOURCES[u].label).join(" and ")}`);
+  return used;
 }
 /* The stored values came from an older value formula: rebuild them whatever their age. */
 function model_changed(values) { return !!values && ((values.meta || {}).params || {}).model !== DMV_MODEL; }
@@ -2034,8 +2042,22 @@ function league_market_mult(asset, cfg) {
   if (!m || m.v !== 1 || !m.mults) return 1;
   return m.mults[asset.is_pick ? "PICK" : asset.pos] || 1;
 }
+/* Draft hype in trades (2026-10-16, the user's rule): a QB or RB drafted high this year or last carries mystery and
+   anticipation, and managers pay for it, so offering one brings back more. Full premium at the 1st pick, fading to
+   nothing by pick 64; a second-year player keeps 80% of it; WRs and TEs get a little. Dynasty only. */
+const HYPE_PCT = { QB: 15, RB: 12, WR: 4, TE: 4 };
+function hype_mult(asset, cfg) {
+  if (!asset || asset.is_pick || is_redraft(cfg) || asset.exp == null || asset.exp > 1 || !(asset.dpick > 0)) return 1;
+  const fade = Math.max(0, 1 - (asset.dpick - 1) / 64);
+  return 1 + (HYPE_PCT[asset.pos] || 0) / 100 * fade * (asset.exp === 0 ? 1 : 0.8);
+}
+/* Trading for a TE is risky (the user's rule, 2026-10-16): the side that receives one counts him 15% lower, 20% in
+   his first two seasons (about half of TEs break out late, and many never do). */
+const TE_RISK = 0.15, TE_RISK_YOUNG = 0.2;
+const te_risk = a => (a && a.pos === "TE" && !a.is_pick ? (a.exp != null && a.exp <= 1 ? TE_RISK_YOUNG : TE_RISK) : 0);
 function adjusted_value(asset, mode, cfg) {
   let v = +asset.value;
+  v *= hype_mult(asset, cfg);
   if (asset.pos === "TE") v *= 1 + parseFloat(cfg.league.te_premium_bonus_pct || 0) / 100;
   v *= qb_trade_mult(asset, cfg) * league_market_mult(asset, cfg);
   if (!is_redraft(cfg) && mode !== "neutral") {
@@ -2091,7 +2113,7 @@ function evaluate_side(matches, mode, cfg) {
     const a = m.asset;
     const cat = is_redraft(cfg) ? "" : category(a, cfg);
     const av = adjusted_value(a, mode, cfg);
-    const qbm = qb_trade_mult(a, cfg) * league_market_mult(a, cfg);
+    const qbm = qb_trade_mult(a, cfg) * league_market_mult(a, cfg) * hype_mult(a, cfg);
     rows.push({ id: a.id, name: a.name, pos: a.pos, team: a.team, age: a.age, value: a.value, priced: a.value * qbm, adjusted: av, category: cat, tier: a.tier, pos_rank: a.pos_rank,
       trend: a.trend, estimated: !!a.estimated, unranked: !!a.unranked, alts: (m.alts || []).slice(0, 3).map(x => x.name) });
     raw += a.value * qbm;                                     // the market side of a trade carries the QB trade premium too
@@ -2141,6 +2163,14 @@ function analyze_trade(a_gives, b_gives, mode_a, mode_b, cfg, values, team_a = n
     b_net += side === "A" ? -bonus : bonus;
     consolidation = { side, asset: best.name, bonus: pyround(bonus) };
   }
+  // the TE risk: what each side's incoming tight ends lose (market price, and as each team's strategy sees them)
+  const priced = a => +a.value * qb_trade_mult(a, cfg) * league_market_mult(a, cfg) * hype_mult(a, cfg);   // the market side's own price (evaluate_side's raw)
+  const risk = (gives, mode) => gives.reduce((s, m) => [s[0] + te_risk(m.asset) * priced(m.asset), s[1] + te_risk(m.asset) * adjusted_value(m.asset, mode, cfg)], [0, 0]);
+  const [rA, rAadj] = risk(b_gives, mode_a), [rB, rBadj] = risk(a_gives, mode_b);
+  market_diff += rB - rA; a_net -= rAadj; b_net -= rBadj;
+  const lensOn = mode_a !== "neutral" && !is_redraft(cfg);
+  const te = rA || rB ? { A: pyround(lensOn ? rAadj : rA), B: pyround(lensOn ? rBadj : rB),
+    names: { A: b_gives.filter(m => te_risk(m.asset)).map(m => m.asset.name), B: a_gives.filter(m => te_risk(m.asset)).map(m => m.asset.name) } } : null;
   // The verdict is judged from side A's chair: with a strategy set, every asset is priced the way that team sees it
   // (adjusted_value); Balanced is the plain market. Side B's strategy gives "how they see it" (teams.B.net).
   const lens = mode_a !== "neutral" && !is_redraft(cfg) ? mode_a : null;
@@ -2163,7 +2193,7 @@ function analyze_trade(a_gives, b_gives, mode_a, mode_b, cfg, values, team_a = n
       A: { name: (team_a || {}).team_name || "Team A", mode: mode_a, gives: a_out, gets: a_in, spot_adj: a_spots * spot, net: a_net, net_pct: a_net / Math.max(a_out.adj, a_in.adj, 1) * 100 },
       B: { name: (team_b || {}).team_name || "Team B", mode: mode_b, gives: b_out, gets: b_in, spot_adj: -a_spots * spot, net: b_net, net_pct: b_net / Math.max(b_out.adj, b_in.adj, 1) * 100 },
     },
-    lineup: null, warnings, consolidation, balance: [], gap_pick: pick_equivalent(values, Math.abs(view.diff)),
+    lineup: null, warnings, consolidation, te_risk: te, balance: [], gap_pick: pick_equivalent(values, Math.abs(view.diff)),
   };
   if (values.league && (team_a || team_b)) result.lineup = lineup_impact(values, cfg, team_a, team_b, a_gives, b_gives, warnings);
   result.redraft = is_redraft(cfg);
@@ -2697,7 +2727,7 @@ const read_log = () => Store.get(f("trades.json")) || [];
 
 // ---------------------------------------------------------------------------
 return {
-  PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
+  PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
   pyround, clone, now_iso, today_iso, ordinal, fmt, fmt_signed, fmt_pct, compact, norm, title, player_key, ppr_bucket,
   is_bestball, is_redraft, league_kind, league_kind_label,
   load_profiles, save_profiles, set_profile, profile_new, profile_rename, profile_delete, load_config, save_config,

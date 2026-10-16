@@ -1331,15 +1331,18 @@ function trade_targets(values, cfg, me, week, n = 6) {
   const redraft = is_redraft(cfg);                                   // redraft: everyone is trying to win this season, and age means nothing
   const direction = redraft ? "contend" : (M.standing >= 0.58 || buyers.has(me.roster_id) ? "contend" : (M.standing <= 0.4 || sellers.has(me.roster_id) ? "rebuild" : "either"));
 
-  // a package of about `target` value from `pool`: one asset, else two
+  // a package of about `target` value from `pool`: one asset, else two. What you offer is priced the way the market
+  // pays: a QB or RB drafted high this year or last brings back more (draft hype, the user's rule 2026-10-16)
+  const price = a => a.value * E.hype_mult(a, cfg);
+  const cost = a => a.value * (1 - E.te_risk(a));                      // what to offer for him: a TE at a discount (his risk)
   const pack = (pool, target, avoid = new Set()) => {
-    const c = pool.filter(a => !avoid.has(a.id) && a.value > 0).sort((a, b) => b.value - a.value);
+    const c = pool.filter(a => !avoid.has(a.id) && a.value > 0).sort((a, b) => price(b) - price(a));
     const ok = v => v >= target * 0.85 && v <= target * 1.15;
     let best = null;
-    for (const a of c) if (ok(a.value) && (!best || Math.abs(a.value - target) < Math.abs(best.v - target))) best = { items: [a], v: a.value };
+    for (const a of c) if (ok(price(a)) && (!best || Math.abs(price(a) - target) < Math.abs(best.v - target))) best = { items: [a], v: price(a) };
     if (best) return best;
     for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) {
-      const v = c[i].value + c[j].value;
+      const v = price(c[i]) + price(c[j]);
       if (ok(v) && (!best || Math.abs(v - target) < Math.abs(best.v - target))) best = { items: [c[i], c[j]], v };
     }
     return best;
@@ -1356,7 +1359,7 @@ function trade_targets(values, cfg, me, week, n = 6) {
       if (id === me.roster_id) continue;
       const O = info.get(id);
       for (const a of O.players.filter(a => a.pos === pos && a.value > mine * 1.15 && a.value >= 1500 && (a.age == null || a.age >= VET_AGE[pos] - 2))) {
-        const g = pack(spare(M), a.value);
+        const g = pack(spare(M), cost(a));
         if (!g) continue;
         ideas.push({ kind: "buy", team: O.t, get: [a], give: g.items, score: (a.value - mine) * (1.2 - O.standing),
           why: [`${O.t.team_name} is ${recTxt(O)}: struggling teams sell veterans`, `You're thin at ${pos}: he'd start over ${mine ? "your weakest " + pos : "an empty spot"}`] });
@@ -1386,11 +1389,19 @@ function trade_targets(values, cfg, me, week, n = 6) {
         || O.players.filter(a => a.pos === get && a.value > mine * 1.1).sort((a, b) => a.value - b.value)[0];
       if (!target) continue;
       const surplus = M.players.filter(a => a.pos === give && !M.startIds.has(a.id));
-      const g = pack(surplus, target.value) || pack(surplus.concat(M.assets.filter(a => a.is_pick)), target.value);
+      const g = pack(surplus, cost(target)) || pack(surplus.concat(M.assets.filter(a => a.is_pick)), cost(target));
       if (!g) continue;
       ideas.push({ kind: "fit", team: O.t, get: [target], give: g.items, score: (target.value - mine) * 0.8 + theirNeed[give] * 0.3,
         why: [`${O.t.team_name} is deep at ${get} and thin at ${give}; you're the opposite`] });
     }
+  }
+  // trading for a TE is risky (the user's rule, 2026-10-16): ideas that bring one in rank lower and say why; a
+  // high-drafted young QB or RB in what you'd give is named as the hype that pays for it
+  for (const x of ideas) {
+    const r = Math.max(0, ...x.get.map(a => E.te_risk(a)));
+    if (r > 0) { x.score *= 1 - 2 * r; x.why.push(`Tight ends are a risky trade target: many break out late or never do, so this offer is ${Math.round(r * 100)}% under his value`); }
+    const hyped = x.give.filter(a => E.hype_mult(a, cfg) >= 1.03);
+    if (hyped.length) x.why.push(hyped.map(a => `${a.name} went #${a.dpick} in the NFL draft${a.exp === 0 ? " this year" : " last year"}`).join("; ") + ": the hype is worth more in a trade than his stats so far");
   }
   // best first, one idea per player you'd get, at most two per team
   ideas.sort((a, b) => b.score - a.score);

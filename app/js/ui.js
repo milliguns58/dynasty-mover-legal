@@ -721,14 +721,15 @@ function showResult(r, animate) {
   // and the side getting the best player gets a small bonus. Raw totals alone could point the other way.
   const spots = r.a_spots * r.spot_cost, bonus = r.consolidation ? r.consolidation.bonus : 0;
   const V = r.view || r.market;
-  const aGets = Math.max(0, V.b_gives + Math.max(0, spots) + (r.consolidation && r.consolidation.side === "A" ? bonus : 0));
-  const bGets = Math.max(0, V.a_gives + Math.max(0, -spots) + (r.consolidation && r.consolidation.side === "B" ? bonus : 0));
-  const tot = Math.max(1, aGets + bGets), adjusted = spots !== 0 || bonus > 0;
+  const TR = r.te_risk || { A: 0, B: 0 };                    // trading for a TE is risky: the receiving side counts him lower
+  const aGets = Math.max(0, V.b_gives + Math.max(0, spots) + (r.consolidation && r.consolidation.side === "A" ? bonus : 0) - TR.A);
+  const bGets = Math.max(0, V.a_gives + Math.max(0, -spots) + (r.consolidation && r.consolidation.side === "B" ? bonus : 0) - TR.B);
+  const tot = Math.max(1, aGets + bGets), adjusted = spots !== 0 || bonus > 0 || !!r.te_risk;
   scoreboard(r, v, { aGets, bGets, aPct: (aGets / tot * 100).toFixed(1), bPct: (bGets / tot * 100).toFixed(1) }, animate);
   const TBm = r.teams.B.mode, bn = r.teams.B.net;
   const theirs = !r.redraft && TBm !== "neutral" ? `<div class="meter-note theirs">${esc(B)} (${MODE_LABEL[TBm].toLowerCase()}) ${verb(B, "see")} it as ${bn >= 0 ? "getting" : "giving up"} ${fmt(Math.abs(bn))} more${bn < 0 ? ": expect a no unless you add something" : ""}.</div>` : "";
   let h = `<section class="card ts-why"><div class="verdict-line">${esc(v.line)}</div>${theirs}
-    ${adjusted ? `<div class="meter-note">The bar counts roster spots and who gets the best player.</div>` : ""}</section>`;
+    ${adjusted ? `<div class="meter-note">The bar counts roster spots, who gets the best player${r.te_risk ? " and the risk in trading for a tight end" : ""}.</div>` : ""}</section>`;
 
   if (r.balance && r.balance.length && locked()) {
     h += `<section class="card"><h2>Make it fair ${Pro.tag()}</h2><div class="hint">See which player or pick would even this trade out.</div>
@@ -752,6 +753,8 @@ function showResult(r, animate) {
   }
   if (r.a_spots) d += `<p class="note">${esc(r.a_spots > 0 ? A : B)} ${verb(r.a_spots > 0 ? A : B, "free")} ${plural(Math.abs(r.a_spots), "roster spot")} (worth ${fmt(r.spot_cost)} each).</p>`;
   if (r.consolidation) d += `<p class="note">${esc(r.consolidation.side === "A" ? A : B)} ${verb(r.consolidation.side === "A" ? A : B, "get")} the best player (${plinkName(r.consolidation.asset)}), worth a bonus of ${fmt(r.consolidation.bonus)}.</p>`;
+  if (r.te_risk) for (const k of ["A", "B"]) if (r.te_risk[k] > 0) { const who = k === "A" ? A : B;
+    d += `<p class="note">Trading for a tight end is risky: ${esc(r.te_risk.names[k].join(" and "))} ${r.te_risk.names[k].length > 1 ? "count" : "counts"} ${fmt(r.te_risk[k])} less for ${esc(who)}. Many tight ends break out late or never do.</p>`; }
   if (r.lineup) {
     for (const k of ["A", "B"]) {
       const L = r.lineup[k];
@@ -1131,6 +1134,32 @@ function picker(k) {
 // ---------------------------------------------------------------------------
 // Rankings tab
 // ---------------------------------------------------------------------------
+/* Market vs ours in dynasty (2026-10-16, the user's ask: the old buy/sell lists were saturated and the sells didn't
+   follow the dynasty rankings). Three lists, a player in one at most:
+     Sell       at or past his position's decline age (AGE_DECLINE: RB 27, WR 29, TE 35, QB 38), or 25+ with a C+ or
+                lower dynasty grade and our model 25% or more under the market; market value 1,500+
+     Sell high  his value is likely to drop: a year from the decline with a 3,000+ price, or 25+ and not an A/A+ and
+                scoring well over what his usage earns (touchdowns running hot) while our model sees no more in him
+     Buy        our model 30% or more over the outside market, a B- or better, market value 1,500+, two years or more
+                short of the decline (QBs 30 and under), on a team and not on a long injury list
+   The market is FantasyCalc x DynastyProcess (a.omkt) and our view our own model on that scale (a.oview, attach_orank). */
+const EDGE_KINDS = [["buy", "Buy"], ["sellhigh", "Sell high"], ["sell", "Sell"]];
+const EDGE_OUT = ["IR", "PUP", "Out", "Sus", "Suspended", "DNR", "NA"];
+function dynastyEdge(a) {
+  if (!a || a.is_pick || a.unranked || !a.omkt || a.age == null || !E.AGE_DECLINE[a.pos]) return null;
+  const st = E.load_player_status()[a.sleeper_id] || {}, dec = E.AGE_DECLINE[a.pos], age = a.age, yrs = Math.floor(age);
+  const ratio = a.oview ? a.oview / a.omkt : 1, ep = a.ep;
+  const g = gradeOf(a).g, top = g === "A+" || g === "A", cliff = E.AGE_CLIFF[a.pos];
+  if (a.omkt >= 1500 && age >= dec) return { kind: "sell", score: a.omkt, why: age >= cliff ? `${a.pos} at ${yrs}: past the cliff` : `${a.pos} at ${yrs}: decline years` };
+  if (a.omkt >= 1500 && age >= 25 && ratio <= 0.75 && ["C+", "C", "C-", "D", "F"].includes(g)) return { kind: "sell", score: a.omkt * (1 - ratio), why: "Short on dynasty value" };
+  if (a.omkt >= 3000 && age >= dec - 1) return { kind: "sellhigh", score: a.omkt, why: `${a.pos} at ${yrs}: a year from the decline` };
+  // touchdowns running hot: not for a young star (2026-10-16: Jaxon Smith-Njigba, 24 and A+, is no sell)
+  if (a.omkt >= 1500 && age >= 25 && !top && ep && ep.g >= 4 && ep.exp > 0 && ep.pts / ep.exp >= 1.2 && ep.td - ep.tdx >= 2.5 && ratio <= 1.05)
+    return { kind: "sellhigh", score: a.omkt * ep.pts / ep.exp, why: `${ep.td} TDs on ${ep.tdx.toFixed(1)} expected` };
+  if (a.omkt >= 1500 && ratio >= 1.3 && age <= dec - 2 && !(a.pos === "QB" && age > 30) && gIdx(g) <= gIdx("B-") && !EDGE_OUT.includes(st.inj) && a.team && a.team !== "FA")
+    return { kind: "buy", score: a.omkt * ratio, why: `Ours ${Math.round((ratio - 1) * 100)}% over the market` };
+  return null;
+}
 function renderRank(el) {
   if (!S.cfg) return needLeague(el);
   if (!S.values) return needValues(el);
@@ -1144,6 +1173,8 @@ function renderRank(el) {
   if (hasOurs) tabs.push(["EDGE", "Market vs ours"]);
   if (R.pos === "EDGE" && (locked() || !hasOurs)) R.pos = "ALL";
   R.edge = R.edge || "buy";
+  const dynEdge = !E.is_redraft(S.cfg) && S.values.players.some(a => a.omkt);   // the dynasty lists need the outside market (values from 2026-10-16 on)
+  if (!dynEdge && R.edge === "sellhigh") R.edge = "sell";
   // the order (2026-10-16): our own ranking first, then this season's points, then this week's projection
   R.order = R.order || "ours";
   const listPos = ["ALL", "QB", "RB", "WR", "TE"].includes(R.pos), oursOn = hasOurs && !locked();
@@ -1152,7 +1183,11 @@ function renderRank(el) {
       <input type="search" id="rq" placeholder="Search players" value="${esc(R.q)}"></div>
     <div class="chips-row">${tabs.map(([p, l]) => `<button class="fchip ${R.pos === p ? "on" : ""}${p === "EDGE" ? " edge-chip" : ""}" data-pos="${p}" ${p === "EDGE" && locked() ? 'data-lock="ourgrade"' : ""}>${l}${p === "EDGE" ? " " + proTag() : ""}</button>`).join("")}
       ${hasLg ? `<span class="chip-gap"></span><button class="fchip ${R.who === "free" ? "on" : ""}" data-who="free">Available</button><button class="fchip ${R.who === "mine" ? "on" : ""}" data-who="mine">Mine</button>` : ""}</div>
-    ${R.pos === "EDGE" ? `<div class="seg" id="eseg"><button data-e="buy" class="${R.edge === "buy" ? "on" : ""}">Buys</button><button data-e="sell" class="${R.edge === "sell" ? "on" : ""}">Sells</button></div>
+    ${R.pos === "EDGE" && dynEdge ? `<div class="seg" id="eseg">${EDGE_KINDS.map(([k, l]) => `<button data-e="${k}" class="${R.edge === k ? "on" : ""}">${l}</button>`).join("")}</div>
+      <p class="note muted" style="margin:8px 2px 10px">${R.edge === "buy" ? `Our model rates these players at least 30% above the outside market (${esc([].concat(S.values.meta.anchor || []).map(n => (E.SOURCES[n] || {}).label || n).join(" and "))}), and they're young enough to keep the value. Good ones to trade for.`
+        : R.edge === "sellhigh" ? "Their value is likely to drop: a year from their position's decline age, or scoring well above what their usage earns (touchdowns running hot). Sell while the price is high."
+        : "Past their position's decline age (running backs 27, receivers 29, tight ends 35, quarterbacks 38), or short on dynasty value. Worth more to a contender this season than to your future: sell for younger players or picks."}</p>` : ""}
+    ${R.pos === "EDGE" && !dynEdge ? `<div class="seg" id="eseg"><button data-e="buy" class="${R.edge === "buy" ? "on" : ""}">Buys</button><button data-e="sell" class="${R.edge === "sell" ? "on" : ""}">Sells</button></div>
       <p class="note muted" style="margin:8px 2px 10px">${E.is_redraft(S.cfg)
         ? (R.edge === "buy" ? "We grade these players higher than the market does. Their production, role and health say they'll score more than they cost this season."
           : "The market grades these players higher than we do. Their price is ahead of what they'll likely score this season. In redraft most players can be replaced, so sell the name, keep the points.")
@@ -1161,16 +1196,16 @@ function renderRank(el) {
     ${listPos ? `<div class="seg rk-seg" id="oseg">${ORDERS.map(([k, l]) => `<button data-o="${k}" class="${R.order === k ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:6px 2px 8px">${R.order === "points" ? `Fantasy points scored this season${S.W ? "" : " (loading this week's data…)"}.`
         : R.order === "proj" ? `This week's projected points, with the matchup${S.W ? "" : " (loading this week's data…)"}. No game this week sorts last.`
-        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}.`
+        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his Our rank score, high to low; his trade value is on his card.`
         : "Ranked by the market's value."}</p>` : ""}
     ${R.pos === "ROOK" ? `<div class="seg" id="rseg">${[["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].map(([p, l]) => `<button data-rp="${p}" class="${R.rpos === p ? "on" : ""}">${l}</button>`).join("")}</div>
-      <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (early production for his team, the age it came at, receptions for backs, size, recruiting pedigree, efficiency). Once the NFL draft happens, the pick's round joins the grade.</p>` : ""}
+      <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (production for his team this season and last, the age it came at, receptions for backs, size, recruiting pedigree, efficiency), weighted by what has worked for past classes in the NFL. Until the NFL draft, "Projected draft" is where players with profiles like his have been drafted; it counts a fifth of a running back's or receiver's grade and a tenth of a tight end's. Once the draft happens, the pick's round takes its place.</p>` : ""}
     ${more("What do the grades mean?", `<p class="note">${E.is_redraft(S.cfg) ? "Two grades on every player. The big letter is the <b>season</b> grade: the rest of this season." : "Three grades on every player. The big letter is the <b>dynasty</b> grade: his next seasons, in Our rank's order (A+ is about the best player on each team, A the next one, on down to F). The small <b>season</b> letter is this season only: the points we expect him to score the rest of this year, ranked at his position."} <span class="grade ga">A</span> star · <span class="grade gb">B</span> starter · <span class="grade gc">C</span> depth · <span class="grade gd">D</span> long shot · <span class="grade gf">F</span> nothing going: no team, buried on the depth chart, or old and unproductive.
       The small <b>wk</b> letter is <b>this week</b>: his matchup-adjusted projection ranked at his position, A+ must start, F sit, a dash for no game. ${locked() ? "On the Basic plan the grade is the market's."
         : E.is_redraft(S.cfg) ? "The grade is ours: the points he'll score this season (production, role and health). Age doesn't count in redraft. The value and rank are the market's."
         : "The grade is ours: what his future holds (production, the prime years he has left, role and health). The value and rank are the market's."}
       ${E.is_redraft(S.cfg) ? `<span class="mv up">▲</span> value rising, <span class="mv down">▼</span> falling, <span class="mv flat">–</span> steady (last 30 days).` : ""}</p>`)}
-    <section class="card flush"><div class="list" id="rlist"></div></section>${credits(R.pos === "ROOK" ? "College data provided by CollegeFootballData.com" : "")}`;
+    <section class="card flush"><div class="list${R.pos === "EDGE" ? " edge-list" : ""}" id="rlist"></div></section>${credits(R.pos === "ROOK" ? "College data provided by CollegeFootballData.com" : "")}`;
   const drawClass = () => {
     const list = $("#rlist"), Y = draftYear();
     list.innerHTML = loading(`Loading the ${Y} class…`);
@@ -1194,6 +1229,8 @@ function renderRank(el) {
     let pool;
     const edge = a => gIdx(gradeOf(a, true).g) - gIdx(gradeOf(a).g);      // + = we grade him higher than the market
     if (R.pos === "PICK") pool = [...S.values.picks.values()].sort((a, b) => b.value - a.value);
+    else if (R.pos === "EDGE" && dynEdge) pool = S.values.players.filter(a => { const x = dynastyEdge(a); return x && x.kind === R.edge; })
+      .sort((a, b) => dynastyEdge(b).score - dynastyEdge(a).score);
     else if (R.pos === "EDGE") pool = S.values.players.filter(a => !a.unranked && a.ours > 0 && (R.edge === "buy" ? edge(a) > 0 : edge(a) < 0))
       .sort((a, b) => Math.abs(edge(b)) - Math.abs(edge(a)) || b.value - a.value);
     else pool = S.values.players.filter(a => !a.unranked && (R.pos === "ALL" || a.pos === R.pos));
@@ -1212,6 +1249,12 @@ function renderRank(el) {
     const shown = pool.slice(0, R.limit);
     $("#rlist").innerHTML = shown.map((a, i) => {
       const free = hasLg && !a.is_pick && !owner[a.sleeper_id];
+      if (R.pos === "EDGE" && dynEdge) {
+        const x = dynastyEdge(a), k = (n => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+        return assetRow(a, { rank: i + 1, tag: free ? `<span class="tag-free">Available</span>` : "", sub: `${esc(a.team || "FA")} · ${esc(x.why)}`,
+          right: `<div class="gv vs"><span class="vs-l">mkt</span><b>${k(a.omkt)}</b><span class="vs-a">›</span><span class="vs-l">ours</span><b>${k(a.oview || a.omkt)}</b></div>
+            <div class="d edge-tag ${x.kind}">${EDGE_KINDS.find(([kk]) => kk === x.kind)[1]}</div>` });
+      }
       if (R.pos === "EDGE") {
         const M = gradeOf(a, true), O = gradeOf(a), n = Math.abs(edge(a));
         return assetRow(a, { rank: i + 1, tag: free ? `<span class="tag-free">Available</span>` : "",
@@ -1219,7 +1262,10 @@ function renderRank(el) {
             <div class="d edge-tag ${R.edge}">${n >= 2 ? (R.edge === "buy" ? "Buy" : "Sell") : (R.edge === "buy" ? "Lean buy" : "Lean sell")}</div>` });
       }
       // the number the list is ordered by, where it fits on a phone: season points in place of the value, this week's projection under the week grade
-      const right = SP ? gradeRight(a, { val: spOf(a) ? `${spOf(a).pts.toFixed(1)} pts` : "0 pts" }) : WG ? gradeRight(a, { wk: wgOf(a) ? wgOf(a).pts.toFixed(1) : "bye" }) : undefined;
+      // Our rank shows its own number, so the numbers run high to low down the list (2026-10-16: McMillan's trade value
+      // 6,751 sat under Jonathan Taylor's 5,612)
+      const right = SP ? gradeRight(a, { val: spOf(a) ? `${spOf(a).pts.toFixed(1)} pts` : "0 pts" }) : WG ? gradeRight(a, { wk: wgOf(a) ? wgOf(a).pts.toFixed(1) : "bye" })
+        : listPos && oursOn && a.orank != null ? gradeRight(a, { val: fmt(a.orank) }) : undefined;
       const extra = SP && spOf(a) && spOf(a).gp ? ` · ${spOf(a).ppg.toFixed(1)} ppg` : "";
       const rk = listPos && (R.order !== "ours" || oursOn) ? i + 1 : R.q || R.who !== "all" ? i + 1 : (R.pos === "ALL" || R.pos === "PICK" ? a.rank || i + 1 : a.pos_rank || i + 1);
       return assetRow(a, { rank: rk, tag: free ? `<span class="tag-free">Available</span>` : "", sub: extra ? `${esc(a.team || "FA")}${extra}` : undefined, right });
