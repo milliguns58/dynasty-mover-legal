@@ -1,7 +1,7 @@
 {
- "versionCode": 20,
- "versionName": "3.2.2",
- "notes": "3.2.2: Rankings can be ordered three ways: Our rank (now built from FantasyCalc and DynastyProcess with our model's view on top), points scored this season, or this week's projection. Dynasty rows show a Season grade beside the Dynasty grade. Power rankings add Our rank, Points and a projected record with playoff odds. Fixes: starting QBs coming off a bye or an injury were valued as backups; median leagues counted games as weeks.",
+ "versionCode": 21,
+ "versionName": "3.2.3",
+ "notes": "3.2.3: In dynasty leagues the Dynasty grade now follows Our rank, so the letters run from A+ down to F in list order (A+ is about the best player on each team, A the next). F stays for players with nothing going.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
