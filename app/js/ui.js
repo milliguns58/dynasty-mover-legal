@@ -12,7 +12,7 @@ const S = {
   sides: { A: { team: null, mode: "neutral", items: [] }, B: { team: null, mode: "neutral", items: [] } },
   result: null, busy: false,
   team: { id: null, seg: "lineup" },
-  rank: { pos: "ALL", q: "", who: "all", limit: 100 },
+  rank: { pos: "ALL", q: "", who: "all", limit: 100, order: "ours" },
   W: null, Wkey: null, Wat: 0, Wloading: null,
   sheetStack: [],
 };
@@ -352,9 +352,11 @@ function gradeChip(a, withArrow = true) {
   const G = gradeOf(a), M = withArrow ? moveOf(a) : null;
   return `<span class="grade ${G.cls}">${esc(G.g)}</span>${M ? `<span class="mv ${M.dir}" title="${M.dir === "up" ? "rising" : (M.dir === "down" ? "falling" : "steady")}">${ARROW[M.dir]}</span>` : ""}`;
 }
-/* The right side of a player row: two labelled cells, "Week" (this week's matchup grade) and "Outlook" (the big
-   grade, with the value under it), with a thin divider between them so they read as two different things. */
-const gradeRight = a => `<div class="gcells">${weekCell(a)}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Outlook"}</small><div class="gv">${gradeChip(a)}</div><div class="d muted">${fmt(a.value)}</div></div></div>`;
+/* The right side of a player row: labelled cells, "Week" (this week's matchup grade), in dynasty "Season" (this season
+   only, 2026-10-16) and then "Dynasty" (the big grade, with the value under it; "Season" in redraft), a thin divider
+   after the week so they read as different things. */
+// o.wk / o.val: a number under the week grade / in place of the value (the Rankings tab's Points and Projected orders)
+const gradeRight = (a, o = {}) => { const sc = seasonCell(a); return `<div class="gcells${sc ? " g3" : ""}">${weekCell(a, o.wk)}${sc}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</small><div class="gv">${gradeChip(a, !sc)}</div><div class="d muted${o.val != null ? " rk-num" : ""}">${o.val != null ? o.val : fmt(a.value)}</div></div></div>`; };
 /* A status flag by the name, from Sleeper's injury status: IR, PUP, OUT (this week), DOUB (doubtful), SUS, Q. */
 function statusFlag(a) {
   if (!a || a.is_pick || !a.sleeper_id) return "";
@@ -362,10 +364,15 @@ function statusFlag(a) {
   const f = inj === "IR" ? "IR" : inj === "PUP" ? "PUP" : inj === "Out" ? "OUT" : inj === "Doubtful" ? "DOUB" : (inj === "Sus" || inj === "Suspended") ? "SUS" : inj === "Questionable" ? "Q" : "";
   return f ? `<span class="flag ${f}" title="${esc(inj)}">${f}</span>` : "";
 }
-function weekCell(a) {
+function seasonCell(a) {
+  if (a.is_pick || !a.sleeper_id || !S.values || E.is_redraft(S.cfg)) return "";
+  const g = Week.season_grades(S.values, S.cfg)[a.sleeper_id];
+  return `<div class="gcell snc" title="${g ? `This season: ${esc(a.pos)}${g.posRank}` : "No projection this season"}"><small>Season</small><span class="grade sm ${g ? g.cls : "gx"}">${g ? esc(g.letter) : "–"}</span></div>`;
+}
+function weekCell(a, note) {
   if (a.is_pick || !S.W || S.W.valuesOnly || !a.sleeper_id) return "";
   const w = Week.week_grades(S.values, S.cfg, S.W)[a.sleeper_id];
-  return `<div class="gcell wkc" title="${w ? `This week: ${esc(w.label)}, ${esc(a.pos)}${w.posRank}` : "No game this week"}"><small>Week</small><span class="grade sm ${w ? w.cls : "gx"}">${w ? esc(w.letter) : "–"}</span></div>`;
+  return `<div class="gcell wkc" title="${w ? `This week: ${esc(w.label)}, ${esc(a.pos)}${w.posRank}` : "No game this week"}"><small>Week</small><span class="grade sm ${w ? w.cls : "gx"}">${w ? esc(w.letter) : "–"}</span>${note != null ? `<div class="d muted rk-num">${note}</div>` : ""}</div>`;
 }
 /* This week's grade, small and labelled, next to the outlook grade: the matchup-adjusted projection ranked at his
    position (A+ must start, F sit). Shows once the week's data is loaded; no game this week shows a dash. */
@@ -388,7 +395,8 @@ function assetRow(a, opts = {}) {
 }
 /* Every screen that shows values credits its sources, with a link to FantasyCalc.com (its terms require it). */
 function credits(extra = "") {
-  const used = (S.values && S.values.meta.sources_used) || [];
+  // the lists "Our rank" starts from (values.json anchor) are credited too
+  const used = [...new Set([].concat((S.values && S.values.meta.sources_used) || [], (S.values && S.values.meta.anchor) || []))];
   const fc = used.includes("fantasycalc"), dmv = used.includes("dmv") || !used.length;
   const names = used.filter(n => n !== "fantasycalc" && n !== "dmv").map(n => (E.SOURCES[n] || {}).label || n);
   const parts = (fc ? [`<a data-link="https://fantasycalc.com">FantasyCalc.com</a>`] : []).concat(dmv ? ["Dynasty Mover"] : []).concat(names.map(esc));
@@ -1116,6 +1124,10 @@ function renderRank(el) {
   if (hasOurs) tabs.push(["EDGE", "Market vs ours"]);
   if (R.pos === "EDGE" && (locked() || !hasOurs)) R.pos = "ALL";
   R.edge = R.edge || "buy";
+  // the order (2026-10-16): our own ranking first, then this season's points, then this week's projection
+  R.order = R.order || "ours";
+  const listPos = ["ALL", "QB", "RB", "WR", "TE"].includes(R.pos), oursOn = hasOurs && !locked();
+  const ORDERS = [["ours", oursOn ? "Our rank" : "Rank"], ["points", "Points"], ["proj", "Projected"]];
   el.innerHTML = `<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <input type="search" id="rq" placeholder="Search players" value="${esc(R.q)}"></div>
     <div class="chips-row">${tabs.map(([p, l]) => `<button class="fchip ${R.pos === p ? "on" : ""}${p === "EDGE" ? " edge-chip" : ""}" data-pos="${p}" ${p === "EDGE" && locked() ? 'data-lock="ourgrade"' : ""}>${l}${p === "EDGE" ? " " + proTag() : ""}</button>`).join("")}
@@ -1126,13 +1138,18 @@ function renderRank(el) {
           : "The market grades these players higher than we do. Their price is ahead of what they'll likely score this season. In redraft most players can be replaced, so sell the name, keep the points.")
         : (R.edge === "buy" ? "We grade these players higher than the market does. Their age curve and production say they're worth more than they trade for: good ones to trade for."
           : "The market grades these players higher than we do. Their age curve says their value is near its top: good ones to trade away while they still bring a lot.")}</p>` : ""}
+    ${listPos ? `<div class="seg rk-seg" id="oseg">${ORDERS.map(([k, l]) => `<button data-o="${k}" class="${R.order === k ? "on" : ""}">${l}</button>`).join("")}</div>
+      <p class="note muted" style="margin:6px 2px 8px">${R.order === "points" ? `Fantasy points scored this season${S.W ? "" : " (loading this week's data…)"}.`
+        : R.order === "proj" ? `This week's projected points, with the matchup${S.W ? "" : " (loading this week's data…)"}. No game this week sorts last.`
+        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}.`
+        : "Ranked by the market's value."}</p>` : ""}
     ${R.pos === "ROOK" ? `<div class="seg" id="rseg">${[["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].map(([p, l]) => `<button data-rp="${p}" class="${R.rpos === p ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (early production for his team, the age it came at, receptions for backs, size, recruiting pedigree, efficiency). Once the NFL draft happens, the pick's round joins the grade.</p>` : ""}
-    ${more("What do the grades mean?", `<p class="note">Two grades on every player. The big letter is the <b>outlook</b>: ${E.is_redraft(S.cfg) ? "the rest of this season" : "his next seasons"}. <span class="grade ga">A</span> star · <span class="grade gb">B</span> starter · <span class="grade gc">C</span> depth · <span class="grade gd">D</span> long shot · <span class="grade gf">F</span> nothing going: no team, buried on the depth chart, or old and unproductive.
+    ${more("What do the grades mean?", `<p class="note">${E.is_redraft(S.cfg) ? "Two grades on every player. The big letter is the <b>season</b> grade: the rest of this season." : "Three grades on every player. The big letter is the <b>dynasty</b> grade: his next seasons. The small <b>season</b> letter is this season only: the points we expect him to score the rest of this year, ranked at his position."} <span class="grade ga">A</span> star · <span class="grade gb">B</span> starter · <span class="grade gc">C</span> depth · <span class="grade gd">D</span> long shot · <span class="grade gf">F</span> nothing going: no team, buried on the depth chart, or old and unproductive.
       The small <b>wk</b> letter is <b>this week</b>: his matchup-adjusted projection ranked at his position, A+ must start, F sit, a dash for no game. ${locked() ? "On the Basic plan the grade is the market's."
         : E.is_redraft(S.cfg) ? "The grade is ours: the points he'll score this season (production, role and health). Age doesn't count in redraft. The value and rank are the market's."
         : "The grade is ours: what his future holds (production, the prime years he has left, role and health). The value and rank are the market's."}
-      <span class="mv up">▲</span> value rising, <span class="mv down">▼</span> falling, <span class="mv flat">–</span> steady (last 30 days).</p>`)}
+      ${E.is_redraft(S.cfg) ? `<span class="mv up">▲</span> value rising, <span class="mv down">▼</span> falling, <span class="mv flat">–</span> steady (last 30 days).` : ""}</p>`)}
     <section class="card flush"><div class="list" id="rlist"></div></section>${credits(R.pos === "ROOK" ? "College data provided by CollegeFootballData.com" : "")}`;
   const drawClass = () => {
     const list = $("#rlist"), Y = draftYear();
@@ -1160,6 +1177,13 @@ function renderRank(el) {
     else if (R.pos === "EDGE") pool = S.values.players.filter(a => !a.unranked && a.ours > 0 && (R.edge === "buy" ? edge(a) > 0 : edge(a) < 0))
       .sort((a, b) => Math.abs(edge(b)) - Math.abs(edge(a)) || b.value - a.value);
     else pool = S.values.players.filter(a => !a.unranked && (R.pos === "ALL" || a.pos === R.pos));
+    const SP = listPos && R.order === "points" ? Week.season_points(S.values, S.cfg, S.W) : null;
+    const WG = listPos && R.order === "proj" ? Week.week_grades(S.values, S.cfg, S.W) : null;
+    const spOf = a => (SP && SP[a.sleeper_id]) || null, wgOf = a => (WG && WG[a.sleeper_id]) || null;
+    if (listPos) {
+      const key = R.order === "points" ? a => (spOf(a) ? spOf(a).pts : -1) : R.order === "proj" ? a => (wgOf(a) ? wgOf(a).pts : -1) : oursOn ? a => (a.orank ?? a.value) : a => a.value;
+      pool = pool.slice().sort((x, y) => key(y) - key(x) || y.value - x.value);
+    }
     if (R.q) pool = E.search_players(R.q, S.values, 60, pool);
     if (hasLg && R.pos !== "PICK" && R.who !== "all") {
       const me = teamById(S.cfg.my_roster_id);
@@ -1174,7 +1198,11 @@ function renderRank(el) {
           right: `<div class="gv vs"><span class="vs-l">market</span><span class="grade sm ${M.cls}">${esc(M.g)}</span><span class="vs-a">›</span><span class="vs-l">ours</span><span class="grade ${O.cls}">${esc(O.g)}</span></div>
             <div class="d edge-tag ${R.edge}">${n >= 2 ? (R.edge === "buy" ? "Buy" : "Sell") : (R.edge === "buy" ? "Lean buy" : "Lean sell")}</div>` });
       }
-      return assetRow(a, { rank: R.q || R.who !== "all" ? i + 1 : (R.pos === "ALL" || R.pos === "PICK" ? a.rank || i + 1 : a.pos_rank || i + 1), tag: free ? `<span class="tag-free">Available</span>` : "" });
+      // the number the list is ordered by, where it fits on a phone: season points in place of the value, this week's projection under the week grade
+      const right = SP ? gradeRight(a, { val: spOf(a) ? `${spOf(a).pts.toFixed(1)} pts` : "0 pts" }) : WG ? gradeRight(a, { wk: wgOf(a) ? wgOf(a).pts.toFixed(1) : "bye" }) : undefined;
+      const extra = SP && spOf(a) && spOf(a).gp ? ` · ${spOf(a).ppg.toFixed(1)} ppg` : "";
+      const rk = listPos && (R.order !== "ours" || oursOn) ? i + 1 : R.q || R.who !== "all" ? i + 1 : (R.pos === "ALL" || R.pos === "PICK" ? a.rank || i + 1 : a.pos_rank || i + 1);
+      return assetRow(a, { rank: rk, tag: free ? `<span class="tag-free">Available</span>` : "", sub: extra ? `${esc(a.team || "FA")}${extra}` : undefined, right });
     }).join("") + (pool.length > shown.length ? `<button class="add-btn" id="more">Show more</button>` : "") + (!pool.length ? `<div class="empty">${R.pos === "EDGE" ? "No players here: we agree with the market on everyone who matches." : "Nobody matches."}</div>` : "");
     bindCards($("#rlist"));
     const m = $("#more");
@@ -1182,6 +1210,7 @@ function renderRank(el) {
   };
   $$("[data-pos]", el).forEach(b => b.onclick = () => { R.pos = b.dataset.pos; R.limit = 100; renderRank(el); });
   $$("[data-e]", el).forEach(b => b.onclick = () => { R.edge = b.dataset.e; R.limit = 100; renderRank(el); });
+  $$("[data-o]", el).forEach(b => b.onclick = () => { R.order = b.dataset.o; R.limit = 100; renderRank(el); });
   $$("[data-rp]", el).forEach(b => b.onclick = () => { R.rpos = b.dataset.rp; R.limit = 100; renderRank(el); });
   $$("[data-who]", el).forEach(b => b.onclick = () => { R.who = R.who === b.dataset.who ? "all" : b.dataset.who; R.limit = 100; renderRank(el); });
   $("#rq").oninput = e => { R.q = e.target.value; R.limit = 100; draw(); };
@@ -2317,24 +2346,38 @@ async function liveCard(body, t, W) {
 /* League power rankings: every team's rank by overall value, starters, each position and picks, coloured by thirds.
    Tap a column head to sort by it, a row to open that team on My team. */
 const PR_COLS = [["overall", "OVR"], ["starters", "STR"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["picks", "PK"]];
+// the three views (2026-10-16): our power rating first, then points scored, then the projected finish
+const PR_MODES = [["power", "Our rank", "PWR"], ["points", "Points", "PTS"], ["proj", "Projected", "PROJ"]];
 function powerSheet() {
   if (!S.values || !teams().length) return;
-  S.pr = S.pr || { sort: "overall" };
+  S.pr = S.pr && S.pr.mode ? S.pr : { mode: "power", sort: "power" };
   const body = openSheet(`<div class="sheet-head"><h2>Power rankings</h2><button class="close" aria-label="Close">×</button></div><div id="prBody"></div>`, { full: true });
   $(".close", body).onclick = closeSheet;
   const draw = () => {
     const P = Week.power_rankings(S.values, S.cfg), cols = PR_COLS.filter(([k]) => P.cols.includes(k)), third = Math.max(1, Math.ceil(P.n / 3));
+    const modes = PR_MODES.filter(([k]) => (k !== "points" || P.games > 0) && (k !== "proj" || P.hasProj));
+    if (!modes.some(([k]) => k === S.pr.mode)) S.pr = { mode: "power", sort: "power" };
+    const mode = S.pr.mode, head = PR_MODES.find(([k]) => k === mode)[2];
     const rows = P.rows.slice().sort((a, b) => (a.rank[S.pr.sort] || 99) - (b.rank[S.pr.sort] || 99));
+    const pctx = x => (x >= 0.995 ? ">99%" : x > 0 && x < 0.005 ? "<1%" : `${Math.round(x * 100)}%`);
+    const lead = r => mode === "points" ? `<div class="pr-val">${Math.round(r.pf)}</div><div class="pr-sub">${r.ppg.toFixed(1)} a wk</div>`
+      : mode === "proj" ? (r.proj ? `<div class="pr-val">${esc(r.proj.record)}</div><div class="pr-sub">${pctx(r.proj.playoff)} playoffs</div>` : "")
+      : `<div class="pr-val">${r.power}</div>${P.games ? `<div class="pr-sub">${Math.round(r.allplay * 100)}% all-play</div>` : ""}`;
+    const why = mode === "points" ? "Points scored this season, and per week."
+      : mode === "proj" ? `The projected final record and the chance of making the playoffs, from 3,000 run-throughs of the ${P.weeksLeft ? `${P.weeksLeft} weeks left on the real schedule` : "season"}.`
+      : `Our rank, 0 to 100: points per week, the all-play record (each week's score against every team, so schedule luck doesn't count), the record and the best lineup now${P.redraft ? "" : ", plus the whole roster with picks"}. ${P.games > 4 ? "Results now count more than the lineup." : "Early on, the lineup counts most."}`;
     const chip = r => `<span class="pr-chip ${r <= third ? "pr-hi" : r > P.n - third ? "pr-lo" : "pr-mid"}">${r}</span>`;   // not "top": the header's class
     const tierCls = m => (m === "contending" ? "pr-hi" : m === "rebuilding" || m === "long shot" ? "pr-lo" : "pr-mid");
     // fits a phone with no sideways scroll (a pinned column broke in the app's web view, 2026-10-15): record and tier
     // sit under the team name, the columns are short heads with small chips
-    $("#prBody", body).innerHTML = `<div class="hint" style="margin-bottom:8px">Ranks by Dynasty Mover value. OVR the whole roster with picks, STR the best lineup, then each position and PK the picks held. Tap a column to sort, a team to open it.</div>
-      <table class="pr"><thead><tr><th class="pr-team">Team</th>${cols.map(([k, l]) => `<th data-sort="${k}" class="${S.pr.sort === k ? "on" : ""}">${l}</th>`).join("")}</tr></thead>
-      <tbody>${rows.map(r => `<tr data-rid="${r.rid}"><td class="pr-team"><div class="n">${esc(r.team)}${r.rid === S.cfg.my_roster_id ? ' <span class="tag-start">You</span>' : ""}</div>
-        <div class="s">${esc(r.record)} · <span class="pr-tier ${tierCls(r.mode)}">${esc(r.tier)}</span></div></td>${cols.map(([k]) => `<td>${chip(r.rank[k])}</td>`).join("")}</tr>`).join("")}</tbody></table>
+    $("#prBody", body).innerHTML = `${modes.length > 1 ? `<div class="seg pr-seg" id="prSeg">${modes.map(([k, l]) => `<button data-m="${k}" class="${mode === k ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
+      <div class="hint" style="margin-bottom:8px">${esc(why)} The colored chips rank roster value: OVR the whole roster${P.redraft ? "" : " with picks"}, STR the best lineup, then each position${P.redraft ? "" : ", PK the picks"}. Tap a column to sort, a team to open it.</div>
+      <table class="pr"><thead><tr><th class="pr-team">Team</th><th data-sort="${mode}" class="pr-lead ${S.pr.sort === mode ? "on" : ""}">${head}</th>${cols.map(([k, l]) => `<th data-sort="${k}" class="${S.pr.sort === k ? "on" : ""}">${l}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r, i) => `<tr data-rid="${r.rid}"><td class="pr-team"><div class="n"><span class="pr-no">${i + 1}</span> ${esc(r.team)}${r.rid === S.cfg.my_roster_id ? ' <span class="tag-start">You</span>' : ""}</div>
+        <div class="s">${esc(r.record)} · <span class="pr-tier ${tierCls(r.mode)}">${esc(r.tier)}</span></div></td><td class="pr-lead">${lead(r)}</td>${cols.map(([k]) => `<td>${chip(r.rank[k])}</td>`).join("")}</tr>`).join("")}</tbody></table>
       ${credits()}`;
     $$("th[data-sort]", body).forEach(th => th.onclick = () => { S.pr.sort = th.dataset.sort; draw(); });
+    $$("#prSeg button", body).forEach(b => b.onclick = () => { S.pr = { mode: b.dataset.m, sort: b.dataset.m }; draw(); });
     $$("tr[data-rid]", body).forEach(tr => tr.onclick = () => { S.team.id = +tr.dataset.rid; S.team.seg = "roster"; saveUi(); closeSheet(); go("team"); });
   };
   draw();

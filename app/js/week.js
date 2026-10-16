@@ -481,6 +481,26 @@ async function prepare_raw(cfg, opts = {}) {
 // value and the picks it holds, with its record and the app's read of its direction.
 // ---------------------------------------------------------------------------
 const TIER_LABEL = { contending: "Contender", "in between": "In between", rebuilding: "Rebuilding", "in the hunt": "In the hunt", "long shot": "Long shot" };
+/* "Our rank" (2026-10-16): one power score a team from what it has done and what it fields now. Results are points per
+   game, the all-play record (each week's score against every other team's, so a lucky schedule counts for nothing) and
+   the real record; now is the best lineup's value for this season. Results count more as games are played (g/(g+4),
+   at most 70%), so week 1 leans on the lineup. Dynasty adds the whole roster with picks at 20%. Shown as 0-100: the
+   team's place in the league's spread (50 is the middle). */
+const PR_RESULTS = { ppg: 0.45, allplay: 0.35, record: 0.2 }, PR_RESULTS_MAX = 0.7, PR_FUTURE = 0.2;
+function all_play(lg, g) {
+  const out = {};
+  for (const [wk, rows] of Object.entries(lg.schedule || {})) {
+    if (parseInt(wk, 10) > g) continue;
+    const pts = rows.map(r => [String(r[0]), parseFloat(r[2]) || 0]);
+    if (!pts.some(([, p]) => p > 0)) continue;                       // a week not played yet
+    for (const [rid, p] of pts) {
+      const o = out[rid] = out[rid] || { w: 0, g: 0 };
+      for (const [r2, p2] of pts) if (r2 !== rid) { o.g++; o.w += p > p2 ? 1 : p === p2 ? 0.5 : 0; }
+    }
+  }
+  return out;
+}
+const zs = xs => { const m = xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length), sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / Math.max(1, xs.length)) || 1; return xs.map(x => (x - m) / sd); };
 function power_rankings(values, cfg) {
   const prof = team_profiles(values, cfg).teams, rd = is_redraft(cfg);
   const rows = prof.map(I => {
@@ -490,12 +510,40 @@ function power_rankings(values, cfg) {
       vals: Object.assign({ overall: I.total + picks, starters: E.best_lineup(I.players, values.league.roster_positions_starters || cfg.league.starters).total }, by, rd ? {} : { picks }) };
   });
   const cols = ["overall", "starters"].concat(POSITIONS, rd ? [] : ["picks"]);
-  for (const c of cols) {
-    const order = rows.slice().sort((a, b) => b.vals[c] - a.vals[c]);
+  // Our rank, points and the projection (2026-10-16)
+  // weeks, not games: a league that also plays the median books two results a week
+  const gg = Math.max(0, ...prof.map(I => I.r.g)), per = E.league_median(values.league, gg) ? 2 : 1, g = Math.floor(gg / per), AP = all_play(values.league, g);
+  const ppg = prof.map(I => (I.r.g ? (I.t.points_for || 0) / (I.r.g / per) : 0));
+  const ap = prof.map(I => { const a = AP[String(I.t.roster_id)]; return a && a.g ? a.w / a.g : 0.5; });
+  const zp = zs(ppg), za = zs(ap), zw = zs(prof.map(I => I.r.pct)), zl = zs(rows.map(r => r.vals.starters)), zo = zs(rows.map(r => r.vals.overall));
+  const wr = g ? Math.min(PR_RESULTS_MAX, g / (g + 4)) : 0;
+  const raw = rows.map((r, i) => {
+    const now = wr * (PR_RESULTS.ppg * zp[i] + PR_RESULTS.allplay * za[i] + PR_RESULTS.record * zw[i]) + (1 - wr) * zl[i];
+    return rd ? now : (1 - PR_FUTURE) * now + PR_FUTURE * zo[i];
+  });
+  const zr = zs(raw);
+  let PJ = null;
+  try { PJ = E.project_standings(values, cfg); } catch (e) { PJ = null; }
+  const regEnd = (parseInt(values.league.playoff_week_start, 10) || 15) - 1;
+  rows.forEach((r, i) => {
+    const I = prof[i];
+    r.power = Math.round(100 * normal_cdf(zr[i]));
+    r.pf = I.t.points_for || 0; r.ppg = ppg[i]; r.allplay = ap[i];
+    r.vals.power = raw[i]; r.vals.points = r.pf;
+    const p = PJ && PJ.by[I.t.roster_id];
+    if (p) {
+      const ties = Math.max(0, I.r.g - I.r.w - I.r.l), W = Math.round(p.wins), L = Math.max(0, regEnd * per - ties - W);
+      r.proj = { wins: p.wins, record: `${W}-${L}${ties ? "-" + ties : ""}`, playoff: p.playoff, title: p.title || 0 };
+      r.vals.proj = p.wins + p.playoff / 100 + (p.title || 0) / 1000;     // more wins first, then playoff and title odds
+    }
+  });
+  const ranked = cols.concat(["power", "points"], PJ ? ["proj"] : []);
+  for (const c of ranked) {
+    const order = rows.slice().sort((a, b) => (b.vals[c] || 0) - (a.vals[c] || 0));
     order.forEach((r, i) => { r.rank = r.rank || {}; r.rank[c] = i + 1; });
   }
-  rows.sort((a, b) => a.rank.overall - b.rank.overall);
-  return { rows, cols, n: rows.length, redraft: rd };
+  rows.sort((a, b) => a.rank.power - b.rank.power);
+  return { rows, cols, n: rows.length, redraft: rd, games: g, hasProj: !!PJ, weeksLeft: PJ ? PJ.weeks_left : 0 };
 }
 // ---------------------------------------------------------------------------
 // Live win probability (2026-10-13): Sleeper's live matchup points plus our projection for what is left to play.
@@ -1132,6 +1180,32 @@ function rankings_by_list(values, a) {
    starter, D or F = sit. Cached on W. Returns { sid: { letter, label, cls, pts, posRank } }. */
 const WEEK_CUTS = [[0.15, "A+", "Must start"], [0.3, "A", "Start"], [0.45, "A-", "Start"], [0.6, "B+", "Start"], [0.75, "B", "Start"], [0.9, "B-", "Flex call"],
   [1.05, "C+", "Flex call"], [1.2, "C", "Sit if you can"], [1.4, "C-", "Sit"], [1.8, "D", "Sit"], [Infinity, "F", "Sit"]];
+/* The Season grade in dynasty leagues (2026-10-16, the user's ask: a season grade beside the dynasty grade): this season
+   only, from our rest-of-season points a game (the prediction model), cut for an injury that keeps him out, ranked at
+   his position against the league's starters on the week grade's scale. F only for a player with nothing going this
+   season (no team, or no projection left); anyone with a projection gets at least a D. */
+const SEASON_AVAIL = { IR: 0.4, PUP: 0.4, NA: 0.4, Sus: 0.4, Suspended: 0.4, DNR: 0.4, Out: 0.85, Doubtful: 0.9 };
+function season_grades(values, cfg) {
+  if (values._sg) return values._sg;
+  const teams = (values.league && values.league.teams && values.league.teams.length) || parseInt(cfg.league.teams, 10) || 12;
+  const slots = { QB: parseInt(cfg.league.num_qbs, 10) >= 2 ? 2 : 1, RB: 2.5, WR: 3.5, TE: 1.2 };
+  const st = E.load_player_status(), rows = {};
+  for (const a of values.players) {
+    if (a.is_pick || a.unranked || !a.sleeper_id || !POSITIONS.includes(a.pos) || !a.pred) continue;
+    const inj = (st[a.sleeper_id] || {}).inj, avail = !a.team || a.team === "FA" ? 0 : SEASON_AVAIL[inj] ?? 1;
+    (rows[a.pos] = rows[a.pos] || []).push([a.sleeper_id, (a.pred.ros || 0) * avail]);
+  }
+  const out = {};
+  for (const [pos, l] of Object.entries(rows)) {
+    l.sort((x, y) => y[1] - x[1]);
+    l.forEach(([sid, ros], i) => {
+      let [, letter] = WEEK_CUTS.find(([c]) => (i + 1) / (teams * slots[pos]) <= c);
+      if (letter === "F" && ros >= 1) letter = "D";
+      out[sid] = { letter, cls: "g" + letter[0].toLowerCase(), ros, posRank: i + 1 };
+    });
+  }
+  return (values._sg = out);
+}
 function week_grades(values, cfg, W) {
   if (!W || W.valuesOnly || !W.proj || !Object.keys(W.proj).length) return {};
   if (W._wg) return W._wg;
@@ -1159,6 +1233,21 @@ function week_grades(values, cfg, W) {
   }
   W._wg = out;
   return out;
+}
+/* This season's fantasy points per player (the league's PPR setting), for the Rankings tab's Points order. */
+function season_points(values, cfg, W) {
+  if (!W || W.valuesOnly || !W.seasons) return {};
+  if (W._sp) return W._sp;
+  const pk = pts_key(cfg), rows = W.seasons[parseInt(cfg.season, 10)] || {}, byName = {};
+  for (const r of Object.values(rows)) if (r && r.name) byName[norm(r.name) + "|" + r.pos] = r;
+  const out = {};
+  for (const a of values.players) {
+    if (a.is_pick || !a.sleeper_id) continue;
+    const r = rows[a.sleeper_id] || byName[norm(a.name) + "|" + a.pos]; if (!r) continue;
+    const gp = parseFloat(r.gp || 0), pts = parseFloat(r[pk] || 0);
+    out[a.sleeper_id] = { pts, gp, ppg: gp ? pts / gp : 0 };
+  }
+  return (W._sp = out);
 }
 function player_card(values, cfg, a, W) {
   const pk = pts_key(cfg);
@@ -1463,5 +1552,5 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
 }
 
 return { NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
-  waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades };
+  waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades, season_grades, season_points };
 })();

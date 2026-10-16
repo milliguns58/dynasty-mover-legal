@@ -283,10 +283,15 @@ function bench_qb_cap(values, cfg) {
   const qbs = values.players.filter(a => a.pos === "QB" && !a.unranked && a.sleeper_id);
   if (qbs.length < 24) return;
   const rec = a => P[player_key(a.name, a.pos)];
-  const started = a => { const o = rec(a); if (!o || !o[3]) return false; return [last, last - 1].some(w => (o[3][w] || [])[2] >= STARTED_OPPS); };
+  // his own games in the last three weeks, so a bye (or a Thursday game that opened the new week) doesn't wipe out his
+  // starts (2026-10-16: Bryce Young, weeks 1-4 then a bye, was cut to a backup's value)
+  const recent = a => { const o = rec(a); return o && o[3] ? Object.keys(o[3]).map(Number).filter(w => w >= last - 2) : []; };
+  const started = a => recent(a).some(w => (rec(a)[3][w] || [])[2] >= STARTED_OPPS);
   const hurt = a => { const i = (st[a.sleeper_id] || {}).inj; return !!i && i !== "Questionable"; };
   const depth = a => (st[a.sleeper_id] || {}).depth;
-  const starter = a => started(a) || (depth(a) === 1 && !(rec(a) && rec(a)[0] > 0));
+  // first on the depth chart and not playing lately (hurt, coming back, or a rookie) is still the starter; a QB who
+  // played a little lately without starting is a backup (2026-10-16: Caleb Williams, out since week 2, was cut to 71)
+  const starter = a => started(a) || (depth(a) === 1 && !recent(a).length);
   const SL = (Store.get("sleeper_players.json") || {}).players || {};
   const prospect = a => { const x = SL[String(a.sleeper_id)] || {}; return !is_redraft(cfg) && x.years_exp != null && +x.years_exp <= 1 && a.age != null && a.age <= 25.5; };   // a rookie or second-year QB being developed (Fernando Mendoza, 2026-10-15)
   const starters = qbs.filter(a => starter(a) && a.team && a.team !== "FA");
@@ -862,7 +867,7 @@ const DMV = {"w26":0.0858,"w25":0.0407,"w24":0.0163,"k":2.0755,"best":0.0513,"E_
    the values and ranks the Pro app trades on. DMV: our own dynasty view (the research age curves and the breakout bump);
    this gives the grades. Where the two disagree, the user gets a buy or sell hint the market doesn't show. */
 const DMV_MKT = {"w26":1.2308,"w25":0.3516,"w24":0.1384,"best_QB":0.2754,"best_RB":0.0042,"best_WR":0.0,"best_TE":0.0799,"E_QB":2.4573,"E_RB":2.0561,"E_WR":1.9325,"E_TE":1.6575,"S_QB":6.3241,"S_RB":19.8025,"S_WR":37.3424,"S_TE":64.0041,"R_QB":4.2772,"R_RB":-1.632,"R_WR":1.0846,"R_TE":1.3444,"peak_QB":28.7639,"peak_RB":23.0034,"peak_WR":25.0003,"peak_TE":27.4564,"dec_QB":0.1019,"dec_RB":0.142,"dec_WR":0.0921,"dec_TE":0.1034,"young":0.6011,"D_QB":2033.7033,"D_RB":2902.7461,"D_WR":2029.4478,"D_TE":1419.4604,"L":128.1501,"kd":7.4094,"C":82304.0844,"ped":0.2743};
-const DMV_MODEL = 13;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
+const DMV_MODEL = 17;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
 const DMV_TYPICAL = { QB: 14, RB: 9, WR: 8, TE: 6 };          // a typical starter's points a game (half-PPR): the anchor for thin samples
 const DMV_REPLACEMENT = { QB: 12, RB: 6.5, WR: 6, TE: 4 };   // a replacement-level player's points a game (half-PPR): the redraft anchor for thin samples
 const DMV_PRIOR_ADJ = { QB: 0.55 };                      // 1QB leagues: QBs are worth about half of superflex
@@ -1620,6 +1625,46 @@ function attach_ours(assets, ours, redraft) {
   // (Dynasty only: in redraft age means nothing.)
   if (!redraft) for (const a of set) if (a.ours < a.value && a.age != null && a.age < 26 && !(a.pos === "RB" && a.age >= 25) && a.opatient !== false) a.ours = a.value;
 }
+/* "Our rank" on the Rankings tab (2026-10-16, the user's ask: start from outside sources). The starting point is the
+   market in this league's format: FantasyCalc (real trades) and, in dynasty, DynastyProcess (expert consensus), put on
+   one scale by rank and averaged. Our model's view (our main value on that scale) moves a player at most about 10%
+   either way: rank value = base x (ours / base)^0.2, the ratio held to 0.6-1.6, after taking out our model's lean at
+   each position (it runs QBs about 6% high and TEs 9% low against the market). Players neither list carries keep our
+   view, trimmed 15%. Checked against a consensus of FantasyCalc, DynastyProcess and Dynasty Daddy: the average rank
+   miss across its top 50 went from 9.9 (our model alone) and 5.1 (FantasyCalc with a 0.35 say) to 2.5. */
+const ORANK_W = 0.2, ORANK_LO = 0.6, ORANK_HI = 1.6, ORANK_UNLISTED = 0.85;
+async function attach_orank(cfg, assets, results, log) {
+  const by = r => { const m = new Map(); for (const p of (r && r.players) || []) { if (!(+p.value > 0)) continue; if (p.sleeper_id) m.set(String(p.sleeper_id), +p.value); m.set("k:" + (p.key || player_key(p.name, p.pos)), +p.value); } return m; };
+  const look = (m, a) => (m ? ((a.sleeper_id && m.get(String(a.sleeper_id))) ?? m.get("k:" + player_key(a.name, a.pos))) : undefined);
+  const got = (name, fn) => { const r = results.find(x => x.name === name); return r ? Promise.resolve(r) : fn(); };
+  const fc = await got("fantasycalc", () => src_fantasycalc(cfg)), curve = rank_curve(fc.players);
+  const dp = is_redraft(cfg) ? null : await got("dynastyprocess", () => src_dynastyprocess(cfg, curve)).catch(() => null);
+  const dm = await got("dmv", () => src_dmv(cfg, curve));
+  const M = by(fc), P = dp ? by(dp) : null, D = by(dm), players = assets.filter(a => !a.is_pick);
+  // a list put on FantasyCalc's scale by rank, among the players both carry
+  const scaler = L => {
+    const both = players.filter(a => look(M, a) > 0 && look(L, a) > 0);
+    if (both.length < 50) return null;
+    const xs = both.map(a => look(L, a)).sort((x, y) => y - x), ms = both.map(a => look(M, a)).sort((x, y) => y - x);
+    return x => { let lo = 0, hi = xs.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (xs[mid] > x) lo = mid + 1; else hi = mid; } return ms[Math.min(lo, ms.length - 1)]; };
+  };
+  const sP = P && scaler(P), sD = scaler(D);
+  if (!sD) throw new Error("too few players on both lists");
+  const base = a => { const p = [look(M, a), sP && look(P, a) > 0 ? sP(look(P, a)) : null].filter(x => x > 0); return p.length ? Math.exp(p.reduce((s, x) => s + Math.log(x), 0) / p.length) : null; };
+  const ours = a => (look(D, a) > 0 ? sD(look(D, a)) : null);
+  // our model's lean at each position, over the market's top 200
+  const top = players.filter(a => base(a) && ours(a)).sort((x, y) => base(y) - base(x)).slice(0, 200), lean = {};
+  for (const pos of POSITIONS) { const r = top.filter(a => a.pos === pos).map(a => Math.log(ours(a) / base(a))).sort((x, y) => x - y); lean[pos] = r.length >= 5 ? Math.exp(r[r.length >> 1]) : 1; }
+  let n = 0;
+  for (const a of players) {
+    const b = base(a), o = ours(a) != null ? ours(a) / (lean[a.pos] || 1) : null;
+    if (!b && !o) continue;
+    a.orank = b ? (o ? pyround(b * Math.pow(Math.min(ORANK_HI, Math.max(ORANK_LO, o / b)), ORANK_W)) : pyround(b)) : pyround(o * ORANK_UNLISTED);
+    n++;
+  }
+  log(`Our rank: ${n} players, starting from FantasyCalc${dp ? " and DynastyProcess" : ""}`);
+  return dp ? ["fantasycalc", "dynastyprocess"] : ["fantasycalc"];
+}
 /* The stored values came from an older value formula: rebuild them whatever their age. */
 function model_changed(values) { return !!values && ((values.meta || {}).params || {}).model !== DMV_MODEL; }
 /* FantasyCalc asks for its values to be fetched at most once an hour. */
@@ -1639,9 +1684,11 @@ async function update_values(cfg, log = () => {}) {
   if (!results.length) throw new Error("No value list could be downloaded. Check the internet connection.");
   const assets = build_consensus(cfg, results);
   try { attach_ours(assets, await src_dmv(cfg, null, true), is_redraft(cfg)); } catch (e) { log(`Our grades: ${e.message}`); }
+  let anchor = null;
+  try { anchor = await attach_orank(cfg, assets, results, log); } catch (e) { log(`Our rank: ${e.message}`); }
   const lg = cfg.league;
   Store.set(f("values.json"), {
-    fetched: now_iso(), source: results.length > 1 ? "consensus" : results[0].name, sources_used: results.map(r => r.name),
+    fetched: now_iso(), source: results.length > 1 ? "consensus" : results[0].name, sources_used: results.map(r => r.name), anchor,
     source_weights: Object.fromEntries(results.map(r => [r.name, effective_weight(cfg, r.name)])), notes,
     params: { league_type: is_redraft(cfg) ? "redraft" : "dynasty", num_qbs: parseInt(lg.num_qbs), ppr: lg.ppr, teams: parseInt(lg.teams), model: DMV_MODEL }, assets,
   });
@@ -2271,6 +2318,7 @@ async function sleeper_import(cfg, league_id, log = () => {}, my_user_id = null)
     platform: "sleeper", league_id: String(league_id), name: lg.name, season, imported: now_iso(), roster_positions: positions,
     roster_positions_starters: starters, draft_rounds, pick_seasons, teams, players, schedule, trades,
     playoff_teams: parseInt(settings.playoff_teams || 6), playoff_week_start: parseInt(settings.playoff_week_start || 15),
+    median: !!settings.league_average_match,                   // also plays the league median each week: two results a week (2026-10-16)
     waiver_type: parseInt(settings.waiver_type || 0), waiver_budget: parseInt(settings.waiver_budget || 0), waiver_bid_min: settings.waiver_bid_min != null ? parseInt(settings.waiver_bid_min) : null,
     previous_league_id: lg.previous_league_id || null,
     trade_deadline: settings.trade_deadline != null ? parseInt(settings.trade_deadline) : null,
@@ -2312,6 +2360,14 @@ function find_team(values, id) {
    Draft order: worst record picks first (the usual rookie-draft rule; playoff results are not modelled).
    Cached on the values object. */
 const PROJ_SIMS = 3000;
+/* Weeks played, not games: a league that also plays the median each week (Sleeper's league_average_match) books two
+   results a week, so a 6-4 record there is five weeks. lg.median is saved on import since 2026-10-16; an older save is
+   read from the records against the schedule (more games than weeks with points means the median). */
+function league_median(lg, g) {
+  if (lg && lg.median != null) return !!lg.median;
+  const played = Object.values((lg && lg.schedule) || {}).filter(rows => (rows || []).some(r => (parseFloat(r[2]) || 0) > 0)).length;
+  return g >= 2 && g > played;
+}
 function project_standings(values, cfg) {
   const lg = values && values.league;
   if (!lg || !(lg.teams || []).length || lg.platform === "manual") return null;   // built by hand: no schedule, no standings to project
@@ -2325,35 +2381,37 @@ function project_standings(values, cfg) {
 function simulate_standings(values, cfg, teams, sims) {
   const lg = values.league, n = teams.length, starters = lg.roster_positions_starters || cfg.league.starters;
   const recs = teams.map(t => { const [w, l, ti] = String(t.record || "0-0").split("-").map(x => parseInt(x, 10) || 0); return { w, l, ti: ti || 0, g: w + l + (ti || 0) }; });
-  const g = Math.max(0, ...recs.map(r => r.g));
+  const g = Math.max(0, ...recs.map(r => r.g)), med = league_median(lg, g), per = med ? 2 : 1, wd = Math.floor(g / per);   // weeks done (median leagues: two games a week)
   const z = xs => { const m = xs.reduce((a, b) => a + b, 0) / xs.length, sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length) || 1; return xs.map(x => (x - m) / sd); };
-  const ppg = teams.map((t, i) => recs[i].g ? (t.points_for || 0) / recs[i].g : 0);
+  const ppg = teams.map((t, i) => recs[i].g ? (t.points_for || 0) / (recs[i].g / per) : 0);
   // players only: the picks would ask for this projection
   const lineup = teams.map(t => { const lu = best_lineup_by(t.players.map(pid => values.by_sleeper[String(pid)]).filter(Boolean), starters, lineup_value); return lu.starters.reduce((a, [, p]) => a + (p ? lineup_value(p) : 0), 0); });
-  const wpf = g / (g + 4), zp = z(ppg), zl = z(lineup);
-  const str = teams.map((t, i) => (g ? wpf * zp[i] : 0) + (1 - wpf * (g ? 1 : 0)) * zl[i]);
+  const wpf = wd / (wd + 4), zp = z(ppg), zl = z(lineup);
+  const str = teams.map((t, i) => (wd ? wpf * zp[i] : 0) + (1 - wpf * (wd ? 1 : 0)) * zl[i]);
   const idx = Object.fromEntries(teams.map((t, i) => [t.roster_id, i]));
   // remaining games from the schedule (weeks after the games already played)
   const games = [], regEnd = (parseInt(lg.playoff_week_start, 10) || 15) - 1;
   for (const [wk, rows] of Object.entries(lg.schedule || {})) {
-    if (parseInt(wk, 10) <= g || parseInt(wk, 10) > regEnd) continue;
+    if (parseInt(wk, 10) <= wd || parseInt(wk, 10) > regEnd) continue;
     const byM = {};
     for (const [rid, mid] of rows) (byM[mid] = byM[mid] || []).push(idx[rid]);
     for (const pair of Object.values(byM)) if (pair.length === 2 && pair.every(x => x != null)) games.push(pair);
   }
-  if (!games.length && g < regEnd) for (let wk = g + 1; wk <= regEnd; wk++) {            // no schedule: random pairings
+  if (!games.length && wd < regEnd) for (let wk = wd + 1; wk <= regEnd; wk++) {          // no schedule: random pairings
     const o = [...Array(n).keys()].sort(() => Math.random() - 0.5);
     for (let i = 0; i + 1 < n; i += 2) games.push([o[i], o[i + 1]]);
   }
   const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
-  const noise = 0.65 * Math.sqrt(4 / (g + 4));                     // how unsure we are of each team's true strength
+  const noise = 0.65 * Math.sqrt(4 / (wd + 4));                    // how unsure we are of each team's true strength
+  const medWeeks = med ? Math.max(0, regEnd - wd) : 0;              // median leagues: each week left is also a game against the median
   const slots = teams.map(() => new Array(n).fill(0)), winsSum = new Array(n).fill(0), playoff = new Array(n).fill(0);
   const titles = new Array(n).fill(0), beat = (a, b, sim) => Math.random() < 1 / (1 + Math.exp(-0.7 * (sim[a] - sim[b])));
   const pt = parseInt(lg.playoff_teams, 10) || Math.round(n / 2);
-  const pfPace = teams.map((t, i) => (t.points_for || 0) + ppg[i] * Math.max(0, regEnd - recs[i].g));
+  const pfPace = teams.map((t, i) => (t.points_for || 0) + ppg[i] * Math.max(0, regEnd - recs[i].g / per));
   for (let s = 0; s < sims; s++) {
     const w = recs.map(r => r.w + r.ti / 2), sim = str.map(x => x + noise * gauss());      // this season's version of each team
     for (let k = 0; k < games.length; k++) { const [a, b] = games[k]; if (Math.random() < 1 / (1 + Math.exp(-0.7 * (sim[a] - sim[b])))) w[a]++; else w[b]++; }
+    for (let k = 0; k < medWeeks; k++) for (let i = 0; i < n; i++) if (Math.random() < 1 / (1 + Math.exp(-0.7 * sim[i]))) w[i]++;   // against a middle team
     const order = [...Array(n).keys()].sort((a, b) => (w[b] - w[a]) || (pfPace[b] - pfPace[a]) || (Math.random() - 0.5));
     order.forEach((ti, place) => { slots[ti][n - 1 - place]++; winsSum[ti] += w[ti]; if (place < pt) playoff[ti]++; });
     let field = order.slice(0, Math.min(pt, n));                              // the playoff bracket: byes to the top seeds
@@ -2369,7 +2427,7 @@ function simulate_standings(values, cfg, teams, sims) {
     const pr = slots[i].map(c => c / sims);
     out[t.roster_id] = { slots: pr, exp_slot: pr.reduce((a, p, k) => a + p * (k + 1), 0), wins: winsSum[i] / sims, playoff: playoff[i] / sims, title: titles[i] / sims, strength: str[i] };
   });
-  return { by: out, n, weeks_left: games.length ? Math.round(games.length / (n / 2)) : 0, games_played: g, sims };
+  return { by: out, n, weeks_left: games.length ? Math.round(games.length / (n / 2)) : 0, games_played: g, weeks_played: wd, median: med, sims };
 }
 /* A pick's value from its original owner's projected draft slot. Next year's pick uses the simulated slot odds; later
    years lean on team strength, pulled halfway (two years out) or three-quarters (three years) toward the middle. */
@@ -2639,7 +2697,7 @@ const read_log = () => Store.get(f("trades.json")) || [];
 
 // ---------------------------------------------------------------------------
 return {
-  PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
+  PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
   pyround, clone, now_iso, today_iso, ordinal, fmt, fmt_signed, fmt_pct, compact, norm, title, player_key, ppr_bucket,
   is_bestball, is_redraft, league_kind, league_kind_label,
   load_profiles, save_profiles, set_profile, profile_new, profile_rename, profile_delete, load_config, save_config,
