@@ -1,7 +1,7 @@
 {
- "versionCode": 21,
- "versionName": "3.2.3",
- "notes": "3.2.3: In dynasty leagues the Dynasty grade now follows Our rank, so the letters run from A+ down to F in list order (A+ is about the best player on each team, A the next). F stays for players with nothing going.",
+ "versionCode": 22,
+ "versionName": "3.2.4",
+ "notes": "3.2.4: Market vs ours in dynasty is now Buy, Sell high and Sell, following the dynasty rankings and the age curves. Our rank shows its own numbers, high to low. Trading for a tight end now counts his risk, and young QBs and RBs drafted high carry their draft-day hype in trades. The 2027 class grades blend last season's production and where similar players were drafted, checked against how past classes did in the NFL.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
