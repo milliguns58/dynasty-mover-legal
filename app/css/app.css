@@ -857,3 +857,7 @@ table.acc td.warn{color:var(--warn)}
 .gcells.g3 .gcell{min-width:30px}
 .gcells.g3 .gcell.wkc{padding-right:5px;min-width:30px}
 .gcells.g3 .grade.sm{min-width:28px}
+.edge-tag.sellhigh{color:#d99a1e}
+.gv.vs b{font-size:12px;font-variant-numeric:tabular-nums}
+/* Market vs ours: the reason wraps under the name so it can be read on a phone */
+.edge-list .item .nm .s{white-space:normal;line-height:1.25}
