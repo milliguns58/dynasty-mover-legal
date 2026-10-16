@@ -199,8 +199,28 @@ function rankedValues() {
 }
 /* The grade is our dynasty view (a.ours: the research age curves and breakout bump, on the market's scale); the value and
    rank are the market's. market = true grades by the market value instead (for the buy/sell hint). */
+// Our rank's order (a.orank), high to low, for the dynasty grade
+function orankedValues() {
+  const v = S.values;
+  if (!v) return [];
+  if (!v._oranked) v._oranked = v.players.filter(p => !p.unranked && p.orank != null).map(p => p.orank).sort((x, y) => y - x);
+  return v._oranked;
+}
 function gradeOf(a, market) {
   if (!a || a.unranked || !(a.value > 0)) return { g: "–", label: "Not ranked", cls: "gx" };
+  // dynasty (2026-10-16, the user's ask): the grade follows Our rank, A+ down to F on the per-team scale (GRADES), so
+  // the letters run in the list's order. The report card (a.oscore) still guards the F: a player it grades D or better,
+  // or a starting QB, gets at least a D (F is for nothing going).
+  if (!market && !locked() && !E.is_redraft(S.cfg) && a.orank != null) {
+    const vals = orankedValues(), x = a.orank;
+    let lo = 0, hi = vals.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (vals[mid] > x) lo = mid + 1; else hi = mid; }
+    const perTeam = (lo + 1) / Math.max(4, parseInt((S.cfg && S.cfg.league.teams) || 12));
+    let [, g, label] = GRADES.find(([cut]) => perTeam <= cut);
+    const card = a.oscore != null ? E.GRADE_CUTS.find(([c]) => a.oscore >= c)[1] : null;
+    if (g === "F" && ((card && card !== "F") || startingQbFloor(a))) { g = "D"; label = GRADE_LABEL.D; }
+    return { g, label, cls: "g" + g[0].toLowerCase() };
+  }
   if (!market && !locked() && a.oscore != null) {                       // Pro: our report-card grade (engine.js grade_scores)
     const g = E.GRADE_CUTS.find(([c]) => a.oscore >= c)[1];
     const M = gradeOf(a, true);
@@ -1145,7 +1165,7 @@ function renderRank(el) {
         : "Ranked by the market's value."}</p>` : ""}
     ${R.pos === "ROOK" ? `<div class="seg" id="rseg">${[["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].map(([p, l]) => `<button data-rp="${p}" class="${R.rpos === p ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (early production for his team, the age it came at, receptions for backs, size, recruiting pedigree, efficiency). Once the NFL draft happens, the pick's round joins the grade.</p>` : ""}
-    ${more("What do the grades mean?", `<p class="note">${E.is_redraft(S.cfg) ? "Two grades on every player. The big letter is the <b>season</b> grade: the rest of this season." : "Three grades on every player. The big letter is the <b>dynasty</b> grade: his next seasons. The small <b>season</b> letter is this season only: the points we expect him to score the rest of this year, ranked at his position."} <span class="grade ga">A</span> star · <span class="grade gb">B</span> starter · <span class="grade gc">C</span> depth · <span class="grade gd">D</span> long shot · <span class="grade gf">F</span> nothing going: no team, buried on the depth chart, or old and unproductive.
+    ${more("What do the grades mean?", `<p class="note">${E.is_redraft(S.cfg) ? "Two grades on every player. The big letter is the <b>season</b> grade: the rest of this season." : "Three grades on every player. The big letter is the <b>dynasty</b> grade: his next seasons, in Our rank's order (A+ is about the best player on each team, A the next one, on down to F). The small <b>season</b> letter is this season only: the points we expect him to score the rest of this year, ranked at his position."} <span class="grade ga">A</span> star · <span class="grade gb">B</span> starter · <span class="grade gc">C</span> depth · <span class="grade gd">D</span> long shot · <span class="grade gf">F</span> nothing going: no team, buried on the depth chart, or old and unproductive.
       The small <b>wk</b> letter is <b>this week</b>: his matchup-adjusted projection ranked at his position, A+ must start, F sit, a dash for no game. ${locked() ? "On the Basic plan the grade is the market's."
         : E.is_redraft(S.cfg) ? "The grade is ours: the points he'll score this season (production, role and health). Age doesn't count in redraft. The value and rank are the market's."
         : "The grade is ours: what his future holds (production, the prime years he has left, role and health). The value and rank are the market's."}
