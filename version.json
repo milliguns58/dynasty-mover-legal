@@ -1,10 +1,10 @@
 {
- "versionCode": 19,
- "versionName": "3.2.1",
- "notes": "3.2.1: How right we've been shows, in plain words, how close our weekly point estimates landed and how we fine-tune them; each player card shows what we said vs what he scored. Power rankings; rookies valued by draft position; proven stars keep their best seasons; pickups only with a real role.",
+ "versionCode": 20,
+ "versionName": "3.2.2",
+ "notes": "3.2.2: Rankings can be ordered three ways: Our rank (now built from FantasyCalc and DynastyProcess with our model's view on top), points scored this season, or this week's projection. Dynasty rows show a Season grade beside the Dynasty grade. Power rankings add Our rank, Points and a projected record with playoff odds. Fixes: starting QBs coming off a bye or an injury were valued as backups; median leagues counted games as weeks.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
  },
- "published": "2026-10-15"
+ "published": "2026-10-16"
 }
