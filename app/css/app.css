@@ -861,3 +861,13 @@ table.acc td.warn{color:var(--warn)}
 .gv.vs b{font-size:12px;font-variant-numeric:tabular-nums}
 /* Market vs ours: the reason wraps under the name so it can be read on a phone */
 .edge-list .item .nm .s{white-space:normal;line-height:1.25}
+/* the creative trade ideas (2026-10-16) */
+.k-buylow,.k-injury{background:var(--good-soft);color:var(--good)}.k-sellhigh,.k-market{background:var(--warn-soft);color:var(--warn)}.k-consolidate{background:var(--accent-soft);color:var(--accent)}
+/* wide screens (2026-10-19, the user: the browser version looked stretched): the pages already stop at 640px; the
+   pop-up sheets (player card, power rankings, pickers), the tab bar and the header's content now sit in that same
+   centered column, so a desktop browser looks like the app. Phones are unchanged. */
+@media (min-width:700px){
+  .sheet{left:50%;right:auto;width:640px;transform:translateX(-50%);border-left:1px solid var(--line);border-right:1px solid var(--line)}
+  .tabs{left:50%;right:auto;width:640px;transform:translateX(-50%);border-left:1px solid var(--line);border-right:1px solid var(--line)}
+  .top{padding-left:calc((100% - 640px) / 2 + 20px);padding-right:calc((100% - 640px) / 2 + 20px)}
+}
