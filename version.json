@@ -1,7 +1,7 @@
 {
- "versionCode": 23,
- "versionName": "3.2.5",
- "notes": "3.2.5: More trade ideas: buy low, sell high, injury buys, two-for-ones and league-market sells. Smarter quarterback trades in superflex: a starting QB is never offered for a backup. Injuries and IR now refresh from the NFL's official report every few hours on game days. The browser version stays in a neat centered column on wide screens.",
+ "versionCode": 24,
+ "versionName": "3.2.6",
+ "notes": "3.2.6: My team now shows each player's last 3 weeks on the Lineup, Roster and Pickups tabs: what we estimated and what he scored, green when he beat it.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
