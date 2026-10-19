@@ -1582,7 +1582,7 @@ function drawTrades(body, t, W) {
       <div class="ti-chips">${me.thin.map(p => chip("Thin at " + p, "thin")).join("")}${me.deep.map(p => chip("Deep at " + p, "deep")).join("")}</div>
       <p class="note">${DIR[1]}</p>${when ? `<p class="note muted">${when}</p>` : ""}</section>`;
   if (!T.ideas.length) h += `<section class="card"><div class="empty">No clear trade ideas right now. Check back after the next games.</div></section>`;
-  const KIND = { buy: "Buy", sell: "Sell", fit: "Good fit" };
+  const KIND = { buy: "Buy", sell: "Sell", fit: "Good fit", buylow: "Buy low", sellhigh: "Sell high", injury: "Injury buy", consolidate: "2-for-1", market: "League market" };
   const mini = a => `<div class="mini" data-card="${esc(a.id)}">${avatar(a)}<div class="mini-t"><b>${esc(a.name)}</b><span>${gradeChip(a, false)} ${fmt(a.value)}</span></div></div>`;
   T.ideas.forEach((x, i) => {
     h += `<section class="card idea tone-purple">
@@ -1733,8 +1733,10 @@ const inchesToFt = h => { const n = parseInt(h); return n > 0 ? `${Math.floor(n 
 /* Header bits from Sleeper's player record: depth chart for the position chip, a health chip, and a one-line bio. */
 function headerInfo(a, p) {
   if (!p) return null;
-  const inj = p.injury_status;
-  const health = inj ? `<span class="chip alert">${esc(inj)}${p.injury_body_part ? " · " + esc(p.injury_body_part) : ""}</span>`
+  const st = E.load_player_status()[String(a.sleeper_id || "")] || {};
+  const inj = st.report || "sl_inj" in st ? st.inj : p.injury_status;      // the NFL's injury report when it's newer or more serious
+  const body = (st.report && st.report.injury) || p.injury_body_part;
+  const health = inj ? `<span class="chip alert">${esc(inj)}${body ? " · " + esc(body) : ""}</span>`
     : (p.status && p.status !== "Active" ? `<span class="chip amber">${esc(p.status)}</span>` : `<span class="chip ok">Healthy</span>`);
   const slot = ["LWR", "RWR", "SWR"].includes(p.depth_chart_position) ? "WR" : (p.depth_chart_position || a.pos);   // Sleeper numbers receivers as one list
   const depth = p.depth_chart_order ? slot + p.depth_chart_order : a.pos;
@@ -1743,12 +1745,16 @@ function headerInfo(a, p) {
   return { pos: `${esc(depth)} · ${esc(a.team || "FA")}`, health, bio: esc(bio), team: a.team && a.team !== "FA" ? a.team : null };
 }
 /* Only what's worth reading below the header: injury notes, since when, and the practice report. */
-function injuryDetails(p) {
+function injuryDetails(p, a) {
   if (!p) return "";
   const rows = [];
+  // the NFL's official injury report for this week (nflverse), checked every few hours
+  const R = a ? (E.load_player_status()[String(a.sleeper_id || "")] || {}).report : null;
+  if (R && (R.status || R.practice)) rows.push(`<div class="kv"><span>Official report, week ${R.week}</span><b>${esc([R.status || "No game status", R.injury].filter(Boolean).join(" · "))}</b></div>`
+    + (R.practice ? `<div class="kv"><span>Practice</span><b>${esc(R.practice)}</b></div>` : ""));
   if (p.injury_notes) rows.push(`<p class="note">${esc(p.injury_notes)}</p>`);
   if (p.injury_start_date) rows.push(`<div class="kv"><span>Injured since</span><b>${esc(new Date(p.injury_start_date).toLocaleDateString(undefined, { month: "short", day: "numeric" }))}</b></div>`);
-  if (p.practice_participation || p.practice_description) rows.push(`<div class="kv"><span>Practice</span><b>${esc(p.practice_description || p.practice_participation)}</b></div>`);
+  if (!(R && R.practice) && (p.practice_participation || p.practice_description)) rows.push(`<div class="kv"><span>Practice</span><b>${esc(p.practice_description || p.practice_participation)}</b></div>`);
   return rows.length ? `<div class="sub-h">Injury</div>` + rows.join("") : "";
 }
 async function loadNews(a) {
@@ -1762,7 +1768,7 @@ async function loadNews(a) {
         <b>${esc(b.headline)}</b>${b.story && b.story !== b.headline ? `<p>${esc(b.story)}</p>` : ""}</div>`).join("") +
       `<p class="credit" style="text-align:left;padding:2px 0 10px">Player updates from RotoWire via ESPN.</p>`;
   }
-  h += injuryDetails(p);
+  h += injuryDetails(p, a);
   if (!E.PLAY) {
     if (news && news.length) {
       h += `<div class="sub-h">Latest headlines</div>` + news.map(n => `<a class="news" data-link="${esc(n.link)}"><b>${esc(n.title)}</b>
@@ -1773,7 +1779,7 @@ async function loadNews(a) {
   }
   if (!h && E.PLAY) return { html: "", hdr: headerInfo(a, p) };      // nothing to say: the card hides the section
   if (!h) h = `<p class="note muted">No news right now.</p>`;
-  return { html: h + `<p class="credit" style="text-align:left;padding:4px 0 0">Player status from <a data-link="https://sleeper.com">Sleeper</a>.</p>`, hdr: headerInfo(a, p) };
+  return { html: h + `<p class="credit" style="text-align:left;padding:4px 0 0">Player status from <a data-link="https://sleeper.com">Sleeper</a> and the NFL's injury report via <a data-link="https://github.com/nflverse/nflverse-data">nflverse</a> (CC BY 4.0).</p>`, hdr: headerInfo(a, p) };
 }
 
 /* A team's depth chart (Sleeper). The player you came from is highlighted; tap anyone to open their card. */
@@ -2721,7 +2727,8 @@ async function autoRefresh() {
   const rosters = !!lg && !!lg.league_id && age(lg.imported) > ROSTERS_EVERY;   // leagues built by hand have nothing to fetch
   const modelNew = E.model_changed(S.values);                    // a new value formula: rebuild now, whatever the age
   const values = (!S.values || modelNew || age(S.values.meta.fetched) > VALUES_EVERY) && (modelNew || !E.update_wait_minutes(S.cfg));
-  if (!rosters && !values) return;
+  const injuries = E.injuries_due();                             // the NFL's injury report: every 2 hours on game days, 6 otherwise
+  if (!rosters && !values && !injuries) return;
   S.auto = true;
   $("#sync").classList.remove("hidden");
   let changed = false, updated = false;
@@ -2732,11 +2739,14 @@ async function autoRefresh() {
       if (r.feed_changed && !E.update_wait_minutes(S.cfg)) { await E.update_values(S.cfg, () => {}); }
     }
     if (values && E.P.id === pid && (modelNew || !E.update_wait_minutes(S.cfg))) { await E.update_values(S.cfg, () => {}); changed = true; updated = true; }
+    if (injuries) { const n = await E.refresh_injuries(parseInt(S.cfg.season, 10)); if (n) { changed = true; S.injNews = n; } }
   } catch (e) { /* offline or a source hiccup: try again next time the app opens */ }
   S.auto = false;
   $("#sync").classList.add("hidden");
   if (changed && E.P.id === pid) refreshInPlace();
   if (updated && E.P.id === pid) toast("Values updated", 1800);
+  else if (S.injNews && E.P.id === pid) toast(`Injury report: ${plural(S.injNews, "player")} updated`, 1800);
+  S.injNews = 0;
   refreshMarket().catch(() => {});
 }
 /* This league's market, refitted from its trades once a day (Sleeper leagues only). */

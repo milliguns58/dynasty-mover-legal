@@ -1274,6 +1274,7 @@ async function src_dmv(cfg, curve, ours) {
   if (week >= 3) addVol(cur, 0.5);
   const owners = {};                                                              // the Sleeper players sharing a name|pos key (Frank Gore Sr. and Jr.)
   for (const s of Object.values(sl)) if (POSITIONS.includes(s.position)) { const k = player_key(s.full_name || `${s.first_name || ""} ${s.last_name || ""}`.trim(), s.position); (owners[k] = owners[k] || []).push(s); }
+  const stl = load_player_status();                                            // with the NFL's injury report merged in
   for (const [sid, s] of Object.entries(sl)) {
     const pos = s.position;
     if (!POSITIONS.includes(pos)) continue;
@@ -1287,7 +1288,9 @@ async function src_dmv(cfg, curve, ours) {
     const d = draft[k] && Math.abs(draft[k][0] - (season - exp)) <= 1 ? draft[k] : null;
     if (!st.some(Boolean) && !d) continue;                                          // no NFL stats and never drafted
     const age = s.birth_date ? (now - new Date(s.birth_date).getTime()) / (365.25 * 86400000) : (s.age || 26);
-    const f = { pos, age, exp, team: s.team || null, depth: s.depth_chart_order || null, inj: s.injury_status || null, pick: d ? d[2] : null,
+    const ovr = stl[sid];                                                        // the NFL's injury report over Sleeper's status (refresh_injuries)
+    const inj0 = (ovr && "sl_inj" in ovr ? ovr.inj : s.injury_status) || null;
+    const f = { pos, age, exp, team: s.team || null, depth: s.depth_chart_order || null, inj: inj0, pick: d ? d[2] : null,
       g: st.map(o => (o ? o[0] : 0)), ppg: st.map(pg), ppr };
     const rush = st.reduce((a, o) => a + (o ? (o[4] || 0) / 10 + 6 * (o[5] || 0) : 0), 0), all = st.reduce((a, o) => a + (o ? o[1] : 0), 0);
     f.rush = all > 0 ? Math.min(1, Math.max(0, rush / all)) : 0;
@@ -1313,7 +1316,7 @@ async function src_dmv(cfg, curve, ours) {
     f.hot = hot.has(String(sid));
     if (ours && typeof Predict !== "undefined" && Predict.ready()) {             // the fitted forecasts: next season, the chance he plays, the rest of this season
       f.ageNext = age + (new Date(season + 1, 8, 1).getTime() - now) / (365.25 * 86400000);
-      f.pred = Predict.season({ pos, age, ageNext: f.ageNext, exp, pick: d ? d[2] : null, depth: s.depth_chart_order || null, inj: s.injury_status || null,
+      f.pred = Predict.season({ pos, age, ageNext: f.ageNext, exp, pick: d ? d[2] : null, depth: s.depth_chart_order || null, inj: inj0,
         cur: st[0], y1: st[1], y2: st[2], ep: ep[k], snaps: snaps[k], teamCtx: s.team ? tctx[s.team] : null, week });
     }
     let v = dmv_value(f, redraft, ours);
@@ -1686,6 +1689,7 @@ function update_wait_minutes(cfg) {
 }
 
 async function update_values(cfg, log = () => {}) {
+  const pid = P.id;                                                  // the league this update is for: a league switch mid-download must not get its values (2026-10-16)
   try { const n = await refresh_player_status(await sleeper_players()); log(`Player status: ${fmt(n)} players`); } catch (e) { log(`Player status failed: ${e.message}`); }   // Sleeper asks for the player list at most once a day; it is cached 24 h
   log(`Downloading ${is_redraft(cfg) ? "redraft" : "dynasty"} values ...`);
   const [results, notes] = await fetch_all_sources(cfg, log);
@@ -1695,6 +1699,7 @@ async function update_values(cfg, log = () => {}) {
   let anchor = null;
   try { anchor = await attach_orank(cfg, assets, results, log); } catch (e) { log(`Our rank: ${e.message}`); }
   const lg = cfg.league;
+  if (P.id !== pid) throw new Error("The league changed during the update");
   Store.set(f("values.json"), {
     fetched: now_iso(), source: results.length > 1 ? "consensus" : results[0].name, sources_used: results.map(r => r.name), anchor,
     source_weights: Object.fromEntries(results.map(r => [r.name, effective_weight(cfg, r.name)])), notes,
@@ -1705,7 +1710,7 @@ async function update_values(cfg, log = () => {}) {
   try { await refresh_trending(); } catch (e) { log(`Trending adds/drops failed: ${e.message}`); }
   const n = assets.filter(a => !a.is_pick).length;
   log(`Consensus of ${results.length} lists: ${n} players and ${assets.length - n} picks. Price snapshot ${snaps}.`);
-  load_values(cfg);
+  if (P.id === pid) load_values(cfg);
   return { lists: results.length, players: n, picks: assets.length - n, notes };
 }
 
@@ -1751,9 +1756,72 @@ async function refresh_player_status(all_players) {
     out[String(pid)] = { inj, depth, team: pl.team, pos, name, status: pl.status };
   }
   Store.set("player_status.json", { fetched: now_iso(), players: out, names, last });
+  apply_injuries();                                                  // the NFL's report on top, where it's newer or more serious
   return Object.keys(out).length;
 }
 const load_player_status = () => (Store.get("player_status.json") || {}).players || {};
+/* Injury news between Sleeper's daily player lists (2026-10-16, the user's ask): nflverse publishes the NFL's official
+   injury report (game status, the injury, practice participation) and every roster's status (IR, IR with a return date,
+   PUP) with Sleeper ids, CC BY 4.0, refreshed through the day. The app reads both every 2 hours on game days (Thursday,
+   Sunday, Monday) and every 6 hours otherwise, and lays them over Sleeper's status: the more serious status wins, a
+   game status counts only for this week's report, and a player the newer roster shows active comes off IR. */
+const NFL_RESERVE = { R01: "IR", R48: "IR", R04: "PUP" };           // Reserve/Injured, Reserve/Injured designated for return, Reserve/PUP
+const NFL_GAME = ["Out", "Doubtful", "Questionable"];
+const INJ_RANK = { IR: 5, PUP: 5, Sus: 5, Suspended: 5, DNR: 5, NA: 4, Out: 4, Doubtful: 3, Questionable: 2 };
+const injuries_every_hours = () => ([0, 1, 4].includes(new Date().getDay()) ? 2 : 6);
+function injuries_due() {
+  const c = Store.get("nfl_injuries.json");
+  return !c || c.v !== 1 || Date.now() - new Date(c.fetched).getTime() > injuries_every_hours() * 3600000;
+}
+async function refresh_injuries(season) {
+  const [rep, ros, state] = await Promise.all([
+    Net.text(`${NFLV}injuries/injuries_${season}.csv`, null, 120000).catch(() => null),
+    Net.text(`${NFLV}rosters/roster_${season}.csv`, null, 120000).catch(() => null),
+    Net.json(`${SLEEPER_URL}/state/nfl`, null, 30000).catch(() => null)]);
+  if (!rep && !ros) return 0;
+  const players = {}, g2s = {};
+  if (ros) for (const r of parse_csv(ros)) {
+    if (!POSITIONS.includes(r.position) || !r.sleeper_id) continue;
+    const sid = String(r.sleeper_id); g2s[r.gsis_id] = sid;
+    players[sid] = { res: NFL_RESERVE[r.status_description_abbr] || null, active: r.status === "ACT" };
+  }
+  let week = 0;
+  if (rep) {
+    const rows = parse_csv(rep).filter(r => POSITIONS.includes(r.position) && (r.game_type || "REG") === "REG");
+    for (const r of rows) week = Math.max(week, parseInt(r.week, 10) || 0);
+    for (const r of rows) {
+      if ((parseInt(r.week, 10) || 0) !== week) continue;
+      const sid = g2s[r.gsis_id]; if (!sid) continue;
+      Object.assign(players[sid] = players[sid] || {}, { report: r.report_status || null, injury: r.report_primary_injury || r.practice_primary_injury || null, practice: r.practice_status || null, week });
+    }
+  }
+  const cur = state && parseInt(state.week, 10) || week;
+  Store.set("nfl_injuries.json", { v: 1, fetched: now_iso(), week, current: cur, players });
+  return apply_injuries();
+}
+/* Merge the NFL's report into player_status.json; returns how many players' status changed. */
+function apply_injuries() {
+  const s = Store.get("player_status.json"), c = Store.get("nfl_injuries.json");
+  if (!s || !s.players || !c || c.v !== 1) return 0;
+  const newer = new Date(c.fetched) > new Date(s.fetched || 0);
+  let changed = 0;
+  for (const [sid, o] of Object.entries(c.players)) {
+    const p = s.players[sid] || {};
+    const base = "sl_inj" in p ? p.sl_inj : (p.inj || null);           // Sleeper's own status, kept to merge again later
+    const game = o.report && NFL_GAME.includes(o.report) && o.week >= c.current ? o.report : null;
+    const nfl = o.res || game;
+    let inj = base;
+    if (nfl && (INJ_RANK[nfl] || 0) > (INJ_RANK[inj] || 0)) inj = nfl;
+    if (newer && o.active && !o.res && (base === "IR" || base === "PUP")) inj = game;   // activated since Sleeper's list
+    const report = o.week >= c.current && (o.report || o.practice || o.injury) ? { status: o.report, injury: o.injury, practice: o.practice, week: o.week } : null;
+    if ((inj || null) === (p.inj || null) && JSON.stringify(report) === JSON.stringify(p.report || null)) continue;
+    if ((inj || null) !== (p.inj || null)) changed++;
+    s.players[sid] = Object.assign(p, { sl_inj: base, inj: inj || undefined, report });
+  }
+  s.injuries_at = c.fetched;
+  Store.set("player_status.json", s);
+  return changed;
+}
 const load_name_index = () => (Store.get("player_status.json") || {}).names || {};
 
 const TRENDING_URL = "https://api.sleeper.app/v1/players/nfl/trending/{kind}?lookback_hours=48&limit=100";
@@ -2277,6 +2345,7 @@ async function sleeper_user_leagues(username, season) {
 }
 
 async function sleeper_import(cfg, league_id, log = () => {}, my_user_id = null) {
+  const pid = P.id;                                                  // the league this import is for: a league switch mid-download must not get its rosters (2026-10-16)
   log(`Downloading Sleeper league ${league_id} ...`);
   const L = `${SLEEPER_URL}/league/${league_id}`;
   const lg = await Net.json(L);
@@ -2353,6 +2422,7 @@ async function sleeper_import(cfg, league_id, log = () => {}, my_user_id = null)
     previous_league_id: lg.previous_league_id || null,
     trade_deadline: settings.trade_deadline != null ? parseInt(settings.trade_deadline) : null,
   };
+  if (P.id !== pid) throw new Error("The league changed during the import");   // nothing below awaits, so this one check covers every write
   Store.set(f("league.json"), league);
   log(`Saved '${league.name}': ${teams.length} teams, ${Object.keys(players).length} rostered players, ${trades.length} trades`);
   if (P.id && league.name) profile_rename(P.id, league.name);
@@ -2727,7 +2797,7 @@ const read_log = () => Store.get(f("trades.json")) || [];
 
 // ---------------------------------------------------------------------------
 return {
-  PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
+  PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, injuries_due, refresh_injuries, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
   pyround, clone, now_iso, today_iso, ordinal, fmt, fmt_signed, fmt_pct, compact, norm, title, player_key, ppr_bucket,
   is_bestball, is_redraft, league_kind, league_kind_label,
   load_profiles, save_profiles, set_profile, profile_new, profile_rename, profile_delete, load_config, save_config,

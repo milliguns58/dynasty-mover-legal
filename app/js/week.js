@@ -1294,7 +1294,7 @@ function player_card(values, cfg, a, W) {
    Each idea comes with a package of about even value (within 15%) from the other side's spare parts. */
 const TI_POS = E.POSITIONS;
 const VET_AGE = E.AGE_DECLINE;                               // sell a year early rather than a year late (the user's age cliffs, engine AGE_CLIFF - 2)
-function trade_targets(values, cfg, me, week, n = 6) {
+function trade_targets(values, cfg, me, week, n = 8) {
   const lg = values.league, all = lg.teams, starters = lg.roster_positions_starters || cfg.league.starters;
   const rec = t => { const [w, l, ti] = String(t.record || "0-0").split("-").map(x => parseInt(x, 10) || 0); const g = w + l + (ti || 0); return { w, l, g, pct: g ? (w + 0.5 * (ti || 0)) / g : 0.5 }; };
   const info = new Map();
@@ -1335,14 +1335,14 @@ function trade_targets(values, cfg, me, week, n = 6) {
   // pays: a QB or RB drafted high this year or last brings back more (draft hype, the user's rule 2026-10-16)
   const price = a => a.value * E.hype_mult(a, cfg);
   const cost = a => a.value * (1 - E.te_risk(a));                      // what to offer for him: a TE at a discount (his risk)
-  const pack = (pool, target, avoid = new Set()) => {
-    const c = pool.filter(a => !avoid.has(a.id) && a.value > 0).sort((a, b) => price(b) - price(a));
+  const pack = (pool, target, avoid = new Set(), val = price) => {
+    const c = pool.filter(a => !avoid.has(a.id) && a.value > 0).sort((a, b) => val(b) - val(a));
     const ok = v => v >= target * 0.85 && v <= target * 1.15;
     let best = null;
-    for (const a of c) if (ok(price(a)) && (!best || Math.abs(price(a) - target) < Math.abs(best.v - target))) best = { items: [a], v: price(a) };
+    for (const a of c) if (ok(val(a)) && (!best || Math.abs(val(a) - target) < Math.abs(best.v - target))) best = { items: [a], v: val(a) };
     if (best) return best;
     for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) {
-      const v = price(c[i]) + price(c[j]);
+      const v = val(c[i]) + val(c[j]);
       if (ok(v) && (!best || Math.abs(v - target) < Math.abs(best.v - target))) best = { items: [c[i], c[j]], v };
     }
     return best;
@@ -1395,6 +1395,97 @@ function trade_targets(values, cfg, me, week, n = 6) {
         why: [`${O.t.team_name} is deep at ${get} and thin at ${give}; you're the opposite`] });
     }
   }
+  // ---- the creative ideas (2026-10-16, the user's ask). They follow the user's rules: never a TE to buy, never a young
+  // superflex QB to give, never young talent for a short-term fix when rebuilding, and a hurt player is never offered.
+  const st = E.load_player_status(), OUTS = ["IR", "PUP", "Out", "Sus", "Suspended", "DNR", "NA"];
+  const hurt = a => !a.is_pick && OUTS.includes((st[String(a.sleeper_id)] || {}).inj);
+  const sfLg = parseInt(cfg.league.num_qbs, 10) >= 2;
+  const keep = a => !a.is_pick && ((sfLg && !redraft && a.pos === "QB" && a.age != null && a.age <= 25.5) || (!redraft && direction === "rebuild" && a.age != null && a.age <= 24));
+  const offer = pool => pool.filter(a => !keep(a) && !hurt(a));
+  const decline = pos => VET_AGE[pos] || 99;
+  const epr = a => (a.ep && a.ep.g >= 4 && a.ep.exp > 0 ? a.ep.pts / a.ep.exp : null);
+  const usageOk = a => a.ep && a.ep.exp / a.ep.g >= (a.pos === "QB" ? 15 : 9);   // a real role: expected points a game
+  const others = [...info.values()].filter(O => O.t.roster_id !== me.roster_id);
+  const POSNAME = { QB: "quarterbacks", RB: "running backs", WR: "receivers", TE: "tight ends" };
+  // superflex QBs (2026-10-16, the user: "Kyler Murray for Ty Simpson is not a good enough trade for a QB"): what you get
+  // is valued plainly (no draft hype), a starting QB goes only for 25% more, never for a QB who isn't starting, and only
+  // while you keep two starting QBs
+  const plain = a => a.value;
+  const nflStarter = a => a.pos === "QB" && a.team && a.team !== "FA" && (st[String(a.sleeper_id)] || {}).depth === 1;
+  const myStartingQbs = M.players.filter(nflStarter).length;
+  const qbSale = a => sfLg && !redraft && nflStarter(a);
+  const canSellQb = a => !qbSale(a) || myStartingQbs >= 3;
+  const qbAsk = a => (qbSale(a) ? 1.25 : 1);
+  const noBackupQbs = pool => pool.filter(x => x.is_pick || x.pos !== "QB" || nflStarter(x));
+  // 4. buy low: scoring under what his usage earns; the points usually follow the usage
+  for (const O of others) for (const a of O.players) {
+    const r = epr(a);
+    if (a.pos === "TE" || r == null || r > 0.85 || !usageOk(a) || a.value < 1500 || hurt(a) || (!redraft && a.age != null && a.age >= decline(a.pos))
+      || (!redraft && direction === "rebuild" && !(a.age != null && a.age <= 25))) continue;   // a rebuilder buys low only on young players
+    const g = pack(offer(spare(M)).filter(x => !qbSale(x) || (a.pos === "QB" && canSellQb(x))), a.value * 0.9);
+    if (!g) continue;
+    ideas.push({ kind: "buylow", team: O.t, get: [a], give: g.items, score: a.value * (1 - r) * 1.6,
+      why: [`${a.name} has scored ${a.ep.pts.toFixed(0)} points on ${a.ep.exp.toFixed(0)} expected from his usage: the points usually follow the usage, so his price may never be lower`,
+        "The offer is about 10% under his value: buy before the touchdowns catch up"] });
+  }
+  // 5. sell high: touchdowns running far ahead of his usage, to a team thin at his spot
+  for (const a of M.players) {
+    const r = epr(a);
+    if (r == null || r < 1.2 || !(a.ep.td - a.ep.tdx >= 2.5) || a.value < 1500 || keep(a) || hurt(a) || (a.rank && a.rank <= 24) || (!redraft && a.age != null && a.age < 25) || !canSellQb(a)) continue;
+    for (const O of others) {
+      if (!(needOf(O)[a.pos] > 0)) continue;
+      const g = pack(noBackupQbs(redraft ? spare(O) : young(O)), price(a) * qbAsk(a), new Set(), plain);
+      if (!g) continue;
+      ideas.push({ kind: "sellhigh", team: O.t, give: [a], get: g.items, score: a.value * (r - 1) * 1.4 + needOf(O)[a.pos] * 0.2,
+        why: [`${a.name} has ${a.ep.td} touchdowns on ${a.ep.tdx.toFixed(1)} expected: a run like that rarely lasts, so sell while his numbers look their best`,
+          `${O.t.team_name} is ${recTxt(O)} and thin at ${a.pos}, so they should pay full price`] });
+    }
+  }
+  // 6. injury buy (dynasty): a good young player who is hurt, from a contender who needs points now
+  if (!redraft && direction !== "contend") for (const O of others) {
+    if (!(O.standing >= 0.5)) continue;
+    for (const a of O.players.filter(a => hurt(a) && a.pos !== "TE" && a.value >= 2500 && a.age != null && a.age < decline(a.pos) - 1)) {
+      const g = pack(offer(spare(M)).filter(x => !qbSale(x)), a.value * 0.8);
+      if (!g) continue;
+      const inj = (st[String(a.sleeper_id)] || {}).inj;
+      ideas.push({ kind: "injury", team: O.t, get: [a], give: g.items, score: a.value * 0.35,
+        why: [`${a.name} is ${inj === "IR" ? "on IR" : inj}; ${O.t.team_name} is ${recTxt(O)} and needs points now, so he can come cheaper`,
+          `He's ${Math.floor(a.age)}: the injury costs this season, not his future. The offer is about 20% under his value`] });
+    }
+  }
+  // 7. two-for-one: two bench pieces for one starter at your weakest spot (two-for-ones here cost about a fifth more)
+  {
+    const weakest = TI_POS.filter(p => p !== "TE").sort((x, y) => (myNeed[y] || 0) - (myNeed[x] || 0))[0];
+    const mine = weakest && M.byPos[weakest].length ? Math.min(...M.byPos[weakest]) : 0;
+    const bench = offer(M.players.filter(a => !M.startIds.has(a.id) && !qbSale(a))).sort((x, y) => price(y) - price(x));
+    if (weakest) for (const O of others) {
+      const a = O.players.filter(a => a.pos === weakest && a.value >= Math.max(1500, mine * 1.3) && !hurt(a)).sort((x, y) => x.value - y.value)[0];
+      if (!a) continue;
+      let best = null;
+      for (let i = 0; i < bench.length; i++) for (let j = i + 1; j < bench.length; j++) {
+        const v = price(bench[i]) + price(bench[j]);
+        if (price(bench[i]) < a.value && v >= a.value * 1.15 && v <= a.value * 1.4 && (!best || v < best.v)) best = { items: [bench[i], bench[j]], v };
+      }
+      if (!best) continue;
+      ideas.push({ kind: "consolidate", team: O.t, get: [a], give: best.items, score: (a.value - mine) * 0.9,
+        why: [`Two of your bench pieces for a starter at ${weakest}, where your lineup is weakest: you upgrade and free a roster spot`,
+          "In these leagues the side giving two pieces pays about a fifth more in total value, so the package is priced that way"] });
+    }
+  }
+  // 8. league market (dynasty): sell where this league pays more than our values say (its own trade history)
+  if (!redraft) for (const pos of TI_POS) {
+    const mult = E.league_market_mult({ pos }, cfg);
+    if (!(mult >= 1.1)) continue;
+    const a = offer(M.players.filter(x => x.pos === pos && !M.startIds.has(x.id) && x.value >= 1500 && canSellQb(x))).sort((x, y) => y.value - x.value)[0];
+    if (!a) continue;
+    const O = others.filter(o => needOf(o)[pos] > 0).sort((x, y) => needOf(y)[pos] - needOf(x)[pos])[0];
+    if (!O) continue;
+    const g = pack(noBackupQbs([...new Set(young(O).concat(spare(O)))]), a.value * mult * qbAsk(a), new Set(), plain);
+    if (!g) continue;
+    ideas.push({ kind: "market", team: O.t, give: [a], get: g.items, score: a.value * (mult - 1) * 3,
+      why: [`This league pays about ${Math.round((mult - 1) * 100)}% more for ${POSNAME[pos]} than our values say (from its own trades): sell where the market overpays`,
+        `${a.name} sits on your bench; ${O.t.team_name} is the thinnest at ${pos}`] });
+  }
   // trading for a TE is risky (the user's rule, 2026-10-16): ideas that bring one in rank lower and say why; a
   // high-drafted young QB or RB in what you'd give is named as the hype that pays for it
   for (const x of ideas) {
@@ -1403,13 +1494,13 @@ function trade_targets(values, cfg, me, week, n = 6) {
     const hyped = x.give.filter(a => E.hype_mult(a, cfg) >= 1.03);
     if (hyped.length) x.why.push(hyped.map(a => `${a.name} went #${a.dpick} in the NFL draft${a.exp === 0 ? " this year" : " last year"}`).join("; ") + ": the hype is worth more in a trade than his stats so far");
   }
-  // best first, one idea per player you'd get, at most two per team
+  // best first, one idea per trade, at most two per team and two of each kind (so the mix stays varied)
   ideas.sort((a, b) => b.score - a.score);
-  const out = [], usedGet = new Set(), perTeam = {};
+  const out = [], usedGet = new Set(), perTeam = {}, perKind = {};
   for (const x of ideas) {
-    const key = x.get.map(a => a.id).join("+");
-    if (usedGet.has(key) || (perTeam[x.team.roster_id] || 0) >= 2) continue;
-    usedGet.add(key); perTeam[x.team.roster_id] = (perTeam[x.team.roster_id] || 0) + 1;
+    const key = x.get.map(a => a.id).join("+") + ">" + x.give.map(a => a.id).join("+");
+    if (usedGet.has(key) || (perTeam[x.team.roster_id] || 0) >= 2 || (perKind[x.kind] || 0) >= 2) continue;
+    usedGet.add(key); perTeam[x.team.roster_id] = (perTeam[x.team.roster_id] || 0) + 1; perKind[x.kind] = (perKind[x.kind] || 0) + 1;
     out.push(x);
     if (out.length >= n) break;
   }

@@ -46,6 +46,8 @@ const GM = (() => {
     if (a.is_pick) return "";
     const t = [];
     if (Week.is_star(a)) t.push("STAR");
+    // whether a QB starts for his NFL team (Sleeper's depth chart): a starter and a backup are different assets (2026-10-16)
+    if (a.pos === "QB") { const d = (E.load_player_status()[String(a.sleeper_id || "")] || {}).depth; if (a.team && a.team !== "FA" && d) t.push(d === 1 ? "NFL starter" : `NFL backup (QB${d})`); }
     const st = E.is_redraft(S.cfg) ? "" : E.age_stage(a.pos, a.age);
     if (st === "cliff") t.push(`past the ${a.pos} cliff`); else if (st === "near") t.push("cliff next year"); else if (st === "decline") t.push("declining");
     if (a.pos === "QB" && !E.is_redraft(S.cfg)) { const p = ppgNow(a), u = parseInt(S.cfg.league.num_qbs, 10) >= 2 ? E.QB_USABLE.sf : E.QB_USABLE.one; if (p != null) t.push(p >= u ? `usable QB ${p.toFixed(1)}/g` : p < u - 3 ? `not scoring ${p.toFixed(1)}/g` : `${p.toFixed(1)}/g`); }
@@ -70,6 +72,7 @@ const GM = (() => {
       out.push(`- Age cliffs: RB ${C.RB}, WR ${C.WR}, TE ${C.TE}, QB ${C.QB}; the slide starts two years before each. Sell a year early rather than a year late. Player lines carry "declining", "cliff next year" or "past the cliff".`);
       out.push("- Young talent is the currency: never trade away or drop a young player with long-term value for a short-term fill-in.");
       out.push(`- Usable quarterbacks: a QB scoring ${sf ? E.QB_USABLE.sf : E.QB_USABLE.one}+ points a game this season is a usable starter and worth more than his reputation says; one well under it is worth less. Player lines show his points a game.${sf ? " Superflex: a young starting QB is the hardest asset to acquire; never give one away." : ""}`);
+      if (sf) out.push("- Superflex QB trades: never trade a QB who starts for his NFL team (\"NFL starter\") for a backup or a rookie who isn't starting (\"NFL backup\"), whatever their values say. Selling a starting QB needs a starting QB back, or a clear overpay of at least 25% more value, and the manager must keep two starting QBs. A rookie's draft-day hype is not a starting job.");
     }
     out.push(`- Stars start: a player tagged STAR who is healthy and has a game is never benched for a lesser player, whatever one week's projection says; only out, IR, bye or no team changes that. Only another star with the higher number takes his slot.`);
     out.push("- Never recommend starting a player projected for nothing; when two are close, the one starting now stays.");
@@ -199,7 +202,7 @@ const GM = (() => {
       try {
         const T = Week.trade_targets(v, c, me, week, 6);
         if (T.me) out.push(`Direction: ${T.me.direction === "contend" ? "contending" : T.me.direction === "rebuild" ? "rebuilding" : "in between"}${T.me.thin.length ? `; thin at ${T.me.thin.join("/")}` : ""}${T.me.deep.length ? `; deep at ${T.me.deep.join("/")}` : ""}.${T.timing && T.timing.left != null ? ` ${T.timing.left} weeks to the trade deadline.` : ""}`);
-        if (T.ideas && T.ideas.length) out.push(`Trade ideas the app found: ${T.ideas.map(x => `${x.kind === "buy" ? "buy" : x.kind === "sell" ? "sell" : "fit"} with ${x.team.team_name}, get ${x.get.map(a => a.name).join(" + ")} for ${x.give.map(a => a.name).join(" + ")} (${x.why.join("; ")})`).join(". ")}.`);
+        if (T.ideas && T.ideas.length) out.push(`Trade ideas the app found: ${T.ideas.map(x => `${{ buy: "buy", sell: "sell", fit: "fit", buylow: "buy low", sellhigh: "sell high", injury: "injury buy", consolidate: "two-for-one", market: "league market" }[x.kind] || x.kind} with ${x.team.team_name}, get ${x.get.map(a => a.name).join(" + ")} for ${x.give.map(a => a.name).join(" + ")} (${x.why.join("; ")})`).join(". ")}.`);
       } catch (e) { console.error(e); }
       out.push("");
     }
