@@ -871,3 +871,10 @@ table.acc td.warn{color:var(--warn)}
   .tabs{left:50%;right:auto;width:640px;transform:translateX(-50%);border-left:1px solid var(--line);border-right:1px solid var(--line)}
   .top{padding-left:calc((100% - 640px) / 2 + 20px);padding-right:calc((100% - 640px) / 2 + 20px)}
 }
+/* My team: a player's last weeks, our estimate then what he scored (2026-10-19) */
+.pw{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.pw-c{font-size:10.5px;line-height:1.5;padding:0 6px;border-radius:6px;background:var(--raise);color:var(--ink2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pw-c i{font-style:normal;color:var(--muted);margin-right:4px}
+.pw-c.up b{color:var(--good)}.pw-c.dn b{color:var(--bad)}
+.pw-key{font-size:10px;text-transform:none;letter-spacing:0}
+.pw-legend{font-size:11px;color:var(--muted);padding:0 16px 6px}
