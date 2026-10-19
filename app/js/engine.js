@@ -239,7 +239,15 @@ class Values {
   attach_league(league) {
     this.league = league;
     if (!league) return;
-    for (const [pid, p] of Object.entries(league.players || {})) {
+    let sl = null;                                                   // Sleeper's list, for a name the import didn't have (2026-10-19)
+    for (const [pid, p0] of Object.entries(league.players || {})) {
+      let p = p0;
+      if (!p.name || p.name === pid || !p.pos || p.pos === "?") {     // saved before we knew him: a bare ID ("12530" was Travis Hunter)
+        sl = sl || (Store.get("sleeper_players.json") || {}).players || {};
+        const s = sl[pid];
+        if (!s) continue;                                              // not an offensive player at all: nothing to show
+        p = { name: s.full_name || `${s.first_name || ""} ${s.last_name || ""}`.trim(), pos: s.position, team: s.team || "FA", age: s.age ?? p.age ?? null };
+      }
       if (this.by_sleeper[pid] || this.exclude.has(p.pos || "?")) continue;
       const a = make_player("sl" + pid, p.name, p.pos || "?", p.team, p.age, 0, 0, null, null, null, pid, true);
       this.assets.push(a); this.players.push(a); this.by_id[a.id] = a; this.by_sleeper[pid] = a;
@@ -251,8 +259,9 @@ class Values {
    whose lineup has a K or DEF slot (there is nowhere else for them to come from). */
 function hide_positions(cfg, league) {
   if (cfg.league.hide_k_def === false) return [];
-  if (league && league.platform === "manual" && (league.roster_positions || []).some(s => s === "K" || s === "DEF")) return [];
-  return HIDDEN_POSITIONS;
+  // a league that starts a kicker or a defense shows them, whatever the setting (2026-10-19, the user's ask)
+  const slots = (league && league.roster_positions) || [];
+  return HIDDEN_POSITIONS.filter(p => !slots.includes(p) && !(p === "DST" && slots.includes("DEF")));
 }
 function load_values(cfg) {
   cfg = cfg || P.cfg;
@@ -843,14 +852,16 @@ async function prospects(year, maxHours = 24) {
    {name|pos: [games, points, expected points, touchdowns, expected touchdowns]}. */
 async function ep_stats(season, maxHours = 24) {
   const name = `ep_${season}.json`, c = Store.get(name);
-  if (c && c.v === 2 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;
+  if (c && c.v === 3 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;
   const players = {}, weeks = {};
   try {
+    await remap_ready();
     const txt = await Net.text(EP_URL.replace("{season}", season), null, 240000);
     for (const r of parse_csv(txt)) {
-      if (!POSITIONS.includes(r.position)) continue;
+      const pos = row_pos(r.full_name, r.position);
+      if (!POSITIONS.includes(pos)) continue;
       // games, points, expected points, TDs, expected TDs, {week: [points, expected]}
-      const k = player_key(r.full_name || "", r.position), o = players[k] || (players[k] = [0, 0, 0, 0, 0, {}]), wk = weeks[k] || (weeks[k] = new Set());
+      const k = player_key(r.full_name || "", pos), o = players[k] || (players[k] = [0, 0, 0, 0, 0, {}]), wk = weeks[k] || (weeks[k] = new Set());
       if (!wk.has(r.week)) { wk.add(r.week); o[0]++; }
       const pts = parseFloat(r.total_fantasy_points) || 0, exp = parseFloat(r.total_fantasy_points_exp) || 0;
       o[1] += pts; o[2] += exp;
@@ -858,7 +869,7 @@ async function ep_stats(season, maxHours = 24) {
       const w = o[5][r.week] || (o[5][r.week] = [0, 0]); w[0] = Math.round((w[0] + pts) * 10) / 10; w[1] = Math.round((w[1] + exp) * 10) / 10;
     }
     for (const o of Object.values(players)) for (let i = 1; i < 5; i++) o[i] = Math.round(o[i] * 10) / 10;
-    Store.set(name, { v: 2, fetched: now_iso(), players });
+    Store.set(name, { v: 3, fetched: now_iso(), players });
     return players;
   } catch (e) { return c ? c.players : {}; }
 }
@@ -867,7 +878,7 @@ const DMV = {"w26":0.0858,"w25":0.0407,"w24":0.0163,"k":2.0755,"best":0.0513,"E_
    the values and ranks the Pro app trades on. DMV: our own dynasty view (the research age curves and the breakout bump);
    this gives the grades. Where the two disagree, the user gets a buy or sell hint the market doesn't show. */
 const DMV_MKT = {"w26":1.2308,"w25":0.3516,"w24":0.1384,"best_QB":0.2754,"best_RB":0.0042,"best_WR":0.0,"best_TE":0.0799,"E_QB":2.4573,"E_RB":2.0561,"E_WR":1.9325,"E_TE":1.6575,"S_QB":6.3241,"S_RB":19.8025,"S_WR":37.3424,"S_TE":64.0041,"R_QB":4.2772,"R_RB":-1.632,"R_WR":1.0846,"R_TE":1.3444,"peak_QB":28.7639,"peak_RB":23.0034,"peak_WR":25.0003,"peak_TE":27.4564,"dec_QB":0.1019,"dec_RB":0.142,"dec_WR":0.0921,"dec_TE":0.1034,"young":0.6011,"D_QB":2033.7033,"D_RB":2902.7461,"D_WR":2029.4478,"D_TE":1419.4604,"L":128.1501,"kd":7.4094,"C":82304.0844,"ped":0.2743};
-const DMV_MODEL = 20;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
+const DMV_MODEL = 21;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
 const DMV_TYPICAL = { QB: 14, RB: 9, WR: 8, TE: 6 };          // a typical starter's points a game (half-PPR): the anchor for thin samples
 const DMV_REPLACEMENT = { QB: 12, RB: 6.5, WR: 6, TE: 4 };   // a replacement-level player's points a game (half-PPR): the redraft anchor for thin samples
 const DMV_PRIOR_ADJ = { QB: 0.55 };                      // 1QB leagues: QBs are worth about half of superflex
@@ -883,19 +894,31 @@ const DMV_PICK_BOOST = [1.45, 1.15, 1.0, 1.0, 1.0];      // the market pays extr
 const DMV_ADJUST = {
   "6803": [0.3, "Hasn't played in two years and is at odds with the 49ers"],     // Brandon Aiyuk
 };
+// a kicker's points on Sleeper's default scoring (most leagues keep it): 3 a field goal to 39 yards, 4 from 40-49,
+// 5 from 50, 1 an extra point, -1 a miss
+const kick_pts = r => { const n = k => parseFloat(r[k]) || 0; return 3 * (n("fg_made_0_19") + n("fg_made_20_29") + n("fg_made_30_39")) + 4 * n("fg_made_40_49") + 5 * (n("fg_made_50_59") + n("fg_made_60_")) + n("pat_made") - n("fg_missed") - n("pat_missed"); };
 async function nflv_stats(year, weekly, maxHours) {
   const name = `nflv_${weekly ? "wk" : "reg"}_${year}.json`, c = Store.get(name);
-  if (c && c.v === 6 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;
+  if (c && c.v === 8 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;   // v7: fantasy positions, v8: kickers (2026-10-19)
   let players = {};
+  const kick = {};                                                  // kickers: name|K -> { team, gp, pts, w: {week: [pts, opp]} }
   const teams = {};                                                 // team context: pass attempts, carries and EPA, for the prediction models
   const log = {};                                                   // weekly file: each game's stat line, for the game log
   const car = {};                                                   // season file: each player's season totals, for the career view
   const n = v => Math.round((parseFloat(v) || 0) * 10) / 10;
   try {
+    await remap_ready();
     const txt = await Net.text(`${NFLV}stats_player/stats_player_${weekly ? "week" : "reg"}_${year}.csv`, null, 240000);
     for (const r of parse_csv(txt)) {
-      if ((r.season_type || "REG") !== "REG" || !POSITIONS.includes(r.position)) continue;
-      const k = player_key(r.player_display_name || r.player_name || "", r.position);
+      if (r.position === "K" && (r.season_type || "REG") === "REG") {   // kickers (2026-10-19): their points, for the leagues that start one
+        const kk = player_key(r.player_display_name || r.player_name || "", "K"), K = kick[kk] || (kick[kk] = { team: "", gp: 0, pts: 0, w: {} }), p = kick_pts(r);
+        K.team = nfl_team(r.team || r.recent_team || K.team); K.pts += p; K.gp += weekly ? 1 : (parseInt(r.games, 10) || 0);
+        if (weekly) K.w[r.week] = [p, nfl_team(r.opponent_team || "")];
+        continue;
+      }
+      const pos = row_pos(r.player_display_name || r.player_name, r.position);
+      if ((r.season_type || "REG") !== "REG" || !POSITIONS.includes(pos)) continue;
+      const k = player_key(r.player_display_name || r.player_name || "", pos);
       // opponent, std points, PPR points, completions, attempts, pass yds, pass TD, INT, carries, rush yds, rush TD, rec, targets, rec yds, rec TD
       if (weekly) (log[k] = log[k] || {})[r.week] = [r.opponent_team || "", n(r.fantasy_points), n(r.fantasy_points_ppr), n(r.completions), n(r.attempts),
         n(r.passing_yards), n(r.passing_tds), n(r.passing_interceptions), n(r.carries), n(r.rushing_yards), n(r.rushing_tds),
@@ -927,9 +950,11 @@ async function nflv_stats(year, weekly, maxHours) {
   for (const T of Object.values(teams)) T[4] = weekly ? Object.keys(T[4]).length : (T[4].g || 0);   // -> games
   // Points by week from Sleeper (2026-10-12): nflverse's weekly file has been missing games this season, so for the
   // season in play Sleeper's weekly stats set every player's points, games and game-log line; nflverse still adds the
-  // deeper numbers (target share, EPA, team context) where its rows exist.
-  if (weekly) { try { await sleeper_week_overlay(year, players, log); } catch (e) { /* offline: nflverse's numbers stand */ } }
-  Store.set(name, { v: 6, fetched: now_iso(), players, teams });
+  // deeper numbers (target share, EPA, team context) where its rows exist. Not in the Play editions (2026-10-19):
+  // Sleeper's stats endpoint isn't cleared for them (store/SOURCES.md), and nflverse's 2026 weekly file is complete again.
+  if (weekly && !PLAY) { try { await sleeper_week_overlay(year, players, log); } catch (e) { /* offline: nflverse's numbers stand */ } }
+  Store.set(name, { v: 8, fetched: now_iso(), players, teams });
+  if (Object.keys(kick).length) Store.set(`nflv_k${weekly ? "" : "reg"}_${year}.json`, { v: 1, fetched: now_iso(), players: kick });
   if (weekly && Object.keys(log).length) Store.set(`nflv_log_${year}.json`, { v: 1, fetched: now_iso(), players: log });
   if (!weekly) Store.set(`nflv_car_${year}.json`, { v: 1, fetched: now_iso(), players: car });
   return players;
@@ -985,20 +1010,22 @@ function nflv_team_ctx(year, weekly) {
 /* Offensive snap shares by game (nflverse snap_counts, from Pro Football Reference): name|pos -> [[week, share], ...]. */
 async function snap_stats(season, maxHours = 12) {
   const name = `snaps_${season}.json`, c = Store.get(name);
-  if (c && c.v === 1 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;
+  if (c && c.v === 2 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;
   const players = {};
   try {
+    await remap_ready();
     const txt = await Net.text(`${NFLV}snap_counts/snap_counts_${season}.csv`, null, 240000);
     for (const r of parse_csv(txt)) {
-      if ((r.game_type || "REG") !== "REG" || !POSITIONS.includes(r.position)) continue;
+      const pos = row_pos(r.player, r.position);
+      if ((r.game_type || "REG") !== "REG" || !POSITIONS.includes(pos)) continue;
       const snaps = parseFloat(r.offense_snaps) || 0;
       if (!(snaps > 0)) continue;
-      const k = player_key(r.player || "", r.position);
+      const k = player_key(r.player || "", pos);
       (players[k] = players[k] || []).push([parseInt(r.week, 10), Math.round((parseFloat(r.offense_pct) || 0) * 1000) / 1000]);
     }
   } catch (e) { return c ? c.players : {}; }
   for (const l of Object.values(players)) l.sort((a, b) => a[0] - b[0]);
-  Store.set(name, { v: 1, fetched: now_iso(), players });
+  Store.set(name, { v: 2, fetched: now_iso(), players });
   return players;
 }
 /* NFL draft picks since 2000 (nflverse): name|pos -> [season, round, pick, team]. The values model reads the slot; the
@@ -1007,15 +1034,17 @@ const PFR_TEAMS = { GNB: "GB", KAN: "KC", NOR: "NO", NWE: "NE", SFO: "SF", TAM: 
 const nfl_team = t => PFR_TEAMS[t] || t;
 async function nflv_draft() {
   const c = Store.get("nflv_draft.json");
-  if (c && c.v === 2 && Date.now() - new Date(c.fetched).getTime() < 20 * 86400000) return c.picks;
+  if (c && c.v === 3 && Date.now() - new Date(c.fetched).getTime() < 20 * 86400000) return c.picks;
   const picks = {};
   try {
+    await remap_ready();
     for (const r of parse_csv(await Net.text(`${NFLV}draft_picks/draft_picks.csv`, null, 240000))) {
-      if (!POSITIONS.includes(r.position) || parseInt(r.season, 10) < 2000) continue;
-      picks[player_key(r.pfr_player_name || "", r.position)] = [parseInt(r.season, 10), parseInt(r.round, 10), parseInt(r.pick, 10), nfl_team(r.team || "")];
+      const pos = row_pos(r.pfr_player_name, r.position);
+      if (!POSITIONS.includes(pos) || parseInt(r.season, 10) < 2000) continue;
+      picks[player_key(r.pfr_player_name || "", pos)] = [parseInt(r.season, 10), parseInt(r.round, 10), parseInt(r.pick, 10), nfl_team(r.team || "")];
     }
   } catch (e) { if (c) return c.picks; throw e; }
-  Store.set("nflv_draft.json", { v: 2, fetched: now_iso(), picks });
+  Store.set("nflv_draft.json", { v: 3, fetched: now_iso(), picks });
   return picks;
 }
 /* Age curves: the share of a player's peak production at each age, on the user's age model (2026-10-12): the cliff is
@@ -1722,19 +1751,42 @@ const SLIM_FIELDS = ["full_name", "first_name", "last_name", "position", "team",
   // for the player card's News & status section (all in Sleeper's documented players list)
   "injury_body_part", "injury_notes", "injury_start_date", "practice_participation", "practice_description", "depth_chart_position",
   "news_updated", "number", "height", "weight", "college", "years_exp", "espn_id"];
-const SLIM_VERSION = 3;
+const SLIM_VERSION = 4;
+/* A player's fantasy position (2026-10-19): Sleeper files a few by their NFL position though they score at an offensive
+   one (Travis Hunter DB plays WR, fullbacks FB score as RB or TE, a punter who kicks). Without this they showed as a
+   bare ID. The slim list stores the fantasy position and keeps Sleeper's as nfl_pos. */
+const FANTASY_POS = ["QB", "RB", "WR", "TE", "K", "DEF"];
+function fantasy_pos(p) {
+  if (!p) return null;
+  if (FANTASY_POS.includes(p.position)) return p.position;
+  return (p.fantasy_positions || []).find(x => FANTASY_POS.includes(x)) || null;
+}
+// those players by name, for files that list them at their NFL position (nflverse has Travis Hunter at CB)
+let POS_REMAP = {}, remap_src = null;
+function remap_from(players) {
+  if (players === remap_src) return;
+  remap_src = players; POS_REMAP = {};
+  for (const p of Object.values(players || {})) if (p.nfl_pos && POSITIONS.includes(p.position))
+    POS_REMAP[norm(p.full_name || `${p.first_name || ""} ${p.last_name || ""}`.trim())] = p.position;
+}
+// a file row's position: an offensive one as is, else the fantasy position Sleeper gives that name
+const row_pos = (name, pos) => (POSITIONS.includes(pos) ? pos : POS_REMAP[norm(name)] || pos);
+async function remap_ready() { remap_from(await sleeper_players().catch(() => null)); }
 async function sleeper_players(refresh = false) {
   const c = Store.get("sleeper_players.json");
-  if (c && !refresh && c.v === SLIM_VERSION && (Date.now() - new Date(c.fetched).getTime()) < 24 * 3600000) return c.players;
+  if (c && !refresh && c.v === SLIM_VERSION && (Date.now() - new Date(c.fetched).getTime()) < 24 * 3600000) { remap_from(c.players); return c.players; }
   const raw = await Net.json(`${SLEEPER_URL}/players/nfl`, null, 300000);
   const players = {};
   for (const [pid, p] of Object.entries(raw)) {
-    if (!["QB", "RB", "WR", "TE", "K", "DEF"].includes(p.position)) continue;
+    const fp = fantasy_pos(p);
+    if (!fp) continue;
     const o = {};
     for (const k of SLIM_FIELDS) if (p[k] !== null && p[k] !== undefined) o[k] = p[k];
+    if (fp !== p.position) { o.nfl_pos = p.position; o.position = fp; }
     players[pid] = o;
   }
   Store.set("sleeper_players.json", { fetched: now_iso(), v: SLIM_VERSION, players });
+  remap_from(players);
   return players;
 }
 async function refresh_player_status(all_players) {
@@ -1910,6 +1962,7 @@ async function player_blurbs(espn_id, n = 3, name = "") {
 /* Sleeper's trending adds or drops (last 2 days), refreshed when older than an hour.
    Returns [{sid, count, name, pos, team, age, asset}] for the home screen, most active first. */
 async function trending_list(kind = "adds", n = 30, values = null, hide_k_def = true) {
+  const hidden = Array.isArray(hide_k_def) ? hide_k_def : hide_k_def ? HIDDEN_POSITIONS : [];   // a list: the positions this league hides
   let t = Store.get("trending.json");
   if (!t || !t.fetched || (Date.now() - new Date(t.fetched).getTime()) > 3600000) {
     try { t = await refresh_trending(); } catch (e) { if (!t) throw e; }
@@ -1919,7 +1972,7 @@ async function trending_list(kind = "adds", n = 30, values = null, hide_k_def = 
   for (const [sid, count] of Object.entries(t[kind] || {}).sort((a, b) => b[1] - a[1])) {
     const asset = values ? values.by_sleeper[sid] || null : null, p = players[sid] || {};
     const pos = (asset && asset.pos) || p.position || "?";
-    if (hide_k_def && HIDDEN_POSITIONS.includes(pos)) continue;
+    if (hidden.includes(pos)) continue;
     if (!asset && !p.position) continue;
     const name = (asset && asset.name) || p.full_name || `${p.first_name || ""} ${p.last_name || ""}`.trim();
     out.push({ sid, count, name, pos, team: (asset && asset.team) || p.team || "FA", age: (asset && asset.age) ?? p.age ?? null, asset });
@@ -2797,7 +2850,7 @@ const read_log = () => Store.get(f("trades.json")) || [];
 
 // ---------------------------------------------------------------------------
 return {
-  PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, injuries_due, refresh_injuries, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
+  fantasy_pos, hide_positions, PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, injuries_due, refresh_injuries, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
   pyround, clone, now_iso, today_iso, ordinal, fmt, fmt_signed, fmt_pct, compact, norm, title, player_key, ppr_bucket,
   is_bestball, is_redraft, league_kind, league_kind_label,
   load_profiles, save_profiles, set_profile, profile_new, profile_rename, profile_delete, load_config, save_config,

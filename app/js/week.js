@@ -42,16 +42,16 @@ async function current_nfl_week(season) {
 async function week_projections(cfg, week, refresh = false) {
   const name = `proj.${cfg.season}.${week}.${pts_key(cfg)}.json`;
   const d = Store.get(name);
-  if (d && !refresh && hoursOld(d.fetched) < 12) return d.players;
+  if (d && d.v === 2 && !refresh && hoursOld(d.fetched) < 12) return d.players;
   const rows = await Net.json(fill(PROJ_WEEK_URL, { season: parseInt(cfg.season), week }));
   const pk = pts_key(cfg), players = {};
   for (const r of rows) {
     const st = r.stats || {}, pl = r.player || {};
     if (st.pts_ppr == null && st.pts_half_ppr == null && st.pts_std == null) continue;
-    players[String(r.player_id)] = { pts: parseFloat(st[pk] || 0), opp: r.opponent, injury: pl.injury_status, pos: pl.position,
+    players[String(r.player_id)] = { pts: parseFloat(st[pk] || 0), opp: r.opponent, injury: pl.injury_status, pos: E.fantasy_pos(pl) || pl.position,
       team: r.team || pl.team, name: (String(pl.first_name || "") + " " + String(pl.last_name || "")).trim() || null };
   }
-  Store.set(name, { fetched: now_iso(), players });
+  Store.set(name, { v: 2, fetched: now_iso(), players });
   return players;
 }
 
@@ -84,7 +84,7 @@ function _slim_stat_row(r) {
   for (const k of STAT_KEYS) if (st[k] != null) out[k] = st[k];
   const pl = r.player || {};
   out.name = (String(pl.first_name || "") + " " + String(pl.last_name || "")).trim();
-  out.pos = pl.position || "?";
+  out.pos = E.fantasy_pos(pl) || pl.position || "?";        // Travis Hunter is a DB to Sleeper, a WR to fantasy (2026-10-19)
   out.team = r.team || pl.team || "FA";
   if (r.opponent) out.opp = r.opponent;
   return out;
@@ -94,16 +94,16 @@ async function refresh_stats(cfg, log = () => {}, seasons_back = 2) {
   const season = parseInt(cfg.season);
   for (let y = season - seasons_back; y <= season; y++) {
     const name = `stats.season.${y}.json`, old = Store.get(name);
-    if (old && y < season) continue;
-    if (old && y === season && hoursOld(old.fetched) < 6) continue;
+    if (old && old.v === 2 && y < season) continue;               // v2: fantasy positions (2026-10-19)
+    if (old && old.v === 2 && y === season && hoursOld(old.fetched) < 6) continue;
     const rows = await Net.json(fill(SLEEPER_STATS_URL, { season: y }));
     const players = {};
     for (const r of rows) if (r.player_id && (r.stats || {}).gp) players[String(r.player_id)] = _slim_stat_row(r);
-    Store.set(name, { fetched: now_iso(), season: y, players });
+    Store.set(name, { v: 2, fetched: now_iso(), season: y, players });
     log(`Season ${y}: ${Object.keys(players).length} players`);
   }
   const wname = `stats.weekly.${season}.json`;
-  const weekly = Store.get(wname) || { fetched: null, season, weeks: {} };
+  const wold = Store.get(wname), weekly = wold && wold.v === 2 ? wold : { v: 2, fetched: null, season, weeks: {} };
   const week = await current_nfl_week(season);
   const need = [];
   for (let w = 1; w <= week; w++) if (!(String(w) in weekly.weeks) || w >= week) need.push(w);
@@ -227,14 +227,22 @@ const NWS_HEADERS = { "User-Agent": "DynastyMover/3.0 (dynastymover.app@gmail.co
 /* This season's regular-season games from nflverse, kept for a day. */
 async function nflv_games(season) {
   const name = `nflv_games_${season}.json`, c = Store.get(name);
-  if (c && hoursOld(c.fetched) < 24) return c.games;
+  if (c && c.v === 2 && hoursOld(c.fetched) < 24) return c.games;
   const txt = await Net.text(NFLV_GAMES_URL, null, 240000), games = [];
+  const pa = { [season]: {}, [season - 1]: {} };                       // points allowed: "week|team" -> points (2026-10-19, for defenses)
   for (const r of E.parse_csv(txt)) {
-    if (parseInt(r.season, 10) !== season || r.game_type !== "REG") continue;
+    const y = parseInt(r.season, 10);
+    if (r.game_type === "REG" && pa[y] && r.home_score !== "" && r.away_score !== "") {
+      const h = NFLV_TEAM_FIX[r.home_team] || r.home_team, a = NFLV_TEAM_FIX[r.away_team] || r.away_team;
+      pa[y][`${r.week}|${h}`] = parseInt(r.away_score, 10); pa[y][`${r.week}|${a}`] = parseInt(r.home_score, 10);
+    }
+    if (y !== season || r.game_type !== "REG") continue;
     games.push({ week: parseInt(r.week, 10), day: r.gameday, time: r.gametime || "13:00", away: NFLV_TEAM_FIX[r.away_team] || r.away_team, home: NFLV_TEAM_FIX[r.home_team] || r.home_team,
       spread: r.spread_line === "" ? null : parseFloat(r.spread_line), total: r.total_line === "" ? null : parseFloat(r.total_line), roof: r.roof || "", stadium: r.stadium || "", sid: r.stadium_id || "" });
   }
-  Store.set(name, { fetched: now_iso(), games });
+  Store.set(name, { v: 2, fetched: now_iso(), games });
+  Store.set(`nflv_pa_${season}.json`, { v: 1, fetched: now_iso(), pa: pa[season] });
+  if (Object.keys(pa[season - 1]).length) Store.set(`nflv_pa_${season - 1}.json`, { v: 1, fetched: now_iso(), pa: pa[season - 1] });
   return games;
 }
 const num = s => { const m = String(s || "").match(/\d+(\.\d+)?/g); return m ? Math.max(...m.map(Number)) : null; };
@@ -355,6 +363,130 @@ function our_projections(cfg, seasons, season, status = {}, week = 0, weekly = n
 }
 
 // ---------------------------------------------------------------------------
+// Kickers and defenses (2026-10-19, the user's ask: the leagues that start them), from nflverse (CC BY 4.0) like the
+// rest of the Play editions' stats. Kickers: field goals by distance and extra points from the weekly player file
+// (engine.js nflv_stats keeps them in nflv_k_<season>.json). Defenses: the team weekly file and the final scores from
+// the schedule. Both on Sleeper's default scoring; checked against Sleeper's numbers for weeks 2-5 of 2026: kickers
+// match, defenses match or are a point apart (how forced fumbles are counted).
+// ---------------------------------------------------------------------------
+const KDEF = ["K", "DEF"];
+const KDEF_PRIOR = { K: 8, DEF: 6.5 };                       // a typical starter's points a game, for a thin record
+const NFLV_TEAM_WEEK = "https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_{season}.csv";
+const kdef_slots = league => KDEF.filter(p => ((league && league.roster_positions) || []).includes(p));
+// a defense's points on Sleeper's default scoring: 1 a sack or forced fumble, 2 an interception, fumble recovery, safety
+// or blocked kick, 6 a touchdown (defense or special teams), and 10 down to -4 for the points it allowed
+const pa_pts = x => (x === 0 ? 10 : x <= 6 ? 7 : x <= 13 ? 4 : x <= 20 ? 1 : x <= 27 ? 0 : x <= 34 ? -1 : -4);
+function def_pts(r, pa) {
+  const n = k => parseFloat(r[k]) || 0;
+  return n("def_sacks") + n("def_fumbles_forced") + 2 * (n("def_interceptions") + n("fumble_recovery_opp") + n("def_safeties") + n("def_punt_blocks") + n("def_fg_blocks") + n("def_pat_blocks"))
+    + 6 * (n("def_tds") + n("fumble_recovery_tds") + n("special_teams_tds")) + pa_pts(pa);
+}
+const kdef_row = (gp, pts, name, pos, team, opp) => ({ gp, pts_std: pts, pts_ppr: pts, pts_half_ppr: pts, name, pos, team, opp });
+/* Each defense's games for a season: {week: {team: row}}. A game counts once its final score is in the schedule. */
+async function def_weeks(season, maxHours) {
+  const name = `nflv_def_${season}.json`, c = Store.get(name);
+  if (c && c.v === 1 && hoursOld(c.fetched) < maxHours) return c.weeks;
+  try {
+    const pa = (Store.get(`nflv_pa_${season}.json`) || {}).pa || {}, weeks = {};
+    const txt = await Net.text(fill(NFLV_TEAM_WEEK, { season }), null, 120000);
+    for (const r of E.parse_csv(txt)) {
+      if ((r.season_type || "REG") !== "REG") continue;
+      const team = NFLV_TEAM_FIX[r.team] || r.team, x = pa[`${r.week}|${team}`];
+      if (x == null) continue;
+      (weeks[r.week] = weeks[r.week] || {})[team] = kdef_row(1, def_pts(r, x), `${team} defense`, "DEF", team, NFLV_TEAM_FIX[r.opponent_team] || r.opponent_team);
+    }
+    Store.set(name, { v: 1, fetched: now_iso(), weeks });
+    return weeks;
+  } catch (e) { return c ? c.weeks : {}; }
+}
+/* This season's games and last season's totals for every kicker and defense: { weeks: {week: {sid: row}}, last: {sid: row} }.
+   Kickers are matched to Sleeper by name (one with a team first). */
+async function kdef_stats(season, week) {
+  await nflv_games(season).catch(() => null);                          // the final scores (points allowed), this season and last
+  const [cur, prev] = await Promise.all([def_weeks(season, 12), def_weeks(season - 1, 24 * 30)]);
+  const sl = (Store.get("sleeper_players.json") || {}).players || {}, kid = {};
+  for (const [sid, p] of Object.entries(sl)) if (p.position === "K") {
+    const k = E.player_key(p.full_name || `${p.first_name || ""} ${p.last_name || ""}`.trim(), "K");
+    if (!kid[k] || (p.team && !(sl[kid[k]] || {}).team)) kid[k] = sid;
+  }
+  const weeks = {}, last = {};
+  for (const [w, rows] of Object.entries(cur)) if (+w <= week) weeks[w] = Object.assign({}, rows);
+  for (const [w, rows] of Object.entries(prev)) for (const [t, r] of Object.entries(rows)) {
+    const L = last[t] || (last[t] = kdef_row(0, 0, r.name, "DEF", t)); L.gp += 1; L.pts_std += r.pts_std; L.pts_ppr += r.pts_ppr; L.pts_half_ppr += r.pts_half_ppr;
+  }
+  const kw = (Store.get(`nflv_k_${season}.json`) || {}).players || {}, kr = (Store.get(`nflv_kreg_${season - 1}.json`) || {}).players || {};
+  for (const [k, K] of Object.entries(kw)) {
+    const sid = kid[k]; if (!sid) continue;
+    const nm = k.split("|")[0];
+    for (const [w, [p, opp]] of Object.entries(K.w || {})) if (+w <= week) (weeks[w] = weeks[w] || {})[sid] = kdef_row(1, p, (sl[sid] || {}).full_name || nm, "K", K.team, opp);
+  }
+  for (const [k, K] of Object.entries(kr)) { const sid = kid[k]; if (sid && K.gp) last[sid] = kdef_row(K.gp, K.pts, (sl[sid] || {}).full_name || k.split("|")[0], "K", K.team); }
+  return { weeks, last };
+}
+/* Their rows join the week's tables: each game in weekly, this season's totals and last season's in seasons. */
+function merge_kdef(seasons, weekly, kd, season) {
+  const cur = seasons[season] = seasons[season] || {}, prev = seasons[season - 1] = seasons[season - 1] || {};
+  for (const [sid, r] of Object.entries(kd.last)) prev[sid] = r;
+  for (const w of Object.keys(kd.weeks).map(Number).sort((a, b) => a - b)) {
+    for (const [sid, r] of Object.entries(kd.weeks[w])) {
+      (weekly[w] = weekly[w] || {})[sid] = r;
+      const t = cur[sid] || (cur[sid] = { gp: 0, pts_std: 0, pts_ppr: 0, pts_half_ppr: 0, name: r.name, pos: r.pos, team: r.team });
+      t.gp += r.gp; t.pts_std += r.pts_std; t.pts_ppr += r.pts_ppr; t.pts_half_ppr += r.pts_half_ppr; t.team = r.team;
+    }
+  }
+}
+/* Our projection for a kicker or defense: this season's points a game, steadied by last season's (or a typical
+   starter's) as five games' worth, with a quarter of the say for the last three games. No team, no game this week or
+   out injured: no projection. The lineup adds the matchup (a defense's opponent, a kicker's weather and venue). */
+function kdef_projections(cfg, seasons, weekly, season, week, ctx, status = {}) {
+  const pk = pts_key(cfg), cur = seasons[season] || {}, prev = seasons[season - 1] || {}, hasCtx = Object.keys(ctx || {}).length > 0, out = {};
+  const sl = (Store.get("sleeper_players.json") || {}).players || {};
+  for (const sid of new Set(Object.keys(cur).concat(Object.keys(prev)))) {
+    const c = cur[sid], p = prev[sid], r = c || p;
+    if (!KDEF.includes(r.pos)) continue;
+    const st = status[sid] || {}, team = r.pos === "DEF" ? sid : (st.team || (sl[sid] || {}).team || null);
+    if (!team || team === "FA" || (hasCtx && !ctx[team]) || INJURY_OUT.has(st.inj)) continue;
+    const M = KDEF_PRIOR[r.pos], g0 = c ? c.gp : 0, last = p && p.gp >= 4 ? p[pk] / p.gp : M;
+    let pts = (g0 * (g0 ? c[pk] / c.gp : 0) + 3 * last + 2 * M) / (g0 + 5);
+    const recent = Object.keys(weekly || {}).map(Number).filter(w => w < week && weekly[w][sid]).sort((a, b) => a - b).slice(-3).map(w => +weekly[w][sid][pk] || 0);
+    if (recent.length === 3) pts = 0.75 * pts + 0.25 * recent.reduce((s, x) => s + x, 0) / 3;
+    const g = (ctx || {})[team], s = sl[sid];
+    out[sid] = { pts: Math.round(pts * 10) / 10, pos: r.pos, team, opp: g ? (g.home === false ? "@" : "") + g.opp : undefined, injury: null, ours: true,
+      name: (r.pos === "K" && s && (s.full_name || `${s.first_name || ""} ${s.last_name || ""}`.trim())) || r.name };
+  }
+  return out;
+}
+/* Their season grade: points a game this season (2+ games, else last season's) ranked at the position, one starter a
+   team, on the week grade's scale. F only for one with nothing going (no team). Cached on W. */
+function kdef_season_grades(values, cfg, W) {
+  if (!W || !W.seasons) return {};
+  if (W._ksg) return W._ksg;
+  const pk = pts_key(cfg), season = parseInt(cfg.season, 10), cur = W.seasons[season] || {}, prev = W.seasons[season - 1] || {};
+  const teams = (values.league && values.league.teams && values.league.teams.length) || parseInt(cfg.league.teams, 10) || 12;
+  const sl = (Store.get("sleeper_players.json") || {}).players || {}, rows = {};
+  for (const sid of new Set(Object.keys(cur).concat(Object.keys(prev)))) {
+    const c = cur[sid], p = prev[sid], r = c || p;
+    if (!KDEF.includes(r.pos)) continue;
+    const ppg = c && c.gp >= 2 ? c[pk] / c.gp : p && p.gp >= 4 ? p[pk] / p.gp : null;
+    if (ppg == null) continue;
+    const team = r.pos === "DEF" ? sid : (sl[sid] || {}).team;
+    (rows[r.pos] = rows[r.pos] || []).push([sid, ppg, !!team]);
+  }
+  const out = {};
+  for (const [pos, l] of Object.entries(rows)) {
+    l.sort((x, y) => y[1] - x[1]);
+    l.forEach(([sid, ppg, team], i) => {
+      let [, letter] = WEEK_CUTS.find(([c]) => (i + 1) / teams <= c);
+      if (letter === "F" && team) letter = "D";
+      out[sid] = { letter, cls: "g" + letter[0].toLowerCase(), ppg, posRank: i + 1 };
+    });
+  }
+  return (W._ksg = out);
+}
+// the week's kicker and defense numbers are in (the Play editions: only once their stats loaded)
+const kdef_ready = W => !!W && !W.valuesOnly && (!W.ours || !!W.kdef);
+
+// ---------------------------------------------------------------------------
 // Projection accuracy (2026-10-15): each past week re-projected with what was known before it, against what happened;
 // a per-position correction fitted to that record is applied to this week's projections.
 // ---------------------------------------------------------------------------
@@ -406,16 +538,16 @@ function fit_calib(pairs, forWeek) {
 const apply_calib = (C, pos, pts) => (!C || !C[pos] || !(pts > 0) ? pts : Math.max(0, Math.round((C[pos].a + C[pos].b * pts) * 10) / 10));
 async function accuracy(cfg, W) {
   const pk = pts_key(cfg), name = `acc.${W.season}.${W.week}.${pk}.${W.ours ? "ours" : "sl"}.json`, c = Store.get(name);
-  if (c && c.v === 2) return c;
+  if (c && c.v === 3) return c;
   const weeks = Object.keys(W.weekly || {}).map(Number).filter(w => w >= 1 && w < W.week).sort((a, b) => a - b);
   const pairs = [], per = {};
   for (const w of weeks) {
     const proj = await past_projections(cfg, W, w), act = W.weekly[w] || {};
     for (const [sid, r] of Object.entries(proj || {})) {
-      if (!POSITIONS.includes(r.pos) || !(r.pts >= ACC_MIN_PTS)) continue;
+      if (!POSITIONS.includes(r.pos) || !(r.pts > 0)) continue;
       const a = act[sid]; if (!a) continue;                              // he didn't play: a bye or an injury, not a projection miss
       const y = +a[pk] || 0;
-      pairs.push({ w, pos: r.pos, p: +r.pts, y });
+      if (r.pts >= ACC_MIN_PTS) pairs.push({ w, pos: r.pos, p: +r.pts, y });   // the error stats skip tiny projections; the player's record keeps them (2026-10-19)
       (per[sid] = per[sid] || {})[w] = [Math.round(r.pts * 10) / 10, Math.round(y * 10) / 10];
     }
   }
@@ -429,7 +561,7 @@ async function accuracy(cfg, W) {
   const calRows = rows.filter(r => r.maeCal != null);
   const gain = calRows.length ? { raw: calRows.reduce((s, r) => s + r.mae * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), cal: calRows.reduce((s, r) => s + r.maeCal * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), from: calRows[0].w } : null;
   // the correction is used only while it beats the plain numbers on the past weeks it was tested on (no advice beats bad advice)
-  const out = { v: 2, at: now_iso(), source: W.ours ? "ours" : "sleeper", weeks: rows, all: acc_stats(pairs), byPos, calib: fit_calib(pairs, W.week), per,
+  const out = { v: 3, at: now_iso(), source: W.ours ? "ours" : "sleeper", weeks: rows, all: acc_stats(pairs), byPos, calib: fit_calib(pairs, W.week), per,
     gain, use: !!(gain && gain.cal < gain.raw - 0.01) };
   Store.set(name, out);
   return out;
@@ -459,8 +591,14 @@ async function prepare_raw(cfg, opts = {}) {
       const [seasons, weekly] = await nflv_league_stats(cfg, season);
       if (!Object.keys(seasons[season] || {}).length && !Object.keys(seasons[season - 1] || {}).length) throw new Error("no stats");
       const ctx = await week_context_nflv(cfg, week, opts.refresh).catch(() => ({}));
-      return { season, week, proj: our_projections(cfg, seasons, season, E.load_player_status(), week, weekly), ctx, seasons, weekly, trends: Object.keys(weekly).length ? team_trends(cfg, weekly) : null,
-        status: E.load_player_status(), ours: true };
+      const proj = our_projections(cfg, seasons, season, E.load_player_status(), week, weekly);
+      let kdef = false;
+      if (kdef_slots(E.P.values && E.P.values.league).length) {             // kickers and defenses, for a league that starts them (2026-10-19)
+        try { merge_kdef(seasons, weekly, await kdef_stats(season, week), season); Object.assign(proj, kdef_projections(cfg, seasons, weekly, season, week, ctx, E.load_player_status())); kdef = true; }
+        catch (e) { /* offline: they show without numbers */ }
+      }
+      return { season, week, proj, ctx, seasons, weekly, trends: Object.keys(weekly).length ? team_trends(cfg, weekly) : null,
+        status: E.load_player_status(), ours: true, kdef };
     } catch (e) {
       return { season, week, proj: {}, ctx: {}, seasons: {}, weekly: {}, trends: null, status: E.load_player_status(), valuesOnly: true };
     }
@@ -596,7 +734,7 @@ function lineup_helper(values, cfg, team, W, aggressiveness = 0.6) {
   const ours = all_slots.filter(p => POSITIONS.includes(p) || E.FLEX_ELIGIBLE[p]);
   const rows = {};
   for (const a of team_assets(values, cfg, team)) {
-    if (a.is_pick) continue;
+    if (a.is_pick || !POSITIONS.includes(a.pos)) continue;                  // kickers and defenses get their own rows below
     const sid = a.sleeper_id || "", p = proj[sid] || {};
     const inj = p.injury || (lg.players[sid] || {}).injury || (pstatus[sid] || {}).inj || null;
     // Our projections carry no opponent, so the week's games say who plays: no NFL team (Tyreek Hill, 2026-10-05) or a
@@ -643,13 +781,13 @@ function lineup_helper(values, cfg, team, W, aggressiveness = 0.6) {
   const recommended = rec.starters.map(([slot, a]) => Object.assign(describe(a), { slot, bold: !!a && !base_names.has(a.name) }));
   const current = cur_pairs.map(([slot, pid]) => Object.assign(describe(values.by_sleeper[pid]), { slot }));
   let def_suggestion = null, def_options = [], k_suggestion = null;
-  if (all_slots.includes("DEF") && !W.ours) {
+  if (all_slots.includes("DEF") && kdef_ready(W)) {
     const defenses = defense_streamers(values, cfg, W);
     const by_team = Object.fromEntries(defenses.map(r => [r.team, r]));
     const mine_ids = team.players.filter(pid => NFL_TEAMS.includes(pid));
     const mine = mine_ids.filter(t => by_team[t]).map(t => by_team[t]).sort((a, b) => b.adj - a.adj);
     const def_row = (r, flag = "") => r ? { slot: "DEF", name: r.team + " defense", pos: "DEF", pts: r.adj, base: r.base, opp: (r.home === false ? "@" : "") + (r.opp || "?"),
-      injury: null, flag, reasons: r.why.split(", ").filter(x => x && x !== "neutral matchup"), bold: false } : Object.assign(empty(), { slot: "DEF", flag });
+      injury: null, flag, reasons: r.why.split(", ").filter(x => x && x !== "neutral matchup"), bold: false, pid: r.team } : Object.assign(empty(), { slot: "DEF", flag });
     const best = mine[0] || null;
     const rec_def = def_row(best, best || !mine_ids.length ? "" : "BYE");
     if (!best && mine_ids.length) { rec_def.name = mine_ids[0] + " defense"; rec_def.pos = "DEF"; }
@@ -923,11 +1061,12 @@ function roster_moves(values, cfg, team, W, opts = {}) {
   // was suggested): a pickup is a move only with a real role. Two games with a real share of the work, or a top-three
   // spot on his depth chart, or the league chasing him. Deep stashes stay on the Best available board.
   if (W.week >= 2) picked = picked.filter(m => m.group === "DEF" || !m.add || real_role(m.add, W));
-  if (!W.valuesOnly && !W.ours && (lg.roster_positions || []).includes("DEF")) picked = picked.concat(_defense_moves(team, opts.defenses || defense_streamers(values, cfg, W), per_group));
+  if (kdef_ready(W) && (lg.roster_positions || []).includes("DEF")) picked = picked.concat(_defense_moves(team, opts.defenses || defense_streamers(values, cfg, W), per_group));
+  if (kdef_ready(W) && (lg.roster_positions || []).includes("K")) picked = picked.concat(_kicker_moves(values, team, W));
   if (parseInt(lg.waiver_type || 0) === 2 && parseInt(lg.waiver_budget || 0) > 0) {
     const budget = parseInt(lg.waiver_budget);
     const minBid = lg.waiver_bid_min != null ? parseInt(lg.waiver_bid_min) : 0;
-    for (const m of picked) Object.assign(m, faab_bid(m, budget, minBid, cfg, W.week, m.group === "DEF" ? null : parts(m.add)));
+    for (const m of picked) Object.assign(m, faab_bid(m, budget, minBid, cfg, W.week, m.group === "DEF" || m.group === "K" ? null : parts(m.add)));
   }
   return picked;
 }
@@ -1016,17 +1155,33 @@ function _defense_moves(team, defenses, per_group) {
   if (!free.length) return out;
   if (!mine.length) {
     const b = free[0];
-    return [{ drop: null, add: b.asset, gain: b.adj, lineup_gain: 0, score: b.adj, group: "DEF", why: `empty DEF slot; ${b.team} vs ${b.opp}: ${b.why}`, metric: `week ${b.week} adjusted pts`, drop_m: 0, add_m: b.adj }];
+    return [{ drop: null, add: b.asset, gain: b.adj, lineup_gain: 0, score: b.adj, group: "DEF", plain: "your defense slot is empty", why: `empty DEF slot; ${b.team} vs ${b.opp}: ${b.why}`, metric: `week ${b.week} adjusted pts`, drop_m: 0, add_m: b.adj }];
   }
   for (const cur of mine.slice().sort((a, b) => a.adj - b.adj)) {
     for (const b of free.slice(0, per_group)) {
       const gain = b.adj - cur.adj;
       if (gain < 1.5 || out.some(m => m.add.id === b.asset.id)) continue;
-      out.push({ drop: cur.asset, add: b.asset, gain, lineup_gain: gain, score: gain * 3, group: "DEF", why: `${b.team} vs ${b.opp}: ${b.why}`, metric: `week ${b.week} adjusted pts`, drop_m: cur.adj, add_m: b.adj });
+      out.push({ drop: cur.asset, add: b.asset, gain, lineup_gain: gain, score: gain * 3, group: "DEF", plain: `projects ${b.adj.toFixed(1)} ${b.home === false ? "at" : "vs"} ${b.opp}, yours ${cur.adj.toFixed(1)}`, why: `${b.team} vs ${b.opp}: ${b.why}`, metric: `week ${b.week} adjusted pts`, drop_m: cur.adj, add_m: b.adj });
       break;
     }
   }
   return out.slice(0, per_group);
+}
+/* A kicker to stream (2026-10-19): the best free kicker with a game, when yours has no game or he projects 2.5 points
+   more (kickers swing a lot week to week: a smaller edge is noise); the weakest kicker you hold is the drop. */
+function _kicker_moves(values, team, W) {
+  const lg = values.league, lgp = lg.players || {}, rostered = new Set(lg.teams.flatMap(t => t.players.map(String)));
+  const asset = (sid, p) => values.by_sleeper[sid] || make_player("sl" + sid, (p && p.name) || (lgp[sid] || {}).name || `kicker ${sid}`, "K", (p && p.team) || (lgp[sid] || {}).team || "FA", null, 0, 0, null, null, null, sid, true);
+  const free = Object.entries(W.proj).filter(([sid, p]) => p.pos === "K" && p.pts > 0 && !rostered.has(sid)).sort((a, b) => b[1].pts - a[1].pts);
+  if (!free.length) return [];
+  const [fs, fp] = free[0];
+  const mine = team.players.map(String).filter(pid => (lgp[pid] || {}).pos === "K" || (W.proj[pid] || {}).pos === "K").map(pid => [pid, (W.proj[pid] || {}).pts || 0]).sort((a, b) => b[1] - a[1]);
+  const base = { add: asset(fs, fp), group: "K", metric: `week ${W.week} projected pts`, add_m: fp.pts };
+  if (!mine.length) return [Object.assign(base, { drop: null, gain: fp.pts, lineup_gain: 0, score: fp.pts, plain: "your kicker slot is empty", why: `empty K slot; ${fp.name} ${fp.opp || ""}`.trim(), drop_m: 0 })];
+  const best = mine[0][1], weakest = mine[mine.length - 1], gain = fp.pts - best;
+  if (best > 0 && gain < 2.5) return [];
+  return [Object.assign(base, { drop: asset(weakest[0], W.proj[weakest[0]]), gain, lineup_gain: gain, score: gain * 3,
+    plain: best > 0 ? `projects ${fp.pts.toFixed(1)}, yours ${best.toFixed(1)}` : "your kicker has no game this week", why: `${fp.name} ${fp.opp || ""}: ${fp.pts.toFixed(1)} projected`, drop_m: weakest[1] })];
 }
 /* "Should I make this move?": one drop and one add, judged on the same rules as the pickup suggestions
    (_one_move): long-term value (dynasty), young talent, the lineup, and whether the add is playing.
@@ -1221,6 +1376,12 @@ function week_grades(values, cfg, W) {
     const ours = typeof Predict !== "undefined" ? Predict.week_points(a, W, cfg) : null;       // our model: half the say when it has data
     (rows[a.pos] = rows[a.pos] || []).push([a.sleeper_id, ours != null ? 0.5 * adj + 0.5 * Predict.to_league(ours, a, cfg) : adj]);
   }
+  // kickers and defenses (2026-10-19): one a team, every one in the NFL ranked; kickers on our projection, defenses on
+  // the streamer's matchup number
+  const ks = kdef_ready(W) ? kdef_slots(values.league) : [];
+  if (ks.includes("K")) rows.K = Object.entries(W.proj).filter(([, p]) => p.pos === "K" && p.pts > 0).map(([sid, p]) => [sid, p.pts]);
+  if (ks.includes("DEF")) rows.DEF = defense_streamers(values, cfg, W).filter(r => r.adj > 0).map(r => [r.team, r.adj]);
+  slots.K = 1; slots.DEF = 1;
   const out = {};
   for (const [pos, l] of Object.entries(rows)) {
     l.sort((x, y) => y[1] - x[1]);
@@ -1233,6 +1394,34 @@ function week_grades(values, cfg, W) {
   }
   W._wg = out;
   return out;
+}
+/* A played week's grades (2026-10-19): the grade our projection gave each player that week, ranked the same way as the
+   week grade (WEEK_CUTS at his position against the league's starters), with what we said and what he scored. From the
+   projection record (accuracy: players who played that week). */
+function past_week_grades(values, cfg, W, week) {
+  const A = W && W.acc;
+  if (!A || !A.per || !week) return {};
+  W._pwg = W._pwg || {};
+  if (W._pwg[week]) return W._pwg[week];
+  const teams = (values.league && values.league.teams && values.league.teams.length) || parseInt(cfg.league.teams, 10) || 12;
+  const slots = { QB: parseInt(cfg.league.num_qbs, 10) >= 2 ? 2 : 1, RB: 2.5, WR: 3.5, TE: 1.2 };
+  const rows = {};
+  for (const [sid, wk] of Object.entries(A.per)) {
+    const r = wk[week], a = r && values.by_sleeper[sid];
+    if (!a || !POSITIONS.includes(a.pos)) continue;
+    (rows[a.pos] = rows[a.pos] || []).push([sid, r[0], r[1]]);
+  }
+  const out = {};
+  for (const [pos, l] of Object.entries(rows)) {
+    l.sort((x, y) => y[1] - x[1]);
+    l.forEach(([sid, said, got], i) => {
+      let x = (i + 1) / (teams * slots[pos]);
+      if (x > 0.75 && is_star(values.by_sleeper[sid])) x = 0.75;
+      const [, letter, label] = WEEK_CUTS.find(([c]) => x <= c);
+      out[sid] = { letter, label, cls: "g" + letter[0].toLowerCase(), said, got, posRank: i + 1 };
+    });
+  }
+  return (W._pwg[week] = out);
 }
 /* This season's fantasy points per player (the league's PPR setting), for the Rankings tab's Points order. */
 function season_points(values, cfg, W) {
@@ -1653,6 +1842,6 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
   return { band: band[1], tone: band[2], score, pct, lens, lensTxt, reasons, sweeteners, need, message, summary, owner, mode: B.mode, thin: B.thin, deep: B.deep, trades: T };
 }
 
-return { NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
-  waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades, season_grades, season_points };
+return { kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
+  waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades, season_grades, season_points, past_week_grades };
 })();

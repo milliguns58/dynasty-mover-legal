@@ -207,6 +207,7 @@ function orankedValues() {
   return v._oranked;
 }
 function gradeOf(a, market) {
+  if (isKdef(a)) { const k = kdefGrade(a); return k ? { g: k.letter, label: `${a.pos}${k.posRank} by points`, cls: k.cls } : { g: "–", label: "No points yet", cls: "gx" }; }
   if (!a || a.unranked || !(a.value > 0)) return { g: "–", label: "Not ranked", cls: "gx" };
   // dynasty (2026-10-16, the user's ask): the grade follows Our rank, A+ down to F on the per-team scale (GRADES), so
   // the letters run in the list's order. The report card (a.oscore) still guards the F: a player it grades D or better,
@@ -376,7 +377,7 @@ function gradeChip(a, withArrow = true) {
    only, 2026-10-16) and then "Dynasty" (the big grade, with the value under it; "Season" in redraft), a thin divider
    after the week so they read as different things. */
 // o.wk / o.val: a number under the week grade / in place of the value (the Rankings tab's Points and Projected orders)
-const gradeRight = (a, o = {}) => { const sc = seasonCell(a); return `<div class="gcells${sc ? " g3" : ""}">${weekCell(a, o.wk)}${sc}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</small><div class="gv">${gradeChip(a, !sc)}</div><div class="d muted${o.val != null ? " rk-num" : ""}">${o.val != null ? o.val : fmt(a.value)}</div></div></div>`; };
+const gradeRight = (a, o = {}) => { const sc = seasonCell(a); if (isKdef(a) && o.val == null) { const k = kdefGrade(a); o = Object.assign({}, o, { val: k ? `${k.ppg.toFixed(1)}/g` : "–" }); } return `<div class="gcells${sc ? " g3" : ""}">${weekCell(a, o.wk)}${sc}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</small><div class="gv">${gradeChip(a, !sc)}</div><div class="d muted${o.val != null ? " rk-num" : ""}">${o.val != null ? o.val : fmt(a.value)}</div></div></div>`; };
 /* A status flag by the name, from Sleeper's injury status: IR, PUP, OUT (this week), DOUB (doubtful), SUS, Q. */
 function statusFlag(a) {
   if (!a || a.is_pick || !a.sleeper_id) return "";
@@ -384,9 +385,12 @@ function statusFlag(a) {
   const f = inj === "IR" ? "IR" : inj === "PUP" ? "PUP" : inj === "Out" ? "OUT" : inj === "Doubtful" ? "DOUB" : (inj === "Sus" || inj === "Suspended") ? "SUS" : inj === "Questionable" ? "Q" : "";
   return f ? `<span class="flag ${f}" title="${esc(inj)}">${f}</span>` : "";
 }
+// kickers and defenses (2026-10-19): graded on their points a game at the position, one a team (no dynasty value)
+const isKdef = a => !!a && !a.is_pick && (a.pos === "K" || a.pos === "DEF");
+const kdefGrade = a => (S.W ? Week.kdef_season_grades(S.values, S.cfg, S.W)[String(a.sleeper_id || "")] : null) || null;
 function seasonCell(a) {
   if (a.is_pick || !a.sleeper_id || !S.values || E.is_redraft(S.cfg)) return "";
-  const g = Week.season_grades(S.values, S.cfg)[a.sleeper_id];
+  const g = isKdef(a) ? kdefGrade(a) : Week.season_grades(S.values, S.cfg)[a.sleeper_id];
   return `<div class="gcell snc" title="${g ? `This season: ${esc(a.pos)}${g.posRank}` : "No projection this season"}"><small>Season</small><span class="grade sm ${g ? g.cls : "gx"}">${g ? esc(g.letter) : "–"}</span></div>`;
 }
 function weekCell(a, note) {
@@ -521,7 +525,7 @@ function renderHome(el) {
     return t ? "" : `<span class="tag-free">Available</span>`;
   };
   const who = r => r.asset || { name: r.name, pos: r.pos, team: r.team, sleeper_id: r.sid };
-  E.trending_list(H.kind, 30, S.values, !S.cfg || S.cfg.league.hide_k_def !== false).then(({ rows }) => {
+  E.trending_list(H.kind, 30, S.values, S.cfg ? E.hide_positions(S.cfg, S.values && S.values.league) : true).then(({ rows }) => {
     if (!el.isConnected || S.tab !== "home") return;
     if (!rows.length) { $("#trend").innerHTML = `<div class="empty">No trending data right now.</div>`; $("#podium").innerHTML = ""; return; }
     const top = rows[0].count || 1, sign = adds ? "+" : "−";
@@ -691,7 +695,7 @@ function analyze(scroll, animate) {
 /* The verdict in plain words: who comes out ahead and by roughly how much. */
 /* A trade with a piece the lists don't value yet gets no verdict: no advice beats bad advice (the user's rule, 2026-10-13). */
 function thinPieces() {
-  return ["A", "B"].flatMap(k => S.sides[k].items.filter(a => a && !a.is_pick && (a.unranked || !(a.value > 0))).map(a => a.name))
+  return ["A", "B"].flatMap(k => S.sides[k].items.filter(a => a && !a.is_pick && !isKdef(a) && (a.unranked || !(a.value > 0))).map(a => a.name))   // a kicker or defense counts as no value, not as unknown
     .concat(["A", "B"].flatMap(k => S.sides[k].items.filter(a => a && a.is_pick && a.estimated).map(a => a.name.replace(/\s*\(via [^)]*\)\s*$/, ""))));
 }
 function plainVerdict(r) {
@@ -1417,7 +1421,7 @@ function drawRoster(body, t) {
     const g = roster.filter(a => a.pos === pos);
     if (pos !== "PICK") g.sort((a, b) => b.value - a.value);                        // picks keep Sleeper's order: season, then round
     if (!g.length) continue;
-    h += `<div class="grp pos-${pos}">${label}${pos === "PICK" ? `<a class="grp-note lnk" id="toDraft">Draft helper</a>` : S.W && S.W.acc ? PW_LEGEND : ""}</div>` + g.map(a => assetRow(a, { tag: st.has(a.id) ? `<span class="tag-start">Starter</span>` : "", extra: pastWeeks(a) })).join("");
+    h += `<div class="grp pos-${pos}">${label}${pos === "PICK" ? `<a class="grp-note lnk" id="toDraft">Draft helper</a>` : S.W && S.W.acc && pos !== "K" && pos !== "DEF" ? PW_LEGEND : ""}</div>` + g.map(a => assetRow(a, { tag: st.has(a.id) ? `<span class="tag-start">Starter</span>` : "", extra: pastWeeks(a) })).join("");
   }
   body.innerHTML = h + `</section>`;
   bindCards(body);
@@ -1480,14 +1484,14 @@ function drawLineup(body, t, W) {
   }
   const warn = L.flags.filter(f => / is empty$/.test(f));            // OUT / BYE / Q already show as tags on the players
   if (warn.length) h += `<p class="note warn">${warn.map(esc).join("<br>")}</p>`;
-  const WG = W.valuesOnly ? {} : Week.week_grades(S.values, S.cfg, W), wgOf = x => { const a = x.id && S.values.by_id[x.id]; return a && WG[a.sleeper_id]; };
-  h += `<section class="card flush tone-blue"><div class="grp">Best lineup${Object.keys(WG).length ? `<span class="grp-note">this week's grade</span>` : ""}</div>${W.acc ? `<div class="pw-legend">Under each player: his last 3 weeks, our estimate then what he scored (green: he beat it).</div>` : ""}${L.recommended.map(x => { const g = wgOf(x); return `<div class="item" data-card-name="${esc(x.id || "")}">
+  const WG = W.valuesOnly ? {} : Week.week_grades(S.values, S.cfg, W), wgOf = x => { const a = x.id && S.values.by_id[x.id]; return a ? WG[a.sleeper_id] : x.pid ? WG[String(x.pid)] : null; };   // kickers and defenses carry their id as pid
+  h += `<section class="card flush tone-blue"><div class="grp">Best lineup${Object.keys(WG).length ? `<span class="grp-note">this week's grade</span>` : ""}</div>${W.acc && W.week >= 2 ? `<div class="pw-legend">Right: this week's grade and projection. Under each player: last week's grade, what we said he'd score and what he got (green: he beat it).</div>` : ""}${L.recommended.map(x => { const g = wgOf(x); return `<div class="item" data-card-name="${esc(x.id || "")}">
       <span class="slot ${esc(slotClass(x.slot))}">${esc(SLOT_LABEL(x.slot))}</span><div class="nm"><div class="n">${x.name === "(empty)" || x.pos === "DEF" ? esc(x.name) : `<a class="plink" data-pcard="${esc(x.id || x.pid || x.name)}">${esc(x.name)}</a>`}${x.flag ? `<span class="flag ${esc(x.flag)}">${esc(x.flag)}</span>` : ""}</div>
-      <div class="s">${esc(x.opp ? (x.opp.startsWith("@") ? "at " + x.opp.slice(1) : "vs " + x.opp) : "")}</div>${pastWeeks(x.id && S.values.by_id[x.id])}</div><div class="v">${g ? `<span class="grade sm ${g.cls}">${esc(g.letter)}</span> ` : ""}<b>${num(x.pts)}</b></div></div>`; }).join("")}</section>`;
+      <div class="s">${esc(x.opp ? (x.opp.startsWith("@") ? "at " + x.opp.slice(1) : "vs " + x.opp) : "")}</div>${lastWeekLine(x.id && S.values.by_id[x.id], W)}</div><div class="v lw-now"><small>This wk</small><div>${g ? `<span class="grade sm ${g.cls}">${esc(g.letter)}</span> ` : ""}<b>${num(x.pts)}</b></div></div></div>`; }).join("")}</section>`;
   const extra = L.notes.map(n => `<p class="note">${esc(n)}</p>`).join("") +
     (L.def_options && L.def_options.length ? `<div class="sub-h">Defenses you could pick up</div>` + L.def_options.map(d => `<div class="kv"><span>${esc(d.team)} ${d.home === false ? "at" : "vs"} ${esc(d.opp || "?")}</span><b>${d.adj.toFixed(1)}</b></div>`).join("") : "") +
     (W.valuesOnly ? `<p class="note muted">Starters are picked by each player's value for this season, and players listed as out are skipped. After changing your lineup in Sleeper, tap Refresh rosters on the League tab.</p>`
-      : W.ours ? `<p class="note muted">Points are Dynasty Mover's own projections: each player's scoring this season and last, adjusted for home or away, the Vegas line, the weather at kickoff and his team's recent form. Schedule and lines from nflverse (CC BY 4.0); weather from the National Weather Service.</p>`
+      : W.ours ? `<p class="note muted">Points are Dynasty Mover's own projections: each player's scoring this season and last, adjusted for home or away, the Vegas line, the weather at kickoff and his team's recent form. Schedule and lines from nflverse (CC BY 4.0); weather from the National Weather Service.${W.kdef ? " Kicker and defense points from nflverse stats on Sleeper's default scoring; a defense is also rated on its opponent's offense and the Vegas line." : ""}</p>`
       : `<p class="note muted">Points are Sleeper's projections, adjusted for the matchup, weather, betting lines and recent form.</p>`);
   const lgi = S.values.league && S.values.league.imported ? ago(S.values.league.imported) : null;
   h += `<section class="card">${more("How this works", extra)}${W.valuesOnly ? "" : `<button class="btn ghost block" id="wref" style="margin-top:12px">Refresh rosters and projections</button>${lgi ? `<div class="hint" style="text-align:center;margin-top:6px">Rosters from Sleeper ${esc(lgi)}</div>` : ""}`}</section>`;
@@ -1682,7 +1686,7 @@ function drawWaivers(body, t, W) {
   const fas = Week.free_agents(S.values, S.cfg, W).filter(suggestable);
   const M = Week.waiver_metric(S.values, S.cfg, W);
   const [metric, , parts] = M;
-  const hasDef = !W.valuesOnly && (S.values.league.roster_positions || []).includes("DEF");
+  const hasDef = Week.kdef_ready(W) && (S.values.league.roster_positions || []).includes("DEF");
   const defenses = hasDef ? Week.defense_streamers(S.values, S.cfg, W) : [];
   const moves = Week.roster_moves(S.values, S.cfg, t, W, { n: 6, per_group: 2, fas, metric: M, defenses });
   let h = waiverCheckCard(t, fas, W, M) + weakSpots(t, fas, W, M);
@@ -1691,7 +1695,7 @@ function drawWaivers(body, t, W) {
       <div class="move-main">${badge(m.add.pos)}<div class="nm"><div class="n">Add ${esc(m.add.name)}</div>
         <div class="s">${m.drop ? "Drop " + plink(m.drop) : "Open roster spot"}</div></div>
         ${m.faab != null ? `<span class="bid-chip">$${m.faab}<small>bid</small></span>` : `<span class="tag-free">Upgrade</span>`}</div>
-      <div class="s why">${esc(m.group === "DEF" ? "better matchup this week" : whyPlain(parts, m.add))}</div>${pastWeeks(m.add)}</div>`).join("")}</div>`
+      <div class="s why">${esc(m.plain || (m.group === "DEF" ? "better matchup this week" : whyPlain(parts, m.add)))}</div>${pastWeeks(m.add)}</div>`).join("")}</div>`
     : `<div class="empty">No clear upgrades right now. Check back after the next games.</div>`;
   h += `</section>`;
   let board = "";
@@ -2257,7 +2261,7 @@ function renderLeague(el) {
       <div class="divide" style="margin-top:6px">
         <label class="switch"><span class="txt">Half-point PPR</span><input type="checkbox" id="sHalf" ${parseFloat(L.ppr) === 0.5 ? "checked" : ""}><span class="track"></span></label>
         <label class="switch"><span class="txt">Superflex (2 QBs)</span><input type="checkbox" id="sSF" ${sf ? "checked" : ""}><span class="track"></span></label>
-        ${lg && lg.platform === "manual" ? "" : `<label class="switch"><span class="txt">Hide kickers and defenses</span><input type="checkbox" id="sHide" ${L.hide_k_def !== false ? "checked" : ""}><span class="track"></span></label>`}
+        ${lg && lg.platform === "manual" ? "" : `<label class="switch"><span class="txt">Hide kickers and defenses your lineup doesn't start</span><input type="checkbox" id="sHide" ${L.hide_k_def !== false ? "checked" : ""}><span class="track"></span></label>`}
         ${lg && lg.league_id && !E.is_redraft(S.cfg) ? `<label class="switch"><span class="txt">Price trades to this league's market</span><input type="checkbox" id="sMarket" ${L.use_market !== false ? "checked" : ""}><span class="track"></span></label>` : ""}
         ${Store.native && Native.reminder ? `<label class="switch"><span class="txt">Tuesday morning: tell me the GM report is ready</span><input type="checkbox" id="sRemind" ${Native.reminderOn && Native.reminderOn() ? "checked" : ""}><span class="track"></span></label>` : ""}
         <div class="row num-row"><span class="spacer">Tight end bonus %</span><input type="number" id="sTE" min="0" max="100" value="${esc(L.te_premium_bonus_pct || 0)}"></div>
@@ -2507,6 +2511,13 @@ function tradeCalls() {
 /* A player's last weeks on a row (2026-10-19): our estimate, then what he scored, green when he beat it and red
    when he fell short. From the projection record; nothing for a player we had no estimate for. */
 const PW_LEGEND = `<span class="grp-note pw-key">last 3 wks: our estimate, what he scored</span>`;
+/* Lineup rows (2026-10-19): last week's grade, what we predicted and what he scored. */
+function lastWeekLine(a, W) {
+  if (!a || !W || !W.acc || !W.week || W.week < 2) return "";
+  const g = Week.past_week_grades(S.values, S.cfg, W, W.week - 1)[String(a.sleeper_id || "")];
+  if (!g) return `<div class="lw"><span class="lw-l">Last wk</span><span class="muted">no game</span></div>`;
+  return `<div class="lw" title="Week ${W.week - 1}: graded ${g.letter} (${esc(a.pos)}${g.posRank}), we said ${g.said.toFixed(1)}, he scored ${g.got.toFixed(1)}"><span class="lw-l">Last wk</span><span class="grade sm ${g.cls}">${esc(g.letter)}</span><span>said ${g.said.toFixed(1)}</span><span>got <b class="${g.got >= g.said ? "up" : "dn"}">${g.got.toFixed(1)}</b></span></div>`;
+}
 function pastWeeks(a, n = 3) {
   try {
     const per = a && S.W && S.W.acc && S.W.acc.per && S.W.acc.per[String(a.sleeper_id || "")];
