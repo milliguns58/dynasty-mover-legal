@@ -878,3 +878,10 @@ table.acc td.warn{color:var(--warn)}
 .pw-c.up b{color:var(--good)}.pw-c.dn b{color:var(--bad)}
 .pw-key{font-size:10px;text-transform:none;letter-spacing:0}
 .pw-legend{font-size:11px;color:var(--muted);padding:0 16px 6px}
+/* Lineup: last week's grade, prediction and score under the name; this week's grade on the right (2026-10-19) */
+.lw{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:4px;font-size:11px;color:var(--ink2);font-variant-numeric:tabular-nums}
+.lw-l{font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.lw .grade.sm{min-width:26px;height:20px;font-size:11.5px;border-radius:6px}
+.lw b.up{color:var(--good)}.lw b.dn{color:var(--bad)}.lw-dot{color:var(--muted)}
+.v.lw-now{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.v.lw-now small{font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
