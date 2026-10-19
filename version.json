@@ -1,7 +1,7 @@
 {
- "versionCode": 24,
- "versionName": "3.2.6",
- "notes": "3.2.6: My team now shows each player's last 3 weeks on the Lineup, Roster and Pickups tabs: what we estimated and what he scored, green when he beat it.",
+ "versionCode": 25,
+ "versionName": "3.2.7",
+ "notes": "Kickers and defenses for leagues that start them: points, projections, week and season grades, lineup help and pickup suggestions. Lineup rows show this week's grade and last week's grade with what we predicted and what he scored. Fixed players showing as a bare number (Travis Hunter and fullbacks). Weekly stats now come only from nflverse.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
