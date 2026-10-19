@@ -410,7 +410,7 @@ function assetRow(a, opts = {}) {
   const right = opts.right ?? gradeRight(a);
   return `<div class="item" data-id="${esc(a.id)}" data-act="${opts.act || "card"}">
     ${opts.rank !== undefined ? `<span class="rk${opts.rank <= 3 ? " medal m" + opts.rank : ""}">${opts.rank}</span>` : ""}${avatar(a)}
-    <div class="nm"><div class="n"><span class="nt">${opts.nameLink && !a.is_pick ? `<a class="plink" data-pcard="${esc(a.id)}">${esc(a.name)}</a>` : esc(a.is_pick ? a.name.replace(/\s*\(via [^)]*\)\s*$/, "") : a.name)}</span>${opts.flag ? `<span class="flag ${esc(opts.flag)}">${esc(opts.flag)}</span>` : statusFlag(a)}${opts.tag || ""}</div><div class="s">${opts.sub ?? sub(a)}</div></div>
+    <div class="nm"><div class="n"><span class="nt">${opts.nameLink && !a.is_pick ? `<a class="plink" data-pcard="${esc(a.id)}">${esc(a.name)}</a>` : esc(a.is_pick ? a.name.replace(/\s*\(via [^)]*\)\s*$/, "") : a.name)}</span>${opts.flag ? `<span class="flag ${esc(opts.flag)}">${esc(opts.flag)}</span>` : statusFlag(a)}${opts.tag || ""}</div><div class="s">${opts.sub ?? sub(a)}</div>${opts.extra || ""}</div>
     <div class="v">${right}</div>${opts.x ? `<button class="x" data-x="${esc(a.id)}" aria-label="Remove">×</button>` : ""}</div>`;
 }
 /* Every screen that shows values credits its sources, with a link to FantasyCalc.com (its terms require it). */
@@ -1405,6 +1405,7 @@ async function freshRosters(force = false) {
 }
 
 function drawRoster(body, t) {
+  ensureWeek("team");                                                // the past weeks on each row come with the week's data
   const roster = E.team_assets(S.values, S.cfg, t);
   const starters = S.values.league.roster_positions_starters || S.cfg.league.starters;
   const lu = E.best_lineup(roster, starters), st = new Set(lu.starters.filter(([, p]) => p).map(([, p]) => p.id));
@@ -1416,7 +1417,7 @@ function drawRoster(body, t) {
     const g = roster.filter(a => a.pos === pos);
     if (pos !== "PICK") g.sort((a, b) => b.value - a.value);                        // picks keep Sleeper's order: season, then round
     if (!g.length) continue;
-    h += `<div class="grp pos-${pos}">${label}${pos === "PICK" ? `<a class="grp-note lnk" id="toDraft">Draft helper</a>` : ""}</div>` + g.map(a => assetRow(a, { tag: st.has(a.id) ? `<span class="tag-start">Starter</span>` : "" })).join("");
+    h += `<div class="grp pos-${pos}">${label}${pos === "PICK" ? `<a class="grp-note lnk" id="toDraft">Draft helper</a>` : S.W && S.W.acc ? PW_LEGEND : ""}</div>` + g.map(a => assetRow(a, { tag: st.has(a.id) ? `<span class="tag-start">Starter</span>` : "", extra: pastWeeks(a) })).join("");
   }
   body.innerHTML = h + `</section>`;
   bindCards(body);
@@ -1480,9 +1481,9 @@ function drawLineup(body, t, W) {
   const warn = L.flags.filter(f => / is empty$/.test(f));            // OUT / BYE / Q already show as tags on the players
   if (warn.length) h += `<p class="note warn">${warn.map(esc).join("<br>")}</p>`;
   const WG = W.valuesOnly ? {} : Week.week_grades(S.values, S.cfg, W), wgOf = x => { const a = x.id && S.values.by_id[x.id]; return a && WG[a.sleeper_id]; };
-  h += `<section class="card flush tone-blue"><div class="grp">Best lineup${Object.keys(WG).length ? `<span class="grp-note">this week's grade</span>` : ""}</div>${L.recommended.map(x => { const g = wgOf(x); return `<div class="item" data-card-name="${esc(x.id || "")}">
+  h += `<section class="card flush tone-blue"><div class="grp">Best lineup${Object.keys(WG).length ? `<span class="grp-note">this week's grade</span>` : ""}</div>${W.acc ? `<div class="pw-legend">Under each player: his last 3 weeks, our estimate then what he scored (green: he beat it).</div>` : ""}${L.recommended.map(x => { const g = wgOf(x); return `<div class="item" data-card-name="${esc(x.id || "")}">
       <span class="slot ${esc(slotClass(x.slot))}">${esc(SLOT_LABEL(x.slot))}</span><div class="nm"><div class="n">${x.name === "(empty)" || x.pos === "DEF" ? esc(x.name) : `<a class="plink" data-pcard="${esc(x.id || x.pid || x.name)}">${esc(x.name)}</a>`}${x.flag ? `<span class="flag ${esc(x.flag)}">${esc(x.flag)}</span>` : ""}</div>
-      <div class="s">${esc(x.opp ? (x.opp.startsWith("@") ? "at " + x.opp.slice(1) : "vs " + x.opp) : "")}</div></div><div class="v">${g ? `<span class="grade sm ${g.cls}">${esc(g.letter)}</span> ` : ""}<b>${num(x.pts)}</b></div></div>`; }).join("")}</section>`;
+      <div class="s">${esc(x.opp ? (x.opp.startsWith("@") ? "at " + x.opp.slice(1) : "vs " + x.opp) : "")}</div>${pastWeeks(x.id && S.values.by_id[x.id])}</div><div class="v">${g ? `<span class="grade sm ${g.cls}">${esc(g.letter)}</span> ` : ""}<b>${num(x.pts)}</b></div></div>`; }).join("")}</section>`;
   const extra = L.notes.map(n => `<p class="note">${esc(n)}</p>`).join("") +
     (L.def_options && L.def_options.length ? `<div class="sub-h">Defenses you could pick up</div>` + L.def_options.map(d => `<div class="kv"><span>${esc(d.team)} ${d.home === false ? "at" : "vs"} ${esc(d.opp || "?")}</span><b>${d.adj.toFixed(1)}</b></div>`).join("") : "") +
     (W.valuesOnly ? `<p class="note muted">Starters are picked by each player's value for this season, and players listed as out are skipped. After changing your lineup in Sleeper, tap Refresh rosters on the League tab.</p>`
@@ -1550,7 +1551,7 @@ function weakSpots(t, fas, W, M) {
       parseInt(lg.waiver_budget), lg.waiver_bid_min != null ? parseInt(lg.waiver_bid_min) : 0, S.cfg, W && W.week, parts(r)).faab : null;
     const subTxt = r ? `Swap for <b>${plink(r)}</b> ${gradeChip(r, false)}` : `No better free agent at ${esc(a.pos)}. Hold for now.`;
     return assetRow(a, { tag: `${gradeChip(a, false)}${st.has(a.id) ? `<span class="tag-start">Starter</span>` : ""}`, sub: subTxt,
-      right: bid != null ? `<span class="bid-chip">$${bid}<small>bid</small></span>` : (r ? `<span class="tag-free">Upgrade</span>` : `<span class="muted s">Hold</span>`) });
+      right: bid != null ? `<span class="bid-chip">$${bid}<small>bid</small></span>` : (r ? `<span class="tag-free">Upgrade</span>` : `<span class="muted s">Hold</span>`), extra: pastWeeks(a) });
   }).join("");
   return `<section class="card"><h2>Weak spots</h2><div class="hint">Your D and F players, and the best free agent to replace each one.</div><div class="list">${rows}</div></section>`;
 }
@@ -1690,13 +1691,13 @@ function drawWaivers(body, t, W) {
       <div class="move-main">${badge(m.add.pos)}<div class="nm"><div class="n">Add ${esc(m.add.name)}</div>
         <div class="s">${m.drop ? "Drop " + plink(m.drop) : "Open roster spot"}</div></div>
         ${m.faab != null ? `<span class="bid-chip">$${m.faab}<small>bid</small></span>` : `<span class="tag-free">Upgrade</span>`}</div>
-      <div class="s why">${esc(m.group === "DEF" ? "better matchup this week" : whyPlain(parts, m.add))}</div></div>`).join("")}</div>`
+      <div class="s why">${esc(m.group === "DEF" ? "better matchup this week" : whyPlain(parts, m.add))}</div>${pastWeeks(m.add)}</div>`).join("")}</div>`
     : `<div class="empty">No clear upgrades right now. Check back after the next games.</div>`;
   h += `</section>`;
   let board = "";
   for (const [grp, rows] of Week.free_agent_board(S.values, S.cfg, fas, metric, parts, 5)) {
     if (!rows.length) continue;
-    board += `<div class="grp">${esc(grp)}</div>` + rows.map(a => assetRow(a, { sub: esc(whyPlain(parts, a, "not playing much yet")) })).join("");
+    board += `<div class="grp">${esc(grp)}${W.acc ? PW_LEGEND : ""}</div>` + rows.map(a => assetRow(a, { sub: esc(whyPlain(parts, a, "not playing much yet")), extra: pastWeeks(a) })).join("");
   }
   if (board) h += `<section class="card">${more("Best available players", `<div class="list">${board}</div>`)}</section>`;
   if (defenses.length) h += `<section class="card">${more(`Best defenses for week ${defenses[0].week}`, defenses.slice(0, 8).map(d => `<div class="kv"><span><b>${esc(d.team)}</b> ${d.home === false ? "at" : "vs"} ${esc(d.opp || "?")}${d.owner ? "" : ' <span class="tag-free">Available</span>'}</span><b>${d.adj.toFixed(1)}</b></div>`).join(""))}</section>`;
@@ -2502,6 +2503,18 @@ function tradeCalls() {
     n++; if ((va > vb) === (pa > pb)) agree++;
   }
   return n >= 5 ? { agree, n } : null;
+}
+/* A player's last weeks on a row (2026-10-19): our estimate, then what he scored, green when he beat it and red
+   when he fell short. From the projection record; nothing for a player we had no estimate for. */
+const PW_LEGEND = `<span class="grp-note pw-key">last 3 wks: our estimate, what he scored</span>`;
+function pastWeeks(a, n = 3) {
+  try {
+    const per = a && S.W && S.W.acc && S.W.acc.per && S.W.acc.per[String(a.sleeper_id || "")];
+    if (!per) return "";
+    const ws = Object.keys(per).map(Number).sort((x, y) => y - x).slice(0, n);
+    if (!ws.length) return "";
+    return `<div class="pw">${ws.map(w => { const [e, got] = per[w]; return `<span class="pw-c ${got >= e ? "up" : "dn"}" title="Week ${w}: we said ${e.toFixed(1)}, he scored ${got.toFixed(1)}"><i>W${w}</i>${e.toFixed(1)} <b>${got.toFixed(1)}</b></span>`; }).join("")}</div>`;
+  } catch (e) { return ""; }
 }
 /* Our estimate against what he scored, his last weeks (the projection record), else the live snapshot. */
 const lastCallHtml = a => {
