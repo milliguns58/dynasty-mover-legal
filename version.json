@@ -1,7 +1,7 @@
 {
- "versionCode": 26,
- "versionName": "3.2.8",
- "notes": "Pro's Our rank now starts from MyFantasyLeague draft data. Player cards add Draft market, this week's matchup (points the defense allows, pace, rest) and posts from reporters on Bluesky. New League wire on Home: injuries, IR, team and depth chart changes. Weather for games played abroad.",
+ "versionCode": 27,
+ "versionName": "3.2.9",
+ "notes": "Easier to read and to get around: five tabs with Ask GM at the top, player cards split into Overview, Stats and News with the trade buttons always in reach, larger labels, clearer contrast, full player names in lists.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
