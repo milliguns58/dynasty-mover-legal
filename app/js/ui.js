@@ -388,6 +388,17 @@ function statusFlag(a) {
 // kickers and defenses (2026-10-19): graded on their points a game at the position, one a team (no dynasty value)
 const isKdef = a => !!a && !a.is_pick && (a.pos === "K" || a.pos === "DEF");
 const kdefGrade = a => (S.W ? Week.kdef_season_grades(S.values, S.cfg, S.W)[String(a.sleeper_id || "")] : null) || null;
+/* The card's matchup lines (2026-10-20): what this week's opponent gives up to his position, his offense's pace and
+   pass rate, and a short week or extra rest. From nflverse stats and the schedule (Week.team_context). */
+const nth = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+function matchupLines(a, w) {
+  const c = w && w.ctx; if (!c) return "";
+  const rows = [];
+  if (c.def && w.opp) { const r = c.def; rows.push(`${esc(String(w.opp).replace(/^@/, ""))} give up ${r.ppg.toFixed(1)} pts a game to ${esc(a.pos)}s: ${r.rank <= r.of / 2 ? `${nth(r.rank)} most` : `${nth(r.of + 1 - r.rank)} fewest`}`); }
+  if (c.off) rows.push(`${esc(a.team)} offense: ${c.off.plays.toFixed(0)} plays a game (${nth(c.off.playsRank)} most), passes ${Math.round(100 * c.off.pass)}% (${nth(c.off.passRank)})`);
+  if (c.rest && c.rest.days != null && (c.rest.days <= 5 || c.rest.days >= 10)) rows.push(c.rest.days <= 5 ? `Short week: ${c.rest.days} days of rest` : `Extra rest: ${c.rest.days} days`);
+  return rows.length ? `<div class="mu">${rows.map(r => `<div class="mu-l">${r}</div>`).join("")}</div>` : "";
+}
 function seasonCell(a) {
   if (a.is_pick || !a.sleeper_id || !S.values || E.is_redraft(S.cfg)) return "";
   const g = isKdef(a) ? kdefGrade(a) : Week.season_grades(S.values, S.cfg)[a.sleeper_id];
@@ -497,6 +508,21 @@ function needValues(el) {
 // ---------------------------------------------------------------------------
 // Home: who everyone is adding (or dropping) on Sleeper right now
 // ---------------------------------------------------------------------------
+/* Home's news wire (2026-10-20): status changes for players on this league's rosters over the last week, yours first,
+   worded by us from Sleeper's player list and the NFL's reports (E.load_wire). */
+function wireCard() {
+  if (!S.values || !teams().length) return "";
+  const owner = {}, me = S.cfg ? S.cfg.my_roster_id : null;
+  for (const t of teams()) for (const pid of t.players) owner[pid] = t;
+  const week = Date.now() - 7 * 86400000, seen = new Set();
+  const ev = E.load_wire().filter(e => owner[e.sid] && new Date(e.t).getTime() >= week && !seen.has(e.sid + e.kind) && seen.add(e.sid + e.kind));
+  if (!ev.length) return "";
+  ev.sort((x, y) => ((owner[y.sid].roster_id === me) - (owner[x.sid].roster_id === me)) || (new Date(y.t) - new Date(x.t)));
+  return `<section class="card"><h2>League wire</h2><div class="hint">What changed for players on this league's rosters this week</div><div class="list">${ev.slice(0, 10).map(e => {
+    const t = owner[e.sid], mineTag = t.roster_id === me ? ` <span class="tag-start">Yours</span>` : `<span class="muted"> · ${esc(t.team_name)}</span>`;
+    return `<div class="wire-row"><div class="n"><a class="plink" data-pcard="${esc(e.sid)}">${esc(e.name)}</a> <span class="muted">${esc(e.pos)} · ${esc(e.team)}</span>${mineTag}</div><div class="s">${esc(e.text)} · ${esc(ago(e.t))}</div></div>`;
+  }).join("")}</div><p class="credit" style="text-align:left;padding:6px 0 0">From Sleeper's player list and the NFL's reports via nflverse.</p></section>`;
+}
 function renderHome(el) {
   const H = S.home, adds = H.kind === "adds";
   el.innerHTML = `<section class="hero-home ${adds ? "" : "drops"}">
@@ -509,6 +535,7 @@ function renderHome(el) {
     ${S.cfg ? "" : `<section class="card cta"><div><b>Add your league</b><div class="hint">See who's still available and value trades.</div></div><button class="btn primary sm" id="homeAdd">Add</button></section>`}
     ${typeof GM !== "undefined" ? GM.homeCard() : ""}
     <section class="card flush"><div class="list" id="trend">${loading("Loading trending players…")}</div></section>
+    ${wireCard()}
     <p class="credit">Trending data from <a data-link="https://sleeper.com">Sleeper</a>.${S.values ? " " + credits().replace(/^<p class="credit">|<\/p>$/g, "") : ""}</p>`;
   $$(".hh-toggle button", el).forEach(b => b.onclick = () => { H.kind = b.dataset.k; renderHome(el); });
   if (typeof GM !== "undefined") GM.bindHome(el);
@@ -1376,7 +1403,7 @@ function renderTeam(el) {
       <span class="record">${esc(t.record)}</span>${manual ? `<button class="btn ghost sm" id="editRoster">Edit</button>` : ""}</div>
     ${S.cfg.my_roster_id == null ? `<button class="btn soft block" id="setMine">This is my team</button>` : ""}
     <div class="seg" id="tseg">${segs.map(([k, l]) => `<button data-v="${k}" class="${S.team.seg === k ? "on" : ""}" ${locked() && k !== "roster" ? 'data-lock="team"' : ""}>${l}${k !== "roster" ? " " + proTag() : ""}</button>`).join("")}</div>
-    <div id="tbody"></div>${credits(E.PLAY ? "Rosters, injuries and trending pickups from Sleeper · Schedule and lines from nflverse (CC BY 4.0) · Weather from the National Weather Service" : "Rosters and trending pickups from Sleeper")}`;
+    <div id="tbody"></div>${credits(E.PLAY ? "Rosters, injuries and trending pickups from Sleeper · Schedule and lines from nflverse (CC BY 4.0) · Weather from the National Weather Service and MET Norway" : "Rosters and trending pickups from Sleeper")}`;
   $("#tsel").onchange = e => { S.team.id = +e.target.value; saveUi(); renderTeam(el); };
   const er = $("#editRoster");
   if (er) er.onclick = () => rosterBuilder(t.roster_id);
@@ -1491,7 +1518,7 @@ function drawLineup(body, t, W) {
   const extra = L.notes.map(n => `<p class="note">${esc(n)}</p>`).join("") +
     (L.def_options && L.def_options.length ? `<div class="sub-h">Defenses you could pick up</div>` + L.def_options.map(d => `<div class="kv"><span>${esc(d.team)} ${d.home === false ? "at" : "vs"} ${esc(d.opp || "?")}</span><b>${d.adj.toFixed(1)}</b></div>`).join("") : "") +
     (W.valuesOnly ? `<p class="note muted">Starters are picked by each player's value for this season, and players listed as out are skipped. After changing your lineup in Sleeper, tap Refresh rosters on the League tab.</p>`
-      : W.ours ? `<p class="note muted">Points are Dynasty Mover's own projections: each player's scoring this season and last, adjusted for home or away, the Vegas line, the weather at kickoff and his team's recent form. Schedule and lines from nflverse (CC BY 4.0); weather from the National Weather Service.${W.kdef ? " Kicker and defense points from nflverse stats on Sleeper's default scoring; a defense is also rated on its opponent's offense and the Vegas line." : ""}</p>`
+      : W.ours ? `<p class="note muted">Points are Dynasty Mover's own projections: each player's scoring this season and last, adjusted for home or away, the Vegas line, the weather at kickoff and his team's recent form. Schedule and lines from nflverse (CC BY 4.0); weather from the National Weather Service, and from MET Norway for games abroad.${W.kdef ? " Kicker and defense points from nflverse stats on Sleeper's default scoring; a defense is also rated on its opponent's offense and the Vegas line." : ""}</p>`
       : `<p class="note muted">Points are Sleeper's projections, adjusted for the matchup, weather, betting lines and recent form.</p>`);
   const lgi = S.values.league && S.values.league.imported ? ago(S.values.league.imported) : null;
   h += `<section class="card">${more("How this works", extra)}${W.valuesOnly ? "" : `<button class="btn ghost block" id="wref" style="margin-top:12px">Refresh rosters and projections</button>${lgi ? `<div class="hint" style="text-align:center;margin-top:6px">Rosters from Sleeper ${esc(lgi)}</div>` : ""}`}</section>`;
@@ -1774,6 +1801,13 @@ async function loadNews(a) {
       `<p class="credit" style="text-align:left;padding:2px 0 10px">Player updates from RotoWire via ESPN.</p>`;
   }
   h += injuryDetails(p, a);
+  // our news wire: his status changes over the last three weeks (2026-10-20)
+  const mine = E.load_wire().filter(e => e.sid === String(a.sleeper_id || "")).slice(0, 4);
+  if (mine.length) h += `<div class="sub-h">Recent moves</div>` + mine.map(e => `<div class="kv"><span>${esc(e.text)}</span><b class="muted">${esc(ago(e.t))}</b></div>`).join("");
+  // reporters and fantasy outlets on Bluesky
+  const posts = await E.bsky_posts(a.name).catch(() => []);
+  if (posts.length) h += `<div class="sub-h">From reporters</div>` + posts.map(b => `<a class="news" data-link="${esc(b.url)}"><b>${esc(b.text.length > 280 ? b.text.slice(0, 277) + "…" : b.text)}</b>
+      <span>${esc(b.author)} · @${esc(b.handle)} · ${esc(ago(b.at))}</span></a>`).join("") + `<p class="credit" style="text-align:left;padding:4px 0 0">Posts from <a data-link="https://bsky.app">Bluesky</a>. Tap one to read it there.</p>`;
   if (!E.PLAY) {
     if (news && news.length) {
       h += `<div class="sub-h">Latest headlines</div>` + news.map(n => `<a class="news" data-link="${esc(n.link)}"><b>${esc(n.title)}</b>
@@ -1899,7 +1933,7 @@ function card(a, opts = {}) {
       if (C.week && !C.week.none) {
         const w = C.week;
         h += `<div class="sec"><h3>Week ${w.week}${w.grade ? ` <span class="grade sm ${w.grade.cls}">${esc(w.grade.letter)}</span> <span class="muted" style="font-weight:400;font-size:13px">${esc(w.grade.label)} · ${esc(a.pos)}${w.grade.posRank} this week</span>` : ""}</h3><div class="kv"><span>${w.opp ? (w.home === false ? "at " : "vs ") + esc(w.opp) : ""}${w.weather && w.weather !== "dome" ? " · " + esc(w.weather) : ""}</span><b>${w.adj.toFixed(1)} pts</b></div>
-          ${w.reasons && w.reasons.length ? `<p class="note muted">${esc(w.reasons.join(", "))}</p>` : ""}
+          ${w.reasons && w.reasons.length ? `<p class="note muted">${esc(w.reasons.join(", "))}</p>` : ""}${matchupLines(a, w)}
           ${C.ppg != null ? `<div class="kv"><span>This season</span><b>${C.ppg.toFixed(1)} per game</b></div>` : ""}</div>`;
       } else if (C.week) h += `<div class="sec"><h3>Week ${C.week.week}</h3><p class="note muted">${C.week.bye ? "Bye week" : "Not expected to play"}</p></div>`;
       else if (!W) h += `<div class="sec"><h3>This week</h3><p class="note muted">Loading…</p></div>`;
@@ -1909,6 +1943,9 @@ function card(a, opts = {}) {
     let extra = `<div class="sub-h">What the grade means</div><p class="note">${GRADES.map(([, g, l]) => `<b>${g}</b> ${l.toLowerCase()}`).join(" · ")}.
       Grades compare a player's value with the best player in your league's format. ▲ rising, ▼ falling, – steady over 30 days.</p>`;
     if (C.lists.length) extra += `<div class="sub-h">Rank on each list</div>` + C.lists.map(l => `<div class="kv"><span>${esc(l.label)}</span><b>#${l.overall}${l.at_pos ? ` <span class="muted">(${esc(l.at_pos)})</span>` : ""}</b></div>`).join("");
+    // something to compare to (2026-10-20): where real drafts take him, from MyFantasyLeague's ADP
+    if (a.mfl || a.mflr) extra += `<div class="sub-h">Draft market</div>` + [a.mfl, a.mflr].filter(Boolean).map(m => `<div class="kv"><span>${esc(m.label[0].toUpperCase() + m.label.slice(1))}</span><b>${m.adp.toFixed(1)} <span class="muted">(${esc(m.pos)})</span></b></div>`).join("")
+      + `<p class="note muted">Average pick in ${fmt((a.mfl || a.mflr).drafts)}+ drafts this year, from MyFantasyLeague.</p>`;
     if (C.seasons && C.seasons.length) {
       const ss = C.seasons, lines = ss[0].lines.map(([l]) => l);
       extra += `<div class="sub-h">Stats</div><div class="tscroll"><table class="t"><tr><th></th>${ss.map(s => `<th class="r">${s.season}</th>`).join("")}</tr>
@@ -2287,6 +2324,9 @@ function renderLeague(el) {
       ? "Your leagues and trades stay on this phone; your account only holds your email and your plan." : "It's free, has no ads, and keeps everything on this phone."}</p>
       <div class="sub-h">Data from</div>${srcs.map(n => `<div class="kv"><span>${esc(E.SOURCES[n].label)}</span><a data-link="${esc(E.SOURCES[n].url)}" class="lnk">${esc(E.SOURCES[n].url.replace("https://", ""))}</a></div>`).join("")}
       <div class="kv"><span>Sleeper (leagues, rosters, injuries, trending)</span><a data-link="https://sleeper.com" class="lnk">sleeper.com</a></div>
+      <div class="kv"><span>MyFantasyLeague (draft ADP)</span><a data-link="https://www.myfantasyleague.com" class="lnk">myfantasyleague.com</a></div>
+      <div class="kv"><span>Bluesky (reporters' posts)</span><a data-link="https://bsky.app" class="lnk">bsky.app</a></div>
+      <div class="kv"><span>Weather: National Weather Service, MET Norway</span><a data-link="https://api.met.no" class="lnk">api.met.no</a></div>
       <p class="note muted">${window.OWN_VALUES_ONLY ? "Player values are Dynasty Mover's own, calculated from public NFL stats (nflverse, CC BY 4.0), age and draft slot. Not affiliated with, endorsed by, or sponsored by the NFL, the NFLPA, Sleeper or nflverse." : "Not affiliated with, endorsed by, or sponsored by the NFL, Sleeper, FantasyCalc, DynastyProcess or Fantasy Football Calculator."} Player values are opinions for entertainment, not advice.</p>
       <div class="kv"><span>Privacy policy</span><a data-link="${esc(PRIVACY_URL)}" class="lnk">Read</a></div>
       <div class="kv"><span>Contact</span><span>${esc(CONTACT_EMAIL)}</span></div>`)}</section>

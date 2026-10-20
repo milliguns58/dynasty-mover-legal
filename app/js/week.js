@@ -227,7 +227,7 @@ const NWS_HEADERS = { "User-Agent": "DynastyMover/3.0 (dynastymover.app@gmail.co
 /* This season's regular-season games from nflverse, kept for a day. */
 async function nflv_games(season) {
   const name = `nflv_games_${season}.json`, c = Store.get(name);
-  if (c && c.v === 2 && hoursOld(c.fetched) < 24) return c.games;
+  if (c && c.v === 3 && hoursOld(c.fetched) < 24) return c.games;   // v3: rest days and surface (2026-10-20)
   const txt = await Net.text(NFLV_GAMES_URL, null, 240000), games = [];
   const pa = { [season]: {}, [season - 1]: {} };                       // points allowed: "week|team" -> points (2026-10-19, for defenses)
   for (const r of E.parse_csv(txt)) {
@@ -238,14 +238,40 @@ async function nflv_games(season) {
     }
     if (y !== season || r.game_type !== "REG") continue;
     games.push({ week: parseInt(r.week, 10), day: r.gameday, time: r.gametime || "13:00", away: NFLV_TEAM_FIX[r.away_team] || r.away_team, home: NFLV_TEAM_FIX[r.home_team] || r.home_team,
-      spread: r.spread_line === "" ? null : parseFloat(r.spread_line), total: r.total_line === "" ? null : parseFloat(r.total_line), roof: r.roof || "", stadium: r.stadium || "", sid: r.stadium_id || "" });
+      spread: r.spread_line === "" ? null : parseFloat(r.spread_line), total: r.total_line === "" ? null : parseFloat(r.total_line), roof: r.roof || "", stadium: r.stadium || "", sid: r.stadium_id || "",
+      rest_a: r.away_rest === "" ? null : parseInt(r.away_rest, 10), rest_h: r.home_rest === "" ? null : parseInt(r.home_rest, 10), surface: r.surface || "" });
   }
-  Store.set(name, { v: 2, fetched: now_iso(), games });
+  Store.set(name, { v: 3, fetched: now_iso(), games });
   Store.set(`nflv_pa_${season}.json`, { v: 1, fetched: now_iso(), pa: pa[season] });
   if (Object.keys(pa[season - 1]).length) Store.set(`nflv_pa_${season - 1}.json`, { v: 1, fetched: now_iso(), pa: pa[season - 1] });
   return games;
 }
 const num = s => { const m = String(s || "").match(/\d+(\.\d+)?/g); return m ? Math.max(...m.map(Number)) : null; };
+/* Games outside the US (2026-10-20): the forecast at kickoff from MET Norway's Locationforecast (api.met.no, free, CC BY
+   4.0 / NLOD 2.0, "Data from MET Norway"), which covers the whole world; the NWS covers only the US. Same shape as
+   nws_weather. Asked at most once an hour per stadium, with the app's name in the User-Agent as MET asks. */
+const INTL_STADIUM = { LON00: [51.556, -0.2796], LON01: [51.4559, -0.3415], LON02: [51.6043, -0.0664], MUN01: [48.2188, 11.6247], FRA00: [50.0686, 8.6455],
+  MAD01: [40.4531, -3.6883], PAR00: [48.9245, 2.3602], DUB00: [53.3607, -6.2512], MEX00: [19.3029, -99.1505], SAO00: [-23.5453, -46.4742], RIO00: [-22.9121, -43.2302], MEL00: [-37.82, 144.9834] };
+const MET_HEADERS = { "User-Agent": "DynastyMover/3.2 dynastymover.app@gmail.com" };
+const met_words = c => String(c || "").replace(/_(day|night|polartwilight)$/, "").replace("partlycloudy", "partly cloudy").replace("clearsky", "clear").replace("fair", "fair")
+  .replace(/^(heavy|light)?(rain|snow|sleet)(showers)?(andthunder)?$/, (m, i, w, sh, th) => [i, w, sh && "showers", th && "and thunder"].filter(Boolean).join(" ")) || null;
+async function met_weather(sid, kickoff) {
+  const ll = INTL_STADIUM[String(sid || "").slice(0, 5)];
+  if (!ll) return null;
+  const name = `met_${sid}.json`;
+  let c = Store.get(name);
+  if (!c || hoursOld(c.fetched) > 1) {
+    const j = JSON.parse(await Net.text(`https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${ll[0].toFixed(4)}&lon=${ll[1].toFixed(4)}`, MET_HEADERS, 30000));
+    c = { fetched: now_iso(), series: ((j.properties || {}).timeseries || []).map(t => { const d = t.data || {}, i = (d.instant || {}).details || {}, n1 = d.next_1_hours || {};
+      return [t.time, i.air_temperature, i.wind_speed_of_gust ?? i.wind_speed, (n1.details || {}).probability_of_precipitation, (n1.summary || (d.next_6_hours || {}).summary || {}).symbol_code]; }) };
+    Store.set(name, c);
+  }
+  const t = new Date(kickoff).getTime();
+  const p = c.series.find(([s], i) => { const a = new Date(s).getTime(), b = i + 1 < c.series.length ? new Date(c.series[i + 1][0]).getTime() : a + 3600000; return a <= t && t < b; });
+  if (!p) return null;
+  const [, tc, gust, pop, sym] = p;
+  return { weather: met_words(sym), temp: tc == null ? null : Math.round(tc * 9 / 5 + 32), gust: gust == null ? null : Math.round(gust * 2.237), precip: pop ?? null, source: "met" };
+}
 /* The NWS hourly forecast for a stadium at kickoff: { weather, temp, gust, precip }, or null when it's too far out. */
 async function nws_weather(team, kickoff) {
   const ll = STADIUM[team];
@@ -279,7 +305,7 @@ async function week_context_nflv(cfg, week, refresh = false) {
     const kickoff = `${g.day}T${g.time.length === 5 ? g.time : "13:00"}:00${off(parseInt(g.day.slice(5, 7), 10))}`;
     const indoor = ["dome", "closed"].includes(g.roof) || (g.roof === "" && RETRACTABLE.has(g.home));
     let wx = null;
-    if (!indoor && !ABROAD.test(g.sid)) { try { wx = await nws_weather(g.home, kickoff); } catch (e) { wx = null; } }
+    if (!indoor) { try { wx = ABROAD.test(g.sid) ? await met_weather(g.sid, kickoff) : await nws_weather(g.home, kickoff); } catch (e) { wx = null; } }
     for (const [ab, opp, is_home] of [[g.home, g.away, true], [g.away, g.home, false]]) {
       const own = g.spread == null ? null : (is_home ? -g.spread : g.spread);   // nflverse: positive = home favored
       teams[ab] = { opp, home: is_home, indoor, venue: g.stadium, weather: wx ? wx.weather : null, temp: wx ? wx.temp : null, gust: wx ? wx.gust : null, precip: wx ? wx.precip : null,
@@ -591,6 +617,7 @@ async function prepare_raw(cfg, opts = {}) {
       const [seasons, weekly] = await nflv_league_stats(cfg, season);
       if (!Object.keys(seasons[season] || {}).length && !Object.keys(seasons[season - 1] || {}).length) throw new Error("no stats");
       const ctx = await week_context_nflv(cfg, week, opts.refresh).catch(() => ({}));
+      await nflv_games(season).catch(() => null);                      // the schedule's rest days, for the card (kept a day)
       const proj = our_projections(cfg, seasons, season, E.load_player_status(), week, weekly);
       let kdef = false;
       if (kdef_slots(E.P.values && E.P.values.league).length) {             // kickers and defenses, for a league that starts them (2026-10-19)
@@ -1438,6 +1465,31 @@ function season_points(values, cfg, W) {
   }
   return (W._sp = out);
 }
+/* Team context (2026-10-20): what each defense gives up to each position this season (points a game, 1 = the most),
+   how many plays each offense runs and how often it passes (nflverse team totals), and each team's rest before this
+   week's game and the field (nflverse schedule). From data already downloaded; for the card's matchup lines. Cached on W. */
+function team_context(cfg, W) {
+  if (!W || W.valuesOnly || !W.weekly) return null;
+  if (W._tc) return W._tc;
+  const pk = pts_key(cfg), allowed = {}, played = {}, fix = t => NFLV_TEAM_FIX[t] || t;
+  for (const [w, rows] of Object.entries(W.weekly)) for (const r of Object.values(rows)) {
+    if (!POSITIONS.includes(r.pos) || !r.opp) continue;
+    const o = fix(String(r.opp).replace(/^@/, "")), A = allowed[o] = allowed[o] || {};
+    A[r.pos] = (A[r.pos] || 0) + (+r[pk] || 0); (played[o] = played[o] || new Set()).add(w);
+  }
+  const def = {}, off = {}, rest = {};
+  for (const pos of POSITIONS) {
+    const l = Object.keys(allowed).map(t => [t, (allowed[t][pos] || 0) / Math.max(1, played[t].size)]).sort((x, y) => y[1] - x[1]);
+    l.forEach(([t, v], i) => { (def[t] = def[t] || {})[pos] = { ppg: v, rank: i + 1, of: l.length }; });
+  }
+  const tc = Object.entries(E.nflv_team_ctx(W.season, true)).filter(([, t]) => t.g > 0).map(([t, x]) => [fix(t), x.att_pg + x.car_pg, x.att_pg / Math.max(1, x.att_pg + x.car_pg)]);
+  tc.slice().sort((x, y) => y[1] - x[1]).forEach(([t, plays], i) => { off[t] = { plays, playsRank: i + 1, of: tc.length }; });
+  tc.slice().sort((x, y) => y[2] - x[2]).forEach(([t, , pass], i) => { if (off[t]) Object.assign(off[t], { pass, passRank: i + 1 }); });
+  for (const g of ((Store.get(`nflv_games_${W.season}.json`) || {}).games || []).filter(g => g.week === W.week)) {
+    rest[g.home] = { days: g.rest_h, surface: g.surface }; rest[g.away] = { days: g.rest_a, surface: g.surface };
+  }
+  return (W._tc = { def, off, rest });
+}
 function player_card(values, cfg, a, W) {
   const pk = pts_key(cfg);
   const st = (W && W.status || E.load_player_status())[a.sleeper_id || ""] || {};
@@ -1456,6 +1508,8 @@ function player_card(values, cfg, a, W) {
       if (ours != null) reasons.push(`our model ${ours.toFixed(1)} pts`);
       out.week = { week: W.week, base, adj: ours != null && adj > 0 ? 0.5 * adj + 0.5 * ours : adj, model: ours, reasons, injury: p.injury, opp: cx ? cx.opp : p.opp, home: cx ? cx.home : null, spread: cx ? cx.spread : null,
         total: cx ? cx.total : null, weather: cx ? (cx.indoor ? "dome" : cx.weather) : null, grade: week_grades(values, cfg, W)[a.sleeper_id || ""] || null };
+      const T = POSITIONS.includes(a.pos) ? team_context(cfg, W) : null, opp = out.week.opp ? String(out.week.opp).replace(/^@/, "") : null;
+      if (T) out.week.ctx = { def: opp && T.def[opp] ? T.def[opp][a.pos] : null, off: T.off[a.team] || null, rest: T.rest[a.team] || null };
     }
     const [bs, bw] = stats_for(a, W.seasons, W.weekly);
     out.seasons = Object.keys(bs).map(Number).sort((x, y) => y - x).map(y => ({ season: y, lines: stat_lines(a.pos).map(([k, l]) => [l, stat_value(bs[y], k, pk)]) }));
@@ -1842,6 +1896,6 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
   return { band: band[1], tone: band[2], score, pct, lens, lensTxt, reasons, sweeteners, need, message, summary, owner, mode: B.mode, thin: B.thin, deep: B.deep, trades: T };
 }
 
-return { kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
+return { met_weather, team_context, kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
   waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades, season_grades, season_points, past_week_grades };
 })();

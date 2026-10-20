@@ -125,7 +125,7 @@ const Net = (() => {
   /* The web version: sources that refuse a browser (GitHub's release downloads, where the nflverse stats live) go
      through the Worker's /proxy; everything else is fetched straight. A straight fetch that fails the way a refused
      one does (a TypeError, no status) is tried once more through the proxy. */
-  const PROXY_HOSTS = ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "news.google.com"];
+  const PROXY_HOSTS = ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "news.google.com", "api.myfantasyleague.com"];
   const proxy = url => (window.PROXY_URL ? window.PROXY_URL + (window.PROXY_URL.includes("?") ? "&" : "?") + "url=" + encodeURIComponent(url) : null);
   function webText(url) {
     let host = ""; try { host = new URL(url).hostname; } catch (e) { /* relative */ }

@@ -379,6 +379,7 @@ const SOURCES = {
   fantasypros: { label: "FantasyPros", about: "expert consensus rankings", dynasty: true, redraft: true },
   draftsharks: { label: "DraftSharks", about: "trade value chart in your scoring", dynasty: true, redraft: true },
   ffcalculator: { label: "FF Calculator", about: "ADP from real drafts", dynasty: true, redraft: true, play: true, url: "https://fantasyfootballcalculator.com" },
+  mfl: { label: "MyFantasyLeague ADP", about: "average draft position from MFL leagues", dynasty: true, redraft: true, play: true, url: "https://www.myfantasyleague.com" },   // Our rank's starting point (not a value list)
   sleeper_proj: { label: "Sleeper projections", about: "season points above replacement", dynasty: true, redraft: true },
   custom: { label: "Custom list", about: "your own CSV", dynasty: true, redraft: true },
 };
@@ -878,7 +879,7 @@ const DMV = {"w26":0.0858,"w25":0.0407,"w24":0.0163,"k":2.0755,"best":0.0513,"E_
    the values and ranks the Pro app trades on. DMV: our own dynasty view (the research age curves and the breakout bump);
    this gives the grades. Where the two disagree, the user gets a buy or sell hint the market doesn't show. */
 const DMV_MKT = {"w26":1.2308,"w25":0.3516,"w24":0.1384,"best_QB":0.2754,"best_RB":0.0042,"best_WR":0.0,"best_TE":0.0799,"E_QB":2.4573,"E_RB":2.0561,"E_WR":1.9325,"E_TE":1.6575,"S_QB":6.3241,"S_RB":19.8025,"S_WR":37.3424,"S_TE":64.0041,"R_QB":4.2772,"R_RB":-1.632,"R_WR":1.0846,"R_TE":1.3444,"peak_QB":28.7639,"peak_RB":23.0034,"peak_WR":25.0003,"peak_TE":27.4564,"dec_QB":0.1019,"dec_RB":0.142,"dec_WR":0.0921,"dec_TE":0.1034,"young":0.6011,"D_QB":2033.7033,"D_RB":2902.7461,"D_WR":2029.4478,"D_TE":1419.4604,"L":128.1501,"kd":7.4094,"C":82304.0844,"ped":0.2743};
-const DMV_MODEL = 21;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
+const DMV_MODEL = 22;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
 const DMV_TYPICAL = { QB: 14, RB: 9, WR: 8, TE: 6 };          // a typical starter's points a game (half-PPR): the anchor for thin samples
 const DMV_REPLACEMENT = { QB: 12, RB: 6.5, WR: 6, TE: 4 };   // a replacement-level player's points a game (half-PPR): the redraft anchor for thin samples
 const DMV_PRIOR_ADJ = { QB: 0.55 };                      // 1QB leagues: QBs are worth about half of superflex
@@ -1665,6 +1666,66 @@ function attach_ours(assets, ours, redraft) {
    view, trimmed 15%. Checked against a consensus of FantasyCalc, DynastyProcess and Dynasty Daddy: the average rank
    miss across its top 50 went from 9.9 (our model alone) and 5.1 (FantasyCalc with a 0.35 say) to 2.5. */
 const ORANK_W = 0.2, ORANK_LO = 0.6, ORANK_HI = 1.6, ORANK_UNLISTED = 0.85;
+/* MyFantasyLeague ADP (2026-10-20): free "to use in almost any way" (api.myfantasyleague.com/<year>/api_info). Redraft:
+   redraft drafts; dynasty: keeper-league drafts (a board for now) and rookie-only drafts. Each list read at most once a
+   day; the web version goes through the Worker's proxy. Returns { main, rookie }: { drafts, label, players: [{ key,
+   name, pos, adp, posRank }] }. */
+const MFL_EXPORT = "https://api.myfantasyleague.com/{year}/export?TYPE={type}&JSON=1{extra}";
+async function mfl_json(url, name, hours) {
+  const c = Store.get(name);
+  if (c && c.v === 1 && Date.now() - new Date(c.fetched).getTime() < hours * 3600000) return c.data;
+  try { const d = await Net.json(url, null, 120000); Store.set(name, { v: 1, fetched: now_iso(), data: d }); return d; }
+  catch (e) { if (c) return c.data; throw e; }
+}
+async function mfl_adp(cfg) {
+  const year = parseInt(cfg.season, 10), redraft = is_redraft(cfg), url = (type, extra) => MFL_EXPORT.replace("{year}", year).replace("{type}", type).replace("{extra}", extra);
+  const pl = await mfl_json(url("players", ""), `mfl_players_${year}.json`, 24), who = {};
+  for (const p of [].concat(((pl || {}).players || {}).player || [])) {
+    if (!POSITIONS.includes(p.position)) continue;
+    const [last, first] = String(p.name || "").split(", ");
+    who[p.id] = { name: first ? `${first} ${last}` : last, pos: p.position };
+  }
+  const list = async (keep, label) => {
+    const d = await mfl_json(url("adp", `&PERIOD=ALL&IS_KEEPER=${keep}`), `mfl_adp_${year}_${keep}.json`, 24), A = (d || {}).adp || {}, out = [], n = {};
+    for (const r of [].concat(A.player || [])) { const w = who[r.id]; if (w && +r.averagePick > 0) out.push({ key: player_key(w.name, w.pos), name: w.name, pos: w.pos, adp: +r.averagePick }); }
+    out.sort((x, y) => x.adp - y.adp).forEach(p => { p.posRank = n[p.pos] = (n[p.pos] || 0) + 1; });
+    return { drafts: parseInt(A.totalDrafts, 10) || 0, label, players: out };
+  };
+  const main = await list(redraft ? "N" : "K", redraft ? "redraft drafts" : "keeper-league drafts");
+  const rookie = redraft ? null : await list("R", "rookie drafts").catch(() => null);
+  return { main, rookie };
+}
+/* MFL's order on our model's scale (Map "k:<name|pos>" -> value): the nth player at a position by ADP gets the value of
+   our nth best at that position. Dynasty: the keeper board ranks players for now, so each is then weighed by his runway
+   (our age curve over the next five seasons against today, set to 1 for a typical starter at his position); a rookie on
+   the rookie-draft list gets our nth best rookie's value. */
+function mfl_runway(pos, age) {
+  if (age == null) return 1;
+  const f = { pos, age }, now = age_curve(f, age);
+  if (!(now > 0)) return 1;
+  let s = 0;
+  for (let t = 0; t < 5; t++) s += Math.min(1.3, age_curve(f, age + t) / now) / 5;
+  return s;
+}
+function mfl_scale(mfl, dyn, redraft) {
+  const out = new Map(), byPos = (list, keep) => { const o = {}; for (const p of list) if (+p.value > 0 && keep(p)) (o[p.pos] = o[p.pos] || []).push(+p.value); for (const l of Object.values(o)) l.sort((x, y) => y - x); return o; };
+  const D = new Map(dyn.players.map(p => [p.key || player_key(p.name, p.pos), p])), at = byPos(dyn.players, () => true), run = {};
+  if (!redraft) for (const pos of POSITIONS) {                      // the typical starter's runway at each position, for the scale
+    const r = mfl.main.players.filter(p => p.pos === pos && p.posRank <= 24).map(p => mfl_runway(pos, (D.get(p.key) || {}).age)).sort((x, y) => x - y);
+    run[pos] = r.length ? r[r.length >> 1] : 1;
+  }
+  for (const p of mfl.main.players) {
+    const l = at[p.pos]; if (!l || !l.length) continue;
+    let v = l[Math.min(p.posRank, l.length) - 1];
+    if (!redraft) v *= mfl_runway(p.pos, (D.get(p.key) || {}).age) / (run[p.pos] || 1);
+    out.set("k:" + p.key, v);
+  }
+  if (mfl.rookie) {
+    const rk = byPos(dyn.players, p => p._rookie || p.exp === 0);
+    for (const p of mfl.rookie.players) { const l = rk[p.pos]; if (l && l.length) out.set("k:" + p.key, l[Math.min(p.posRank, l.length) - 1]); }
+  }
+  return out;
+}
 async function attach_orank(cfg, assets, results, log) {
   const by = r => { const m = new Map(); for (const p of (r && r.players) || []) { if (!(+p.value > 0)) continue; if (p.sleeper_id) m.set(String(p.sleeper_id), +p.value); m.set("k:" + (p.key || player_key(p.name, p.pos)), +p.value); } return m; };
   const look = (m, a) => (m ? ((a.sleeper_id && m.get(String(a.sleeper_id))) ?? m.get("k:" + player_key(a.name, a.pos))) : undefined);
@@ -1672,12 +1733,28 @@ async function attach_orank(cfg, assets, results, log) {
   // the paid Pro edition (and the web app, which runs it) never calls FantasyCalc: its terms are non-commercial only
   // (store/SOURCES.md). Pro starts from DynastyProcess alone (GPL-3, credited); Pro redraft has no allowed list and
   // keeps our model's own order (2026-10-16).
+  // 2026-10-20: DynastyProcess's values come from FantasyPros' rankings (non-commercial), so Pro starts from
+  // MyFantasyLeague's ADP instead; the free editions keep FantasyCalc and DynastyProcess and add MFL as a third list
   const commercial = typeof window !== "undefined" && window.EDITION === "pro";
   const fc = commercial ? null : await got("fantasycalc", () => src_fantasycalc(cfg)).catch(() => null), curve = fc ? rank_curve(fc.players) : null;
-  const dp = is_redraft(cfg) ? null : await got("dynastyprocess", () => src_dynastyprocess(cfg, curve)).catch(() => null);
-  if (!fc && !dp) throw new Error("no outside list this edition may use");
+  const dp = commercial || is_redraft(cfg) ? null : await got("dynastyprocess", () => src_dynastyprocess(cfg, curve)).catch(() => null);
   const dm = await got("dmv", () => src_dmv(cfg, curve));
-  const M = by(fc || dp), P = fc && dp ? by(dp) : null, D = by(dm), players = assets.filter(a => !a.is_pick);
+  const mfl = await mfl_adp(cfg).catch(e => { log(`MFL ADP: ${e.message}`); return null; });
+  let X = null;
+  if (mfl && mfl.main.players.length >= 50) {
+    X = mfl_scale(mfl, dm, is_redraft(cfg));
+    // the comparison on the player card: where MFL drafts take him
+    const at = new Map(mfl.main.players.map(p => [p.key, p])), rk = new Map(((mfl.rookie || {}).players || []).map(p => [p.key, p]));
+    for (const a of assets) {
+      if (a.is_pick) continue;
+      const k = player_key(a.name, a.pos), m = at.get(k), r = rk.get(k);
+      if (m) a.mfl = { adp: m.adp, pos: m.pos + m.posRank, drafts: mfl.main.drafts, label: mfl.main.label };
+      if (r) a.mflr = { adp: r.adp, pos: r.pos + r.posRank, drafts: mfl.rookie.drafts, label: mfl.rookie.label };
+    }
+  }
+  if (!fc && !dp && !X) throw new Error("no outside list this edition may use");
+  const M = fc || dp ? by(fc || dp) : X, P = fc && dp ? by(dp) : null, D = by(dm), players = assets.filter(a => !a.is_pick);
+  const Xs = null;                                                    // the free editions keep the list the user approved (FantasyCalc and DynastyProcess); MFL shows on the card
   // a list put on FantasyCalc's scale by rank, among the players both carry
   const scaler = L => {
     const both = players.filter(a => look(M, a) > 0 && look(L, a) > 0);
@@ -1685,9 +1762,9 @@ async function attach_orank(cfg, assets, results, log) {
     const xs = both.map(a => look(L, a)).sort((x, y) => y - x), ms = both.map(a => look(M, a)).sort((x, y) => y - x);
     return x => { let lo = 0, hi = xs.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (xs[mid] > x) lo = mid + 1; else hi = mid; } return ms[Math.min(lo, ms.length - 1)]; };
   };
-  const sP = P && scaler(P), sD = scaler(D);
+  const sP = P && scaler(P), sD = scaler(D), sX = Xs && scaler(Xs);
   if (!sD) throw new Error("too few players on both lists");
-  const base = a => { const p = [look(M, a), sP && look(P, a) > 0 ? sP(look(P, a)) : null].filter(x => x > 0); return p.length ? Math.exp(p.reduce((s, x) => s + Math.log(x), 0) / p.length) : null; };
+  const base = a => { const p = [look(M, a), sP && look(P, a) > 0 ? sP(look(P, a)) : null, sX && look(Xs, a) > 0 ? sX(look(Xs, a)) : null].filter(x => x > 0); return p.length ? Math.exp(p.reduce((s, x) => s + Math.log(x), 0) / p.length) : null; };
   const ours = a => (look(D, a) > 0 ? sD(look(D, a)) : null);
   // our model's lean at each position, over the market's top 200
   const top = players.filter(a => base(a) && ours(a)).sort((x, y) => base(y) - base(x)).slice(0, 200), lean = {};
@@ -1701,7 +1778,7 @@ async function attach_orank(cfg, assets, results, log) {
     a.omkt = b ? pyround(b) : null; a.oview = o ? pyround(o) : null;
     n++;
   }
-  const used = [fc && "fantasycalc", dp && "dynastyprocess"].filter(Boolean);
+  const used = [fc && "fantasycalc", dp && "dynastyprocess", M === X && "mfl"].filter(Boolean);
   log(`Our rank: ${n} players, starting from ${used.map(u => SOURCES[u].label).join(" and ")}`);
   return used;
 }
@@ -1809,7 +1886,72 @@ async function refresh_player_status(all_players) {
   }
   Store.set("player_status.json", { fetched: now_iso(), players: out, names, last });
   apply_injuries();                                                  // the NFL's report on top, where it's newer or more serious
+  wire_update();
   return Object.keys(out).length;
+}
+/* The news wire (2026-10-20, the user's ask: free news to compare to): each change in a player's status between
+   refreshes, worded by us from facts the app already has (Sleeper's player list, the NFL's injury report and rosters
+   via nflverse): a new team, injured reserve and back, ruled out or questionable, a move up or down the depth chart.
+   The first run only takes a snapshot. Kept 21 days. */
+const WIRE_DAYS = 21, WIRE_MAX = 600, WIRE_GAME = ["Out", "Doubtful", "Questionable"];
+function wire_text(inj, i0, report) {
+  const why = report && report.injury ? ` (${report.injury})` : "";
+  if (inj === "IR") return "Placed on injured reserve" + why;
+  if (inj === "PUP") return "Placed on the PUP list" + why;
+  if (inj === "Sus" || inj === "Suspended") return "Suspended";
+  if (inj === "Out") return "Ruled out" + why;
+  if (inj === "Doubtful") return "Listed doubtful" + why;
+  if (inj === "Questionable") return "Listed questionable" + why;
+  if (!inj && (i0 === "IR" || i0 === "PUP")) return "Back from injured reserve";
+  if (!inj && WIRE_GAME.includes(i0)) return "Off the injury report";
+  return null;
+}
+function wire_update() {
+  const cur = load_player_status(), prev = Store.get("wire_snap.json"), snap = {};
+  for (const [sid, p] of Object.entries(cur)) if (POSITIONS.includes(p.pos)) snap[sid] = [p.team || "", p.inj || "", p.depth ?? null];
+  const wire = Store.get("news_wire.json") || { v: 1, events: [] }, now = now_iso(), add = (sid, kind, text) => {
+    const p = cur[sid]; wire.events.push({ t: now, sid, kind, text, name: p.name, pos: p.pos, team: p.team || "FA" });
+  };
+  if (prev && prev.v === 1) {
+    for (const [sid, [team, inj, depth]] of Object.entries(snap)) {
+      const o = prev.players[sid]; if (!o) continue;
+      const [t0, i0, d0] = o;
+      if (t0 && team && t0 !== team) add(sid, "team", `Joins ${team} (from ${t0})`);
+      else if (t0 && !team) add(sid, "cut", `No longer with ${t0}`);
+      if (inj !== i0) { const txt = wire_text(inj, i0, cur[sid].report); if (txt) add(sid, inj ? "inj" : "back", txt); }
+      if (team === t0 && depth !== d0 && depth != null && d0 != null) {
+        if (depth === 1 && d0 > 1) add(sid, "up", `Now first on the ${team} depth chart`);
+        else if (d0 === 1 && depth > 1) add(sid, "down", `Drops to No. ${depth} on the ${team} depth chart`);
+      }
+    }
+    const cut = Date.now() - WIRE_DAYS * 86400000;
+    wire.events = wire.events.filter(e => new Date(e.t).getTime() >= cut).slice(-WIRE_MAX);
+    Store.set("news_wire.json", wire);
+  }
+  Store.set("wire_snap.json", { v: 1, at: now, players: snap });
+}
+const load_wire = () => ((Store.get("news_wire.json") || {}).events || []).slice().reverse();   // newest first
+/* Posts about a player from reporters and fantasy outlets on Bluesky (2026-10-20). Bluesky's public API (no sign-in);
+   posts belong to their authors, so each shows its author and links to it, and nothing is kept beyond 20 minutes, so a
+   deleted post drops out. Only trusted accounts: the list below, or an account Bluesky has verified. */
+const BSKY_SEARCH = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q={q}&limit=40&sort=latest";
+const BSKY_TRUSTED = new Set(["rotowirenfl.bsky.social", "rotoballer.com", "fptrack.com", "nfltraderumors.bsky.social", "tompelissero.bsky.social",
+  "lateroundqb.bsky.social", "darrenurban.bsky.social", "fantasyprojections.com", "athlonsports.bsky.social", "theringer.com", "profootballtalk.bsky.social"]);
+const bsky_cache = new Map();
+async function bsky_posts(name, n = 3) {
+  const k = norm(name), c = bsky_cache.get(k);
+  if (c && Date.now() - c.at < 20 * 60000) return c.posts;
+  const d = await Net.json(BSKY_SEARCH.replace("{q}", encodeURIComponent(`"${name}"`)), null, 12000);
+  const posts = [];
+  for (const p of (d && d.posts) || []) {
+    const a = p.author || {}, v = a.verification || {}, text = String((p.record || {}).text || "");
+    if (!(BSKY_TRUSTED.has(a.handle) || v.verifiedStatus === "valid") || !norm(text).includes(k)) continue;
+    const id = String(p.uri || "").split("/").pop();
+    posts.push({ handle: a.handle, author: a.displayName || a.handle, text, at: (p.record || {}).createdAt || p.indexedAt, url: `https://bsky.app/profile/${a.handle}/post/${id}` });
+    if (posts.length >= n) break;
+  }
+  bsky_cache.set(k, { at: Date.now(), posts });
+  return posts;
 }
 const load_player_status = () => (Store.get("player_status.json") || {}).players || {};
 /* Injury news between Sleeper's daily player lists (2026-10-16, the user's ask): nflverse publishes the NFL's official
@@ -1849,7 +1991,9 @@ async function refresh_injuries(season) {
   }
   const cur = state && parseInt(state.week, 10) || week;
   Store.set("nfl_injuries.json", { v: 1, fetched: now_iso(), week, current: cur, players });
-  return apply_injuries();
+  const n = apply_injuries();
+  wire_update();
+  return n;
 }
 /* Merge the NFL's report into player_status.json; returns how many players' status changed. */
 function apply_injuries() {
@@ -2850,7 +2994,7 @@ const read_log = () => Store.get(f("trades.json")) || [];
 
 // ---------------------------------------------------------------------------
 return {
-  fantasy_pos, hide_positions, PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, injuries_due, refresh_injuries, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
+  load_wire, bsky_posts, fantasy_pos, hide_positions, PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, injuries_due, refresh_injuries, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
   pyround, clone, now_iso, today_iso, ordinal, fmt, fmt_signed, fmt_pct, compact, norm, title, player_key, ppr_bucket,
   is_bestball, is_redraft, league_kind, league_kind_label,
   load_profiles, save_profiles, set_profile, profile_new, profile_rename, profile_delete, load_config, save_config,
