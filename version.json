@@ -1,7 +1,7 @@
 {
- "versionCode": 27,
- "versionName": "3.2.9",
- "notes": "Easier to read and to get around: five tabs with Ask GM at the top, player cards split into Overview, Stats and News with the trade buttons always in reach, larger labels, clearer contrast, full player names in lists.",
+ "versionCode": 28,
+ "versionName": "3.2.10",
+ "notes": "New chat button at the bottom of the GM. How right we've been is simpler to read, and games cut short by an injury no longer count against our numbers.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
