@@ -2521,31 +2521,35 @@ function scoreCard() {
   const hasA = !!(A && A.weeks.length && A.all);
   if (!R && !tc && !hasA) return "";
   R = R || { lastLineup: null, seasonLineup: null, grades: [], weeks: [], last: null };
-  const pct = x => `${Math.round(x * 100)}%`, pts = x => `${x.toFixed(1)} pts`;
+  const pct = x => `${Math.round(x * 100)}%`;
   let h = "";
   if (hasA) {
+    // simpler (2026-10-20, the user's ask: "simplify this for everyone to understand"): one headline, a short table in
+    // words, one note
     const right = A.all.close, miss = A.all.mae;
-    h += `<div class="sc-big"><b>${pct(right)}</b><span>of our weekly point estimates landed within 5 points of what the player scored. On average we missed by ${pts(miss)}.</span></div>
-      <table class="acc"><thead><tr><th>Week</th><th>Close</th><th>Missed by</th><th>Our estimates were</th></tr></thead><tbody>
-      ${A.weeks.map(r => `<tr><td>${r.w}</td><td>${pct(r.close)}</td><td>${pts(r.mae)}</td><td class="${Math.abs(r.bias) < 0.5 ? "" : r.bias > 0 ? "warn" : "warn"}">${Math.abs(r.bias) < 0.5 ? "about right" : r.bias > 0 ? `too low by ${r.bias.toFixed(1)}` : `too high by ${(-r.bias).toFixed(1)}`}</td></tr>`).join("")}
+    const how = b => Math.abs(b) < 0.5 ? ["on target", ""] : b > 0 ? ["a little low", "warn"] : ["a little high", "warn"];
+    h += `<div class="sc-big"><b>${pct(right)}</b><span>of our weekly guesses were within 5 points of what the player scored. A typical miss is about ${Math.round(miss)} points.</span></div>
+      <table class="acc"><thead><tr><th>Week</th><th>Within 5 pts</th><th>Our guesses</th></tr></thead><tbody>
+      ${A.weeks.map(r => { const [t, c] = how(r.bias); return `<tr><td>${r.w}</td><td>${pct(r.close)}</td><td class="${c}">${t}</td></tr>`; }).join("")}
       </tbody></table>`;
     const up = [], down = [], NAME = { QB: "quarterbacks", RB: "running backs", WR: "receivers", TE: "tight ends" };
     if (A.use) for (const [pos, c] of Object.entries(A.calib)) { if (c.n < 25) continue; const d = c.a + c.b * 10 - 10; if (d >= 0.5) up.push(NAME[pos]); else if (d <= -0.5) down.push(NAME[pos]); }
-    const adj = !A.gain ? "Not enough weeks yet to fine-tune this week's estimates."
-      : !A.use ? "This week's estimates are left as they are: fine-tuning from past weeks wasn't making them better."
-      : up.length || down.length ? `This week's estimates are fine-tuned from that record: ${[up.length ? `${up.join(" and ")} nudged up` : "", down.length ? `${down.join(" and ")} nudged down` : ""].filter(Boolean).join(", ")}, because that is how they've run.`
-      : "This week's estimates match how past weeks ran, so no fine-tuning was needed.";
-    h += `<p class="note" style="margin-top:8px">"Close" means within 5 points either way. Each week is checked against what we would have said before kickoff.</p><p class="note">${esc(adj)}</p>`;
+    const adj = !A.gain ? "We'll start adjusting our guesses once there are a few more weeks to learn from."
+      : !A.use ? "No adjustments this week: past weeks didn't show a pattern worth fixing."
+      : up.length || down.length ? `This week we ${[up.length ? `raised ${up.join(" and ")}` : "", down.length ? `lowered ${down.join(" and ")}` : ""].filter(Boolean).join(" and ")} a little, because that's how they've been running.`
+      : "No adjustments needed this week.";
+    const cut = A.skipped ? ` Games cut short by an injury (${A.skipped} so far) aren't counted: no one can see those coming.` : "";
+    h += `<p class="note" style="margin-top:8px">Each week uses only what we knew before kickoff.${esc(cut)} ${esc(adj)}</p>`;
   }
   const rows = [];
   const l1 = R.lastLineup, ls = R.seasonLineup;
-  if (l1) rows.push(`<div class="kv"><span>Our lineup, week ${R.last}</span><b>${pts(l1.got)} of a possible ${pts(l1.best)}</b></div>`);
-  if (ls && ls.n > 1) rows.push(`<div class="kv"><span>Our lineups, season</span><b>${pct(ls.eff)} of the best possible</b></div>`);
-  if (R.grades.length >= 2) rows.push(`<div class="kv"><span>Points a game by our grade</span><b>${R.grades.map(g => `${g.g} ${g.ppg.toFixed(1)}`).join(" · ")}</b></div>`);
-  if (tc) rows.push(`<div class="kv"><span>Trade calls</span><b>right ${pct(tc.agree / tc.n)} of the time (${tc.agree} of ${tc.n})</b></div>`);
-  if (rows.length) h += `<div class="sub-h" style="margin-top:14px">Lineups, grades and trades</div>${rows.join("")}<p class="note muted" style="margin-top:6px">A trade call is right when the side we favoured went on to score more.</p>`;
+  if (l1) rows.push(`<div class="kv"><span>Our lineup in week ${R.last}</span><b>${l1.got.toFixed(1)} of ${l1.best.toFixed(1)} possible pts</b></div>`);
+  if (ls && ls.n > 1) rows.push(`<div class="kv"><span>Our lineups this season</span><b>${pct(ls.eff)} of the best possible</b></div>`);
+  if (tc) rows.push(`<div class="kv"><span>Trade calls</span><b>right ${tc.agree} of ${tc.n} times</b></div>`);
+  if (R.grades.length >= 2) rows.push(`<div class="sc-gr-l">Points a game by our grade (higher grades should score more)</div><div class="sc-gr">${R.grades.map(g => `<div><span class="grade sm g${g.g[0].toLowerCase()}">${esc(g.g)}</span><b>${g.ppg.toFixed(1)}</b></div>`).join("")}</div>`);
+  if (rows.length) h += `<div class="sub-h" style="margin-top:14px">Lineups, grades and trades</div>${rows.join("")}${tc ? `<p class="note muted" style="margin-top:6px">A trade call is right when the side we liked went on to score more.</p>` : ""}`;
   if (!h) return "";
-  return `<section class="card tone-green"><h2>How right we've been</h2><div class="hint">Our numbers against what really happened.</div><div style="margin-top:10px">${h}</div></section>`;
+  return `<section class="card tone-green"><h2>How right we've been</h2><div class="hint">What we guessed against what really happened.</div><div style="margin-top:10px">${h}</div></section>`;
 }
 /* Trade calls right: in the league's trades with a 5%+ edge by our values and games played since, how often the side
    we favoured went on to score more (needs the trade history loaded once: the History sheet, or the daily market fit). */

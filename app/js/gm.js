@@ -363,7 +363,7 @@ const GM = (() => {
       <div class="gm-chat" id="gmChat">${c.messages.map(m => bubble(m)).join("")}</div>
       ${(() => { const w = S.W && S.W.week; return w && !reportFor(w) ? `<div class="gm-chips"><button id="gmReportChip" class="accent">${ICON} Get my week ${w} GM report</button></div>` : ""; })()}
       ${c.messages.length ? "" : `<div class="gm-chips">${SUGGEST[E.is_redraft(S.cfg) ? "redraft" : "dynasty"].map(q => `<button data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`}
-      <div class="gm-input">${c.messages.length ? `<button class="btn ghost gm-newbtn" id="gmClear2" title="New chat" aria-label="New chat">New</button>` : ""}<textarea id="gmQ" rows="1" placeholder="Ask your GM…" aria-label="Your question" ${pending ? "disabled" : ""}></textarea><button class="btn primary" id="gmSend" aria-label="Send" ${pending ? "disabled" : ""}>Send</button></div>`;
+      <div class="gm-input"><button class="btn ghost gm-newbtn${c.messages.length ? "" : " hidden"}" id="gmClear2" title="Start a new chat" aria-label="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>New chat</button><textarea id="gmQ" rows="1" placeholder="Ask your GM…" aria-label="Your question" ${pending ? "disabled" : ""}></textarea><button class="btn primary" id="gmSend" aria-label="Send" ${pending ? "disabled" : ""}>Send</button></div>`;
     $$("#gmPlan button", root).forEach(b => b.onclick = () => { setPlan(b.dataset.plan); toast(`Plan: ${planLabel(b.dataset.plan)}`, 1400); render(root); });
     const ta = $("#gmQ", root);
     const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };
@@ -382,6 +382,7 @@ const GM = (() => {
     if (partialLast && box.lastElementChild && c.messages.length) box.lastElementChild.outerHTML = bubble(c.messages[c.messages.length - 1], true);
     else box.innerHTML = c.messages.map(m => bubble(m)).join("");
     const chips = $(".gm-chips"); if (chips && c.messages.length) chips.remove();
+    const nb = $("#gmClear2"); if (nb) nb.classList.toggle("hidden", !c.messages.length);   // "New chat" at the bottom, from the first message on (2026-10-20)
     window.scrollTo(0, document.body.scrollHeight);
   }
   function setBusy(on) { const ta = $("#gmQ"), b = $("#gmSend"); if (ta) { ta.disabled = on; if (!on) { ta.value = ""; ta.style.height = "auto"; } } if (b) b.disabled = on; }

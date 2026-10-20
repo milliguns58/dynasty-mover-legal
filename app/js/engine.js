@@ -1983,6 +1983,10 @@ async function refresh_injuries(season) {
   if (rep) {
     const rows = parse_csv(rep).filter(r => POSITIONS.includes(r.position) && (r.game_type || "REG") === "REG");
     for (const r of rows) week = Math.max(week, parseInt(r.week, 10) || 0);
+    // who was on each week's report (2026-10-20): the projection record leaves out games cut short by an injury
+    const hist = {};
+    for (const r of rows) { const sid = g2s[r.gsis_id]; if (sid && (r.report_status || r.report_primary_injury || r.practice_primary_injury)) (hist[r.week] = hist[r.week] || {})[sid] = 1; }
+    Store.set(`nfl_injury_hist_${season}.json`, { v: 1, fetched: now_iso(), weeks: hist });
     for (const r of rows) {
       if ((parseInt(r.week, 10) || 0) !== week) continue;
       const sid = g2s[r.gsis_id]; if (!sid) continue;

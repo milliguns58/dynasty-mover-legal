@@ -535,6 +535,40 @@ async function past_projections(cfg, W, w) {
   }
   return await week_projections(cfg, w).catch(() => ({}));    // Sleeper keeps each past week's projection
 }
+/* Games cut short by an injury (2026-10-20, the user's rule: "you can't predict injuries, do not count those against
+   our numbers"). A player's week is left out of the record's numbers when he played well under his usual snap share
+   (under 60% of it; with no snap counts yet, under half our projection) and the injury report lists him the week after
+   (for the latest week, before that report, his injury status now). The teammate at his position who took the work
+   that day (one who usually plays less) is left out too: his role changed in the game. Injuries known before kickoff
+   still count; the projections use them. Returns (sid, week, projected, scored) -> true to leave out. */
+async function hurt_in_game(W, weeks) {
+  const values = E.P.values, by = (values && values.by_sleeper) || {};
+  const H = (Store.get(`nfl_injury_hist_${W.season}.json`) || {}).weeks || {}, now = E.load_player_status();
+  const snaps = await E.snap_stats(W.season).catch(() => ({}));
+  const share = sid => { const a = by[sid]; return a ? snaps[E.player_key(a.name, a.pos)] || null : null; };
+  const usual = (sid, w) => { const l = (share(sid) || []).filter(([x]) => x !== w).map(([, s]) => s).sort((a, b) => a - b); return l.length >= 2 ? l[l.length >> 1] : null; };
+  const that = (sid, w) => { const e = (share(sid) || []).find(([x]) => x === w); return e ? e[1] : null; };
+  const last = weeks.length ? weeks[weeks.length - 1] : 0;
+  const listedAfter = (sid, w) => !!((H[w + 1] || {})[sid] || (w === last && !H[w + 1] && (now[sid] || {}).inj));
+  const self = (sid, w, p, y) => {
+    if (!listedAfter(sid, w)) return false;
+    const u = usual(sid, w), s = that(sid, w);
+    return u != null && s != null ? s < 0.6 * u : p >= ACC_MIN_PTS && y < 0.5 * p;
+  };
+  const hurtBy = {};                                                  // week -> team|pos -> usual snap share of each player hurt in the game (snap counts only)
+  for (const w of weeks) for (const sid of Object.keys((W.weekly || {})[w] || {})) {
+    const a = by[sid]; if (!a || !POSITIONS.includes(a.pos) || !listedAfter(sid, w)) continue;
+    const u = usual(sid, w), s = that(sid, w);
+    if (u != null && s != null && s < 0.6 * u) { const k = `${a.team}|${a.pos}`; ((hurtBy[w] = hurtBy[w] || {})[k] = hurtBy[w][k] || []).push(u); }
+  }
+  return (sid, w, p, y) => {
+    if (self(sid, w, p, y)) return true;
+    const a = by[sid], h = a && (hurtBy[w] || {})[`${a.team}|${a.pos}`];
+    if (!h) return false;
+    const u = usual(sid, w) ?? 0;
+    return h.some(x => x > u);                                         // he played behind a player hurt that day
+  };
+}
 function acc_stats(pairs) {
   if (!pairs.length) return null;
   let abs = 0, close = 0, bias = 0;
@@ -564,17 +598,21 @@ function fit_calib(pairs, forWeek) {
 const apply_calib = (C, pos, pts) => (!C || !C[pos] || !(pts > 0) ? pts : Math.max(0, Math.round((C[pos].a + C[pos].b * pts) * 10) / 10));
 async function accuracy(cfg, W) {
   const pk = pts_key(cfg), name = `acc.${W.season}.${W.week}.${pk}.${W.ours ? "ours" : "sl"}.json`, c = Store.get(name);
-  if (c && c.v === 3) return c;
+  // rebuilt when the injury history changes (it decides which games are left out)
+  const hsig = Object.entries((Store.get(`nfl_injury_hist_${W.season}.json`) || {}).weeks || {}).map(([w, o]) => `${w}:${Object.keys(o).length}`).join(",");
+  if (c && c.v === 4 && c.hsig === hsig) return c;
   const weeks = Object.keys(W.weekly || {}).map(Number).filter(w => w >= 1 && w < W.week).sort((a, b) => a - b);
-  const pairs = [], per = {};
+  const pairs = [], per = {}, hurt = await hurt_in_game(W, weeks);
+  let skipped = 0;
   for (const w of weeks) {
     const proj = await past_projections(cfg, W, w), act = W.weekly[w] || {};
     for (const [sid, r] of Object.entries(proj || {})) {
       if (!POSITIONS.includes(r.pos) || !(r.pts > 0)) continue;
       const a = act[sid]; if (!a) continue;                              // he didn't play: a bye or an injury, not a projection miss
-      const y = +a[pk] || 0;
-      if (r.pts >= ACC_MIN_PTS) pairs.push({ w, pos: r.pos, p: +r.pts, y });   // the error stats skip tiny projections; the player's record keeps them (2026-10-19)
-      (per[sid] = per[sid] || {})[w] = [Math.round(r.pts * 10) / 10, Math.round(y * 10) / 10];
+      const y = +a[pk] || 0, cut = hurt(sid, w, +r.pts, y);
+      if (r.pts >= ACC_MIN_PTS && !cut) pairs.push({ w, pos: r.pos, p: +r.pts, y });   // the error stats skip tiny projections; the player's record keeps them (2026-10-19)
+      if (r.pts >= ACC_MIN_PTS && cut) skipped++;
+      (per[sid] = per[sid] || {})[w] = cut ? [Math.round(r.pts * 10) / 10, Math.round(y * 10) / 10, 1] : [Math.round(r.pts * 10) / 10, Math.round(y * 10) / 10];
     }
   }
   const rows = weeks.map(w => {
@@ -587,7 +625,7 @@ async function accuracy(cfg, W) {
   const calRows = rows.filter(r => r.maeCal != null);
   const gain = calRows.length ? { raw: calRows.reduce((s, r) => s + r.mae * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), cal: calRows.reduce((s, r) => s + r.maeCal * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), from: calRows[0].w } : null;
   // the correction is used only while it beats the plain numbers on the past weeks it was tested on (no advice beats bad advice)
-  const out = { v: 3, at: now_iso(), source: W.ours ? "ours" : "sleeper", weeks: rows, all: acc_stats(pairs), byPos, calib: fit_calib(pairs, W.week), per,
+  const out = { v: 4, hsig, skipped, at: now_iso(), source: W.ours ? "ours" : "sleeper", weeks: rows, all: acc_stats(pairs), byPos, calib: fit_calib(pairs, W.week), per,
     gain, use: !!(gain && gain.cal < gain.raw - 0.01) };
   Store.set(name, out);
   return out;
