@@ -1,7 +1,7 @@
 {
- "versionCode": 30,
- "versionName": "3.2.12",
- "notes": "The web version now tells you when a new version is ready and reloads onto it with one tap.",
+ "versionCode": 31,
+ "versionName": "3.2.13",
+ "notes": "Web version: five tabs with Ask GM at the top, like the phone app.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
