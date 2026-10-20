@@ -932,3 +932,66 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .sc-gr{display:flex;gap:6px;flex-wrap:wrap}
 .sc-gr>div{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:48px;padding:6px 4px;border-radius:10px;background:var(--raise)}
 .sc-gr b{font-size:13px;font-variant-numeric:tabular-nums}
+/* Sheets sit above the tab bar, so the five tabs are always on screen (2026-10-20, the user's ask); the player card and
+   other full sheets fill from the very top of the screen, with no gap above them */
+.scrim{bottom:calc(var(--tabh) + var(--safe-bottom))}
+.sheet{bottom:calc(var(--tabh) + var(--safe-bottom));padding-bottom:0;max-height:calc(100vh - var(--tabh) - var(--safe-bottom) - 24px)}
+.sheet.full{top:0;height:auto;max-height:none;border-radius:0}
+.sheet.full .grab{display:none}
+.card-bar{padding-bottom:12px}
+.sheet.full .sheet-head{padding:6px 0 4px}
+.sheet.full .sheet-body{padding-top:calc(4px + var(--safe-top))}
+.sheet.full .sheet-body{padding-bottom:0}
+.sheet.full .card-bar{bottom:0;margin-bottom:0}
+/* Player card, Overview (2026-10-20, the user's ask: clean it up): the week's reasons as tags, matchup rows, two buttons in a row */
+.rtags{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.rtag{font-size:12px;font-weight:600;padding:3px 8px;border-radius:999px;background:var(--raise);color:var(--ink2);white-space:nowrap}
+.rtag.up{color:var(--good)}.rtag.dn{color:var(--bad)}
+.mu{margin-top:8px;gap:0}
+.mu-l{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:5px 0;border-top:1px solid var(--line)}
+.mu-l span{color:var(--muted)}.mu-l b{font-weight:600;text-align:right}
+.card-acts{display:flex;gap:8px;margin-top:12px}
+.card-acts .btn{flex:1;margin-top:0;min-width:0}
+/* Player card: the grade label as an icon with smaller print (2026-10-20) */
+.bg-label{display:flex;align-items:center;gap:8px}
+.bg-label .gl-ico{width:28px;height:28px;flex:none}
+.bg-label .gl-txt{font-size:14px;font-weight:700;letter-spacing:0;opacity:.92}
+.edge b .t-ico{width:14px;height:14px;vertical-align:-2px;margin-right:5px;flex:none}
+/* The big grade sits on the right of the card, the label and forecast on the left (2026-10-20, the user's ask) */
+.band-grade{flex-direction:row-reverse;justify-content:space-between;align-items:flex-start}
+.band-grade>div{flex:1;min-width:0}
+.band-grade .big-grade{flex:none}
+/* Player card: the rank boxes as one slim strip and shorter section tabs (2026-10-20, the user's ask: take up less space) */
+.sheet .tiles{gap:0;margin-top:10px;background:var(--raise);border-radius:12px}
+.sheet .tile{background:transparent;border-radius:0;padding:7px 4px}
+.sheet .tile+.tile{border-left:1px solid var(--line)}
+.sheet .tile .v{font-size:16px}
+.sheet .tile .l{font-size:11px;margin-top:0}
+.seg.ctab{margin:10px 0 2px;padding:3px;border-radius:12px}
+.seg.ctab button{min-height:32px;padding:5px 6px;font-size:14px;border-radius:9px}
+/* A compact League page (2026-10-20, the user's ask) */
+.add-lg{padding:0 0 4px}
+.lg-times{margin-top:4px}
+.lg-acts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.lg-acts .btn{min-height:42px;padding:8px 10px;font-size:14px;margin:0}
+.item[data-prof]{min-height:46px;padding:7px 0}
+/* Your leagues as a drop-down (2026-10-20) */
+.lg-det>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:14px 0}
+.lg-det>summary::-webkit-details-marker{display:none}
+.lg-det>summary::after{content:"";width:9px;height:9px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);margin:-4px 4px 0 auto;transition:transform .15s}
+.lg-det[open]>summary::after{transform:rotate(225deg);margin-top:4px}
+.lg-dt{font-size:16px;font-weight:700}
+.lg-dn{font-size:12px;font-weight:700;color:var(--muted);background:var(--raise);border-radius:999px;padding:2px 8px}
+.lg-det[open]>summary{border-bottom:1px solid var(--line)}
+/* Rankings: rising or falling by the name (2026-10-20) */
+.rk-mv{flex:none;font-size:12px;font-weight:800;line-height:1}
+.rk-mv.up{color:var(--good)}.rk-mv.down{color:var(--bad)}
+.rk-mv small{font-size:10.5px;font-weight:800;margin-left:1px}
+.rk-wrap{display:flex;flex-direction:column;align-items:center;gap:2px;flex:none}
+.rk-wrap .rk-mv{display:flex;align-items:center;gap:1px;font-size:10.5px}
+/* a status flag or tag drops below the name instead of squeezing it (2026-10-20) */
+.item .nm .n{flex-wrap:wrap;row-gap:3px}
+.item .nm .n .nt{max-width:100%}
+/* Settings as one drop-down (2026-10-20) */
+.set-sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.set-body{padding-bottom:4px}
