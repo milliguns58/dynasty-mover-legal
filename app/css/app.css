@@ -5,19 +5,19 @@
      A web version would set these to env(safe-area-inset-top) / env(safe-area-inset-bottom). */
   --safe-top:0px;--safe-bottom:0px;
   color-scheme:light;
-  --bg:#f3f4f6;--surface:#ffffff;--raise:#f3f4f6;--ink:#111418;--ink2:#4b5260;--muted:#8a909c;--line:#e6e8ec;
+  --bg:#f3f4f6;--surface:#ffffff;--raise:#f3f4f6;--ink:#111418;--ink2:#4b5260;--muted:#646a76;--line:#e6e8ec;
   --accent:#2563eb;--accent-soft:#e3ecfd;--accent-ink:#fff;--accent2:#93b4f5;
   --qb:#2563eb;--rb:#ea580c;--wr:#059669;--te:#d97706;--pick:#7c3aed;--def:#6b7280;
   --good:#15803d;--good-soft:#e6f4ea;--bad:#dc2626;--bad-soft:#fdecec;--warn:#b45309;--warn-soft:#fdf3e2;
   --tabh:64px;--r:18px;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;
-  --bg:#0b0c0e;--surface:#16181b;--raise:#202328;--ink:#f3f4f6;--ink2:#b4bac4;--muted:#7d8491;--line:#262a30;
+  --bg:#0b0c0e;--surface:#16181b;--raise:#202328;--ink:#f3f4f6;--ink2:#b4bac4;--muted:#868d9a;--line:#262a30;
   --accent:#4f8bff;--accent-soft:#1b2b4a;--accent-ink:#fff;--accent2:#35568f;
   --qb:#4f8bff;--rb:#f97316;--wr:#10b981;--te:#f59e0b;--pick:#a78bfa;--def:#9ca3af;
   --good:#34d399;--good-soft:#123024;--bad:#f87171;--bad-soft:#3a1717;--warn:#fbbf24;--warn-soft:#3a2c0d}}
 :root[data-theme="dark"]{color-scheme:dark;
-  --bg:#0b0c0e;--surface:#16181b;--raise:#202328;--ink:#f3f4f6;--ink2:#b4bac4;--muted:#7d8491;--line:#262a30;
+  --bg:#0b0c0e;--surface:#16181b;--raise:#202328;--ink:#f3f4f6;--ink2:#b4bac4;--muted:#868d9a;--line:#262a30;
   --accent:#4f8bff;--accent-soft:#1b2b4a;--accent-ink:#fff;--accent2:#35568f;
   --qb:#4f8bff;--rb:#f97316;--wr:#10b981;--te:#f59e0b;--pick:#a78bfa;--def:#9ca3af;
   --good:#34d399;--good-soft:#123024;--bad:#f87171;--bad-soft:#3a1717;--warn:#fbbf24;--warn-soft:#3a2c0d}
@@ -893,3 +893,36 @@ table.acc td.warn{color:var(--warn)}
 .wire-row:first-child{border-top:0}
 .wire-row .n{font-weight:600;font-size:14px}
 .wire-row .s{font-size:12.5px;color:var(--ink2);margin-top:2px}
+/* Readability (2026-10-20, the user's ask: easier on the eyes). No label under 11px (position badges on avatars 10px:
+   they repeat the position shown by the name); labels that were capitals with wide spacing are in normal case so they
+   don't grow wider. Names in lists may wrap to a second line instead of being cut off. */
+.gcell small,.wk i,.lw-l,.v.lw-now small,.bid-chip small,.gv.vs .vs-l{font-size:11px;font-weight:700;letter-spacing:0;text-transform:none}
+.glog th,table.pr th{font-size:11px;letter-spacing:0}
+.item .n .flag,.pro-tag,.pw-key,table.pr td.pr-lead .pr-sub{font-size:11px}
+.pw-c{font-size:11.5px}
+.seg button .pro-tag{font-size:10px}
+.av-pos,.mini .av .av-pos,.wc-who .av .av-pos{font-size:10px}
+.item .nm .n .nt{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-height:1.2;overflow-wrap:anywhere}
+.gcells{gap:6px}
+.gcell{min-width:38px}
+@media (max-width:420px){.gcells{gap:4px}.gcell{min-width:34px}.gcell.wkc{padding-right:5px}}
+/* Explanations open on a tap instead of taking the top of the screen */
+details.tip{margin:6px 2px 8px}
+details.tip>summary{list-style:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--accent);display:inline-flex;align-items:center;gap:6px}
+details.tip>summary::-webkit-details-marker{display:none}
+details.tip>summary::before{content:"i";display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1.5px solid currentColor;font:700 11px/1 system-ui,sans-serif}
+details.tip>.note{margin:6px 0 0}
+details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
+/* "Updating": a thin moving line under the header instead of a pill beside the league name */
+.top .sync{position:absolute;left:0;right:0;bottom:-1px;height:2px;padding:0;border-radius:0;background:var(--accent-soft);overflow:hidden;font-size:0;color:transparent}
+.top .sync .spin{display:none}
+.top .sync::after{content:"";position:absolute;top:0;bottom:0;width:35%;background:var(--accent);animation:syncbar 1.1s ease-in-out infinite}
+@keyframes syncbar{0%{left:-35%}100%{left:100%}}
+/* Five tabs (2026-10-20): the GM moved to an "Ask GM" button in the header */
+.gm-btn{display:inline-flex;align-items:center;gap:6px;flex:none;border:0;cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;line-height:1;color:var(--accent);background:var(--accent-soft);padding:7px 12px 7px 10px;border-radius:999px}
+.gm-btn svg{width:17px;height:17px}
+.gm-btn.on{background:var(--accent);color:#fff}
+/* The player card in three parts, the trade buttons pinned at the bottom (2026-10-20) */
+.seg.ctab{margin:14px 0 4px}
+.card-bar{position:sticky;bottom:-24px;z-index:3;margin:14px -18px -24px;padding:10px 18px calc(12px + var(--safe-bottom));background:var(--surface);border-top:1px solid var(--line)}
+.card-bar .btns{margin:0}
