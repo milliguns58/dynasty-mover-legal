@@ -414,7 +414,7 @@ function weekCell(a, note) {
 function weekChip(a) {
   if (a.is_pick || !S.W || S.W.valuesOnly || !a.sleeper_id) return "";
   const w = Week.week_grades(S.values, S.cfg, S.W)[a.sleeper_id];
-  return `<span class="wk" title="${w ? `This week: ${esc(w.label)}, ${esc(a.pos)}${w.posRank}` : "No game this week"}"><i>wk</i><span class="grade sm ${w ? w.cls : "gx"}">${w ? esc(w.letter) : "–"}</span></span>`;
+  return `<span class="wk" title="${w ? `This week: ${esc(w.label)}, ${esc(a.pos)}${w.posRank}` : "No game this week"}"><i>Week</i><span class="grade sm ${w ? w.cls : "gx"}">${w ? esc(w.letter) : "–"}</span></span>`;
 }
 /* Rows show two grades, so the week's data loads for any tab that lists players; the tab redraws once it's here. */
 function ensureWeek(tab) {
@@ -561,7 +561,7 @@ function renderHome(el) {
         <span class="pod-count">${sign}${E.compact(r.count)}</span></button>`).join("");
     $("#trend").innerHTML = rows.slice(3).map((r, i) => `<div class="item trend-row" data-sid="${esc(r.sid)}" style="animation-delay:${Math.min(i, 12) * 35}ms">
         <span class="rk">${i + 4}</span>${avatar(who(r))}
-        <div class="nm"><div class="n"><span class="nt">${esc(r.name)}</span>${statusFlag(r.asset || { sleeper_id: r.sid })}${tag(r)}</div><div class="s">${r.asset ? [`<span class="grade sm ${gradeOf(r.asset).cls}">${esc(gradeOf(r.asset).g)}</span>`, weekChip(r.asset), `${esc(r.pos)} · ${esc(r.team)}`].filter(Boolean).join(" · ") : `${esc(r.pos)} · ${esc(r.team)}`}</div>
+        <div class="nm"><div class="n"><span class="nt">${esc(r.name)}</span>${statusFlag(r.asset || { sleeper_id: r.sid })}${tag(r)}</div><div class="s">${r.asset ? [`<span class="wk"><i>${E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</i><span class="grade sm ${gradeOf(r.asset).cls}">${esc(gradeOf(r.asset).g)}</span></span>`, weekChip(r.asset), `${esc(r.pos)} · ${esc(r.team)}`].filter(Boolean).join(" · ") : `${esc(r.pos)} · ${esc(r.team)}`}</div>
           <div class="tbar ${adds ? "" : "down"}"><i style="width:${Math.max(3, r.count / top * 100).toFixed(1)}%"></i></div></div>
         <div class="v"><b class="${adds ? "good" : "bad"}">${sign}${E.compact(r.count)}</b></div></div>`).join("");
     const open = sid => { const r = rows.find(x => x.sid === sid); if (r && r.asset) card(r.asset); else if (r) toast(`${r.name} has no trade value yet`); };
@@ -1225,14 +1225,14 @@ function renderRank(el) {
         : (R.edge === "buy" ? "We grade these players higher than the market does. Their age curve and production say they're worth more than they trade for: good ones to trade for."
           : "The market grades these players higher than we do. Their age curve says their value is near its top: good ones to trade away while they still bring a lot.")}</p>` : ""}
     ${listPos ? `<div class="seg rk-seg" id="oseg">${ORDERS.map(([k, l]) => `<button data-o="${k}" class="${R.order === k ? "on" : ""}">${l}</button>`).join("")}</div>
-      <p class="note muted" style="margin:6px 2px 8px">${R.order === "points" ? `Fantasy points scored this season${S.W ? "" : " (loading this week's data…)"}.`
+      <details class="tip"><summary>How this list is ordered</summary><p class="note muted">${R.order === "points" ? `Fantasy points scored this season${S.W ? "" : " (loading this week's data…)"}.`
         : R.order === "proj" ? `This week's projected points, with the matchup${S.W ? "" : " (loading this week's data…)"}. No game this week sorts last.`
         : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his Our rank score, high to low; his trade value is on his card.`
-        : "Ranked by the market's value."}</p>` : ""}
+        : "Ranked by the market's value."}</p></details>` : ""}
     ${R.pos === "ROOK" ? `<div class="seg" id="rseg">${[["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].map(([p, l]) => `<button data-rp="${p}" class="${R.rpos === p ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (production for his team this season and last, the age it came at, receptions for backs, size, recruiting pedigree, efficiency), weighted by what has worked for past classes in the NFL. Until the NFL draft, "Projected draft" is where players with profiles like his have been drafted; it counts a fifth of a running back's or receiver's grade and a tenth of a tight end's. Once the draft happens, the pick's round takes its place.</p>` : ""}
     ${more("What do the grades mean?", `<p class="note">${E.is_redraft(S.cfg) ? "Two grades on every player. The big letter is the <b>season</b> grade: the rest of this season." : "Three grades on every player. The big letter is the <b>dynasty</b> grade: his next seasons, in Our rank's order (A+ is about the best player on each team, A the next one, on down to F). The small <b>season</b> letter is this season only: the points we expect him to score the rest of this year, ranked at his position."} <span class="grade ga">A</span> star · <span class="grade gb">B</span> starter · <span class="grade gc">C</span> depth · <span class="grade gd">D</span> long shot · <span class="grade gf">F</span> nothing going: no team, buried on the depth chart, or old and unproductive.
-      The small <b>wk</b> letter is <b>this week</b>: his matchup-adjusted projection ranked at his position, A+ must start, F sit, a dash for no game. ${locked() ? "On the Basic plan the grade is the market's."
+      The small <b>Week</b> letter is <b>this week</b>: his matchup-adjusted projection ranked at his position, A+ must start, F sit, a dash for no game. ${locked() ? "On the Basic plan the grade is the market's."
         : E.is_redraft(S.cfg) ? "The grade is ours: the points he'll score this season (production, role and health). Age doesn't count in redraft. The value and rank are the market's."
         : "The grade is ours: what his future holds (production, the prime years he has left, role and health). The value and rank are the market's."}
       ${E.is_redraft(S.cfg) ? `<span class="mv up">▲</span> value rising, <span class="mv down">▼</span> falling, <span class="mv flat">–</span> steady (last 30 days).` : ""}</p>`)}
@@ -1512,7 +1512,7 @@ function drawLineup(body, t, W) {
   const warn = L.flags.filter(f => / is empty$/.test(f));            // OUT / BYE / Q already show as tags on the players
   if (warn.length) h += `<p class="note warn">${warn.map(esc).join("<br>")}</p>`;
   const WG = W.valuesOnly ? {} : Week.week_grades(S.values, S.cfg, W), wgOf = x => { const a = x.id && S.values.by_id[x.id]; return a ? WG[a.sleeper_id] : x.pid ? WG[String(x.pid)] : null; };   // kickers and defenses carry their id as pid
-  h += `<section class="card flush tone-blue"><div class="grp">Best lineup${Object.keys(WG).length ? `<span class="grp-note">this week's grade</span>` : ""}</div>${W.acc && W.week >= 2 ? `<div class="pw-legend">Right: this week's grade and projection. Under each player: last week's grade, what we said he'd score and what he got (green: he beat it).</div>` : ""}${L.recommended.map(x => { const g = wgOf(x); return `<div class="item" data-card-name="${esc(x.id || "")}">
+  h += `<section class="card flush tone-blue"><div class="grp">Best lineup${Object.keys(WG).length ? `<span class="grp-note">this week's grade</span>` : ""}</div>${W.acc && W.week >= 2 ? `<details class="tip pw-legend"><summary>What the numbers mean</summary><p class="note muted">Right: this week's grade and projection. Under each player: last week's grade, what we said he'd score and what he got (green: he beat it).</p></details>` : ""}${L.recommended.map(x => { const g = wgOf(x); return `<div class="item" data-card-name="${esc(x.id || "")}">
       <span class="slot ${esc(slotClass(x.slot))}">${esc(SLOT_LABEL(x.slot))}</span><div class="nm"><div class="n">${x.name === "(empty)" || x.pos === "DEF" ? esc(x.name) : `<a class="plink" data-pcard="${esc(x.id || x.pid || x.name)}">${esc(x.name)}</a>`}${x.flag ? `<span class="flag ${esc(x.flag)}">${esc(x.flag)}</span>` : ""}</div>
       <div class="s">${esc(x.opp ? (x.opp.startsWith("@") ? "at " + x.opp.slice(1) : "vs " + x.opp) : "")}</div>${lastWeekLine(x.id && S.values.by_id[x.id], W)}</div><div class="v lw-now"><small>This wk</small><div>${g ? `<span class="grade sm ${g.cls}">${esc(g.letter)}</span> ` : ""}<b>${num(x.pts)}</b></div></div></div>`; }).join("")}</section>`;
   const extra = L.notes.map(n => `<p class="note">${esc(n)}</p>`).join("") +
@@ -1899,6 +1899,7 @@ function draftHtml(d) {
     : `${d.lg.season} ${esc(d.lg.kind)} · ${slot(d.lg)}${d.lg.no ? ` (${E.ordinal(d.lg.no)} overall)` : ""} by ${esc(d.lg.by)}`;
   return `<div class="sec"><h3>Drafted</h3><div class="kv"><span>NFL</span><b class="wrap">${nfl}</b></div>${lgOn ? `<div class="kv"><span>This league</span><b class="wrap">${lg}</b></div>` : ""}</div>`;
 }
+const CARD_TABS = [["overview", "Overview"], ["stats", "Stats"], ["news", "News"]];
 function card(a, opts = {}) {
   const draw = W => {
     const C = Week.player_card(S.values, S.cfg, a, W);
@@ -1921,41 +1922,48 @@ function card(a, opts = {}) {
         <div class="tile"><div class="v">${a.tier ? "Tier " + a.tier : "—"}</div><div class="l">${a.tier ? "at position" : ""}</div></div>
       </div>
       ${a.is_pick && !E.is_redraft(S.cfg) && a.pick && a.pick.season === draftYear() ? `<div class="sec"><h3>Who goes around here</h3><div id="pkPros"><p class="note muted">Loading the class…</p></div></div>` : ""}
-      ${a.is_pick ? "" : draftHtml(draftInfo)}
-      <div class="btns"><button class="btn soft" data-to="A">Add to "You give"</button><button class="btn soft" data-to="B">Add to "You get"</button></div>
+      ${a.is_pick ? "" : `<div class="seg ctab">${CARD_TABS.map(([k, l]) => `<button data-ctab="${k}" class="${cardTab === k ? "on" : ""}">${l}</button>`).join("")}</div>`}`;
+    // the card in three parts (2026-10-20, the user's ask): Overview, Stats, News; the trade buttons stay pinned below
+    const tabNow = a.is_pick ? "overview" : cardTab;
+    if (tabNow === "overview") {
+      h += `${a.is_pick ? "" : draftHtml(draftInfo)}
       ${!a.is_pick && S.values.league && S.cfg.my_roster_id != null ? (C.owner === "free agent" ? `<button class="btn ghost block" id="wcFromCard" style="margin-top:10px">Check adding him</button>`
         : C.owner_id === S.cfg.my_roster_id ? `<button class="btn ghost block" id="wcFromCard" style="margin-top:10px">Check dropping him</button>` : "") : ""}
       ${!a.is_pick && typeof GM !== "undefined" && GM.available() ? `<button class="btn ghost block" id="gmFromCard" style="margin-top:10px">Ask the GM about him</button>` : ""}
-      ${a.is_pick ? "" : `<button class="link-btn" id="avoidBtn" style="display:block;margin:10px auto 0">${avoidList().includes(a.id) ? "Suggest this player again" : "Don't suggest this player"}</button>`}
-      ${a.is_pick ? "" : `<div class="sec"><h3>Game log</h3><div id="wkBody">${weeklyHtml || `<p class="note muted">Loading…</p>`}</div></div>`}
-      ${a.is_pick || newsHtml === "none" ? "" : `<div class="sec" id="newsSec"><h3>News</h3><div id="newsBody">${newsHtml || `<p class="note muted">Loading…</p>`}</div></div>`}`;
-    if (!a.is_pick && !(W && W.valuesOnly)) {
-      if (C.week && !C.week.none) {
-        const w = C.week;
-        h += `<div class="sec"><h3>Week ${w.week}${w.grade ? ` <span class="grade sm ${w.grade.cls}">${esc(w.grade.letter)}</span> <span class="muted" style="font-weight:400;font-size:13px">${esc(w.grade.label)} · ${esc(a.pos)}${w.grade.posRank} this week</span>` : ""}</h3><div class="kv"><span>${w.opp ? (w.home === false ? "at " : "vs ") + esc(w.opp) : ""}${w.weather && w.weather !== "dome" ? " · " + esc(w.weather) : ""}</span><b>${w.adj.toFixed(1)} pts</b></div>
-          ${w.reasons && w.reasons.length ? `<p class="note muted">${esc(w.reasons.join(", "))}</p>` : ""}${matchupLines(a, w)}
-          ${C.ppg != null ? `<div class="kv"><span>This season</span><b>${C.ppg.toFixed(1)} per game</b></div>` : ""}</div>`;
-      } else if (C.week) h += `<div class="sec"><h3>Week ${C.week.week}</h3><p class="note muted">${C.week.bye ? "Bye week" : "Not expected to play"}</p></div>`;
-      else if (!W) h += `<div class="sec"><h3>This week</h3><p class="note muted">Loading…</p></div>`;
+      ${a.is_pick ? "" : `<button class="link-btn" id="avoidBtn" style="display:block;margin:10px auto 0">${avoidList().includes(a.id) ? "Suggest this player again" : "Don't suggest this player"}</button>`}`;
+      if (!a.is_pick && !(W && W.valuesOnly)) {
+        if (C.week && !C.week.none) {
+          const w = C.week;
+          h += `<div class="sec"><h3>Week ${w.week}${w.grade ? ` <span class="grade sm ${w.grade.cls}">${esc(w.grade.letter)}</span> <span class="muted" style="font-weight:400;font-size:13px">${esc(w.grade.label)} · ${esc(a.pos)}${w.grade.posRank} this week</span>` : ""}</h3><div class="kv"><span>${w.opp ? (w.home === false ? "at " : "vs ") + esc(w.opp) : ""}${w.weather && w.weather !== "dome" ? " · " + esc(w.weather) : ""}</span><b>${w.adj.toFixed(1)} pts</b></div>
+            ${w.reasons && w.reasons.length ? `<p class="note muted">${esc(w.reasons.join(", "))}</p>` : ""}${matchupLines(a, w)}
+            ${C.ppg != null ? `<div class="kv"><span>This season</span><b>${C.ppg.toFixed(1)} per game</b></div>` : ""}</div>`;
+        } else if (C.week) h += `<div class="sec"><h3>Week ${C.week.week}</h3><p class="note muted">${C.week.bye ? "Bye week" : "Not expected to play"}</p></div>`;
+        else if (!W) h += `<div class="sec"><h3>This week</h3><p class="note muted">Loading…</p></div>`;
+      }
+      h += locked() ? `<div class="sec"><h3>Value over time ${Pro.tag()}</h3><button class="btn soft block" data-lock="chart">See how this value has moved</button></div>`
+        : `<div class="sec"><h3>Value over time</h3>${sparkline(C.series)}</div>`;
+      let extra = `<div class="sub-h">What the grade means</div><p class="note">${GRADES.map(([, g, l]) => `<b>${g}</b> ${l.toLowerCase()}`).join(" · ")}.
+        Grades compare a player's value with the best player in your league's format. ▲ rising, ▼ falling, – steady over 30 days.</p>`;
+      if (C.lists.length) extra += `<div class="sub-h">Rank on each list</div>` + C.lists.map(l => `<div class="kv"><span>${esc(l.label)}</span><b>#${l.overall}${l.at_pos ? ` <span class="muted">(${esc(l.at_pos)})</span>` : ""}</b></div>`).join("");
+      // something to compare to (2026-10-20): where real drafts take him, from MyFantasyLeague's ADP
+      if (a.mfl || a.mflr) extra += `<div class="sub-h">Draft market</div>` + [a.mfl, a.mflr].filter(Boolean).map(m => `<div class="kv"><span>${esc(m.label[0].toUpperCase() + m.label.slice(1))}</span><b>${m.adp.toFixed(1)} <span class="muted">(${esc(m.pos)})</span></b></div>`).join("")
+        + `<p class="note muted">Average pick in ${fmt((a.mfl || a.mflr).drafts)}+ drafts this year, from MyFantasyLeague.</p>`;
+      if (extra) h += `<div class="sec">${more(E.PLAY ? "Rank on each list" : "Rankings, stats and trades", extra)}</div>`;
+      if (C.like.length) h += `<div class="sec"><h3>Similar value</h3><div class="list">${C.like.slice(0, 5).map(p => assetRow(p, { trend: false })).join("")}</div></div>`;
     }
-    h += locked() ? `<div class="sec"><h3>Value over time ${Pro.tag()}</h3><button class="btn soft block" data-lock="chart">See how this value has moved</button></div>`
-      : `<div class="sec"><h3>Value over time</h3>${sparkline(C.series)}</div>`;
-    let extra = `<div class="sub-h">What the grade means</div><p class="note">${GRADES.map(([, g, l]) => `<b>${g}</b> ${l.toLowerCase()}`).join(" · ")}.
-      Grades compare a player's value with the best player in your league's format. ▲ rising, ▼ falling, – steady over 30 days.</p>`;
-    if (C.lists.length) extra += `<div class="sub-h">Rank on each list</div>` + C.lists.map(l => `<div class="kv"><span>${esc(l.label)}</span><b>#${l.overall}${l.at_pos ? ` <span class="muted">(${esc(l.at_pos)})</span>` : ""}</b></div>`).join("");
-    // something to compare to (2026-10-20): where real drafts take him, from MyFantasyLeague's ADP
-    if (a.mfl || a.mflr) extra += `<div class="sub-h">Draft market</div>` + [a.mfl, a.mflr].filter(Boolean).map(m => `<div class="kv"><span>${esc(m.label[0].toUpperCase() + m.label.slice(1))}</span><b>${m.adp.toFixed(1)} <span class="muted">(${esc(m.pos)})</span></b></div>`).join("")
-      + `<p class="note muted">Average pick in ${fmt((a.mfl || a.mflr).drafts)}+ drafts this year, from MyFantasyLeague.</p>`;
-    if (C.seasons && C.seasons.length) {
-      const ss = C.seasons, lines = ss[0].lines.map(([l]) => l);
-      extra += `<div class="sub-h">Stats</div><div class="tscroll"><table class="t"><tr><th></th>${ss.map(s => `<th class="r">${s.season}</th>`).join("")}</tr>
-        ${lines.map((l, i) => `<tr><td>${esc(l)}</td>${ss.map(s => `<td class="r">${esc(s.lines[i][1])}</td>`).join("")}</tr>`).join("")}</table></div>`;
+    if (tabNow === "stats") {
+      let statsTbl = "";
+      if (C.seasons && C.seasons.length) {
+        const ss = C.seasons, lines = ss[0].lines.map(([l]) => l);
+        statsTbl += `<div class="sub-h">Season stats</div><div class="tscroll"><table class="t"><tr><th></th>${ss.map(s => `<th class="r">${s.season}</th>`).join("")}</tr>
+          ${lines.map((l, i) => `<tr><td>${esc(l)}</td>${ss.map(s => `<td class="r">${esc(s.lines[i][1])}</td>`).join("")}</tr>`).join("")}</table></div>`;
+      }
+      h += `${a.is_pick ? "" : `<div class="sec"><h3>Game log</h3><div id="wkBody">${weeklyHtml || `<p class="note muted">Loading…</p>`}</div></div>`}` + statsTbl;
     }
-    if (extra) h += `<div class="sec">${more(E.PLAY ? "Rank on each list" : "Rankings, stats and trades", extra)}</div>`;
-    if (C.like.length) h += `<div class="sec"><h3>Similar value</h3><div class="list">${C.like.slice(0, 5).map(p => assetRow(p, { trend: false })).join("")}</div></div>`;
-    return h + credits();
+    if (tabNow === "news") h += newsHtml === "none" ? `<div class="sec"><p class="note muted">No news right now.</p></div>` : `${`<div class="sec" id="newsSec"><h3>News</h3><div id="newsBody">${newsHtml || `<p class="note muted">Loading…</p>`}</div></div>`}`;
+    return h + credits() + `<div class="card-bar"><div class="btns"><button class="btn soft" data-to="A">Add to "You give"</button><button class="btn soft" data-to="B">Add to "You get"</button></div></div>`;
   };
-  let newsHtml = "", hdr = null, weeklyHtml = "", draftInfo = null;
+  let newsHtml = "", hdr = null, weeklyHtml = "", draftInfo = null, cardTab = "overview";
   const body = openSheet(draw(S.W), { full: true, onClose: opts.onClose });
   const showing = () => sheetOpen() && $(".band-name", body) && $(".band-name", body).textContent === a.name;
   const redraw = () => { if (!showing()) return; const y = body.scrollTop; body.innerHTML = draw(S.W); bind(); body.scrollTop = y; };
@@ -1984,6 +1992,10 @@ function card(a, opts = {}) {
   const bind = () => {
     bindLog();
     $(".close", body).onclick = closeSheet;
+    $$("[data-ctab]", body).forEach(b => b.onclick = () => {
+      cardTab = b.dataset.ctab; const y = body.scrollTop; body.innerHTML = draw(S.W); bind();
+      const t = $(".ctab", body); body.scrollTop = t ? Math.min(y, t.offsetTop - 8) : 0;
+    });
     $$("[data-to]", body).forEach(b => b.onclick = () => {
       const s = S.sides[b.dataset.to];
       if (!s.items.some(x => x.id === a.id) && tradeFull()) { closeSheet(); Pro.lock("tradesize"); return; }
@@ -2863,6 +2875,7 @@ window.addEventListener("online", () => window.onAppResume());
 function go(tab) {
   S.tab = tab;
   $$("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  const gb = $("#gmBtn"); if (gb) gb.classList.toggle("on", tab === "gm");
   const el = $("#view");
   document.body.classList.toggle("gm-on", tab === "gm");
   document.body.classList.toggle("on-league", tab === "league");

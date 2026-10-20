@@ -512,9 +512,11 @@ const GM = (() => {
     if (opts.question && available() && !locked()) send(opts.question);
   }
 
-  // the tab exists in the page for every edition; editions without GM_CFG (and the desktop without ?gm=1) drop it
-  const tb = document.getElementById("tabGM");
+  // the "Ask GM" button in the header (2026-10-20: it was a tab; five tabs read easier) exists in the page for every
+  // edition; editions without GM_CFG (and the desktop without ?gm=1) drop it
+  const tb = document.getElementById("gmBtn");
   if (tb && !cfg()) tb.remove();
+  else if (tb) tb.onclick = () => go("gm");
 
   /* The sign-in the Worker checks, for other screens that call it (the screenshot import). */
   async function authToken() {
