@@ -56,12 +56,12 @@ function openSheet(html, opts = {}) {
   if (opts.focus) setTimeout(() => { const i = $(opts.focus, sh); if (i) i.focus(); }, 60);
   return $("#sheetBody");
 }
-function closeSheet() {
+function closeSheet(leaving = false) {                              // leaving: a tab was tapped, so don't reopen what was under this sheet
   $("#sheet").classList.add("hidden");
   $("#scrim").classList.add("hidden");
   const cb = S.sheetStack.pop();
   S.sheetStack = []; S.sheetReturn = null;
-  if (cb) cb();
+  if (cb && !leaving) cb();
 }
 const sheetOpen = () => !$("#sheet").classList.contains("hidden");
 $("#scrim").addEventListener("click", () => { if (!S.busy) closeSheet(); });
@@ -274,6 +274,33 @@ function moveOf(a) {
   return { dir: pct >= 0.03 ? "up" : (pct <= -0.03 ? "down" : "flat"), amt };
 }
 const ARROW = { up: "▲", down: "▼", flat: "–" };
+/* Rising or falling in the rankings (2026-10-20, the user's ask): each player's place among all players now against a
+   week ago (the latest daily value snapshot at least 7 days old on this phone, else the oldest one). Rank moves, not
+   value moves, so a change in our value formula that lifts everyone doesn't light up the list. Arrows for moves of 3+
+   places... (raised to 5+ in the top 50, 8+ in the top 150, 15+ further down: smaller moves are noise). Returns { dir, spots, days } or null. */
+let rankMoveCache = null;
+function rankMove(a) {
+  if (!S.values || a.is_pick) return null;
+  if (!rankMoveCache || rankMoveCache.v !== S.values) {
+    const players = S.values.players.filter(p => !p.is_pick && p.value > 0), today = new Date().toISOString().slice(0, 10);
+    const series = new Map(players.map(p => [p.id, E.price_series(p.id) || []]));
+    const dates = [...new Set([].concat(...[...series.values()].map(l => l.map(x => x[0]))))].filter(d => d < today).sort();
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const ref = dates.filter(d => d <= weekAgo).pop() || dates[0];
+    const m = new Map();
+    if (ref) {
+      const then = players.map(p => { const l = series.get(p.id).filter(x => x[0] <= ref); return [p.id, l.length ? l[l.length - 1][1] : null]; }).filter(x => x[1] > 0).sort((x, y) => y[1] - x[1]);
+      const was = new Map(then.map(([id], i) => [id, i + 1])), now = players.filter(p => was.has(p.id)).sort((x, y) => y.value - x.value);
+      const days = Math.round((Date.now() - new Date(ref).getTime()) / 86400000);
+      now.forEach((p, i) => {
+        const r = i + 1, d = was.get(p.id) - r, need = r <= 50 ? 5 : r <= 150 ? 8 : 15;
+        if (Math.abs(d) >= need) m.set(p.id, { dir: d > 0 ? "up" : "down", spots: Math.abs(d), days });
+      });
+    }
+    rankMoveCache = { v: S.values, m };
+  }
+  return rankMoveCache.m.get(a.id) || null;
+}
 const logTabs = yr => `<div class="seg log-yr">${[parseInt(S.cfg.season, 10), "career"].map(y =>          // this season, then the career table (the user's ask, 2026-10-14)
   `<button data-logyr="${y}" class="${String(y) === String(yr) ? "on" : ""}">${y === "career" ? "Career" : y}</button>`).join("")}</div>`;
 /* The player card's career table: one row a season, newest first, filled in as seasons arrive (st from E.career_stats). */
@@ -317,12 +344,68 @@ function gameLogHtml(r, a, yr) {
     <p class="credit" style="text-align:left;padding-top:2px">Points by week from Sleeper; stats from nflverse</p>`;
 }
 /* Why our grade differs from the market, in his own numbers (the grade's parts and his status), not a canned line. */
+/* Player-specific facts for the card's call-outs (2026-10-20, the user's ask: tie "We like him" and "Due for more" to the
+   news and make them his own, not a blanket statement). Each fact leans up or down and is about the news (IR, depth
+   chart, team) or his usage (teammates out at his position, his last three games, his snap share) or his standing (his
+   starting job, a recent high draft pick, where MFL drafts take him). The grade call-out leads with news and standing,
+   the usage call-out with usage, so the two don't repeat each other. */
+const NOTE_POS = ["QB", "RB", "WR", "TE"];
+function playerNotes(a) {
+  const out = { up: [], down: [] }, sid = String(a.sleeper_id || "");
+  if (!sid || a.is_pick || !S.values) return out;
+  const st = E.load_player_status(), me = st[sid] || {};
+  const day = t => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const add = (dir, kind, text) => out[dir].push({ kind, text });
+  // his own news, the last two weeks
+  const since = Date.now() - 14 * 86400000;
+  for (const e of E.load_wire().filter(x => x.sid === sid && new Date(x.t).getTime() >= since).slice(0, 2)) {
+    const when = ` (${day(e.t)})`, low = e.text.charAt(0).toLowerCase() + e.text.slice(1);
+    if (e.kind === "team") add("up", "news", `he joined ${e.team}${when}`);
+    else if (e.kind === "cut") add("down", "news", `he's no longer with a team${when}`);
+    else if (e.kind === "up") add("up", "news", `he moved to first on the ${e.team} depth chart${when}`);
+    else if (e.kind === "down") add("down", "news", `he ${low.replace(/^drops/, "dropped")}${when}`);
+    else if (e.kind === "back") add("up", "news", /injury report/.test(e.text) ? `he came off the injury report${when}` : `he's back from injured reserve${when}`);
+    else if (e.kind === "inj") add("down", "news", `he was ${low}${when}`);
+  }
+  // teammates out at his position who usually play ahead of him
+  if (a.team && a.team !== "FA" && NOTE_POS.includes(a.pos)) {
+    const ahead = S.values.players.filter(p => p !== a && p.team === a.team && p.pos === a.pos && p.value > a.value && Week.INJURY_OUT.has((st[String(p.sleeper_id || "")] || {}).inj));
+    if (ahead.length) add("up", "usage", `${ahead.slice(0, 2).map(p => p.name).join(" and ")} ${ahead.length > 1 ? "are" : "is"} ${(st[String(ahead[0].sleeper_id)] || {}).inj === "IR" ? "on IR" : "out"}, so more of the ${a.team} ${a.pos === "QB" ? "snaps go" : "work goes"} to him`);
+  }
+  // his last three games against the games before
+  const W = S.W;
+  if (W && W.weekly) {
+    const pk = Week.pts_key(S.cfg);
+    const games = Object.keys(W.weekly).map(Number).sort((x, y) => x - y).filter(w => W.weekly[w][sid]).map(w => +W.weekly[w][sid][pk] || 0);
+    if (games.length >= 5) {
+      const last3 = games.slice(-3).reduce((t, x) => t + x, 0) / 3, before = games.slice(0, -3).reduce((t, x) => t + x, 0) / (games.length - 3);
+      if (before > 0 && last3 >= before * 1.3 && last3 - before >= 3) add("up", "usage", `he's averaged ${last3.toFixed(1)} over his last 3 games, up from ${before.toFixed(1)} before`);
+      if (before > 0 && last3 <= before * 0.7 && before - last3 >= 3) add("down", "usage", `he's averaged ${last3.toFixed(1)} over his last 3 games, down from ${before.toFixed(1)} before`);
+    }
+  }
+  // his snap share lately
+  const sn = ((Store.get(`snaps_${parseInt(S.cfg.season, 10)}.json`) || {}).players || {})[E.player_key(a.name, a.pos)];
+  if (sn && sn.length >= 4) {
+    const r = sn.slice(-2).reduce((t, x) => t + x[1], 0) / 2, e = sn.slice(0, -2).reduce((t, x) => t + x[1], 0) / (sn.length - 2);
+    if (r - e >= 0.15) add("up", "usage", `his snap share jumped from ${Math.round(e * 100)}% to ${Math.round(r * 100)}% over his last 2 games`);
+    if (e - r >= 0.15) add("down", "usage", `his snap share fell from ${Math.round(e * 100)}% to ${Math.round(r * 100)}% over his last 2 games`);
+  }
+  // his job, his draft slot, the draft market
+  if (me.depth === 1 && a.team && a.team !== "FA" && !Week.INJURY_OUT.has(me.inj)) add("up", "standing", `he's ${a.team}'s ${a.pos}1`);
+  if (a.dpick && a.dpick <= 64 && a.exp != null && a.exp <= 2) add("up", "standing", `he was a ${a.dpick <= 32 ? "first" : "second"}-round pick (${E.ordinal(a.dpick)} overall)${a.exp === 0 ? " this spring" : ""}`);
+  if (a.mfl && a.pos_rank) {
+    const mk = parseInt(String(a.mfl.pos).replace(/\D/g, ""), 10);
+    if (mk - a.pos_rank >= 8) add("up", "standing", `drafts still take him as ${a.mfl.pos}, well below where we have him (${a.pos}${a.pos_rank})`);
+    if (a.pos_rank - mk >= 8) add("down", "standing", `drafts take him as ${a.mfl.pos}, ahead of where we have him (${a.pos}${a.pos_rank})`);
+  }
+  return out;
+}
 function gradeWhy(a, up) {
   const [p, r, o, h, s] = a.oparts || [], st = E.load_player_status()[String(a.sleeper_id || "")] || {};
   const rd = E.is_redraft(S.cfg), pos = a.pos, age = a.age != null ? a.age : 27, out = Week.INJURY_OUT.has(st.inj);
   const R = [], gap = epGap(a);
   if (up && gap >= 1.5) R.push("his usage says more points are coming");
-  if (!up && gap <= -1.5) R.push("he's scoring more than his usage says, and that fades");
+  if (!up && gap <= -1.5) R.push("he's scoring more than his usage says (that fades)");
   if (up) {
     if (p >= 60) R.push("he's producing like a starter"); else if (o >= 60) R.push("he's getting a starter's share of the ball");
     if (!rd && r >= 75) R.push(age <= 25.5 ? "his prime is still ahead of him" : pos === "QB" ? "quarterbacks hold their value into their late 30s" : "his age curve still has good years in it");
@@ -338,7 +421,9 @@ function gradeWhy(a, up) {
     if (s != null && s < 40) R.push("his situation isn't built for a tight end");
     if (!R.length) R.push("his price is ahead of his numbers");
   }
-  const parts = R.slice(0, 3), text = parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0];
+  // his own facts first (2026-10-20): the news and his standing, then the grade's general reasons
+  const own = playerNotes(a)[up ? "up" : "down"].filter(f => f.kind !== "usage").map(f => f.text);
+  const parts = own.slice(0, 2).concat(R).slice(0, 3), text = parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0];
   return text.charAt(0).toUpperCase() + text.slice(1) + ".";
 }
 function gradeParts(a) {
@@ -348,6 +433,14 @@ function gradeParts(a) {
 }
 /* Expected points (Pro): what his usage was worth against what he scored this season (ffopportunity, CC BY-SA 4.0).
    A gap of 1.5 a game or more usually closes, so it is a buy-low or sell-high sign. */
+/* Small icons for the card's call-out tags (2026-10-20, with the grade-label icons) */
+const TAG_ICONS = {
+  up: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>', down: '<path d="M3 7l6 6 4-4 8 8M15 17h6v-6"/>',
+  like: '<path d="M7 11v9H4v-9zM7 11l4-8a2 2 0 012 2v4h5a2 2 0 012 2.3l-1.2 7a2 2 0 01-2 1.7H7"/>',
+  cool: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9 4.5l3 2 3-2M9 19.5l3-2 3 2"/>',
+  hot: '<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 01-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 0-3-1-5.5 1-8.5z"/>',
+};
+const tagIco = k => `<svg class="t-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${TAG_ICONS[k]}</svg>`;
 function epGap(a) { const e = a && a.ep; return e && e.g >= 3 && !a.is_pick ? (e.exp - e.pts) / e.g : 0; }
 function epLine(a) {
   const e = a.ep, gap = epGap(a);
@@ -357,7 +450,16 @@ function epLine(a) {
   // was the user's complaint, 2026-10-14)
   const head = up ? "Due for more" : elite ? "Hot, as the best usually are" : "Running hot";
   const call = up ? "The points usually catch up with the usage; that is counted in our grade." : elite ? "Expect a touch less, not a collapse." : "Some of that comes back down; that is counted in our grade.";
-  return `<div class="edge ${up ? "buy" : elite ? "lean" : "sell"} ep"><b>${head}</b> His usage was worth ${(e.exp / e.g).toFixed(1)} a game${e.tdx != null ? ` and ${e.tdx.toFixed(1)} touchdowns` : ""}; he scored ${(e.pts / e.g).toFixed(1)}${e.td != null ? ` with ${Math.round(e.td)}` : ""}. ${call} <span class="muted">Expected points, ${e.g} games.</span></div>`;
+  // where the gap is (2026-10-20): touchdowns even out; missing yards and catches say more about him
+  const tdPts = e.tdx != null && e.td != null ? (e.tdx - e.td) * (a.pos === "QB" ? 4 : 6) : null, all = e.exp - e.pts;
+  const where = tdPts == null || !all ? "" : Math.abs(tdPts) >= 0.6 * Math.abs(all)
+    ? (up ? ` Most of the gap is touchdowns: his chances usually bring ${e.tdx.toFixed(1)} and he has ${Math.round(e.td)}, and those tend to even out.` : ` Most of it is touchdowns (${Math.round(e.td)} where his chances usually bring ${e.tdx.toFixed(1)}), and those tend to even out.`)
+    : (up ? (a.pos === "QB" ? " Most of the gap is yardage, not touchdowns: the chances are there and the plays haven't come yet." : " Most of the gap is yards and catches, not touchdowns: the looks are there and the plays haven't come yet.")
+      : (a.pos === "QB" ? " Most of it is yardage beyond his usage, not just touchdowns." : " Most of it is yards and catches beyond his usage, not just touchdowns."));
+  // and one fact about his usage lately (teammates out, his form, his snaps)
+  const use = playerNotes(a)[up ? "up" : "down"].find(f => f.kind === "usage");
+  const fact = use ? ` ${use.text.charAt(0).toUpperCase() + use.text.slice(1)}.` : "";
+  return `<div class="edge ${up ? "buy" : elite ? "lean" : "sell"} ep"><b>${tagIco(up ? "up" : "hot")}${head}</b> His usage was worth ${(e.exp / e.g).toFixed(1)} a game${e.tdx != null ? ` and ${e.tdx.toFixed(1)} touchdowns` : ""}; he scored ${(e.pts / e.g).toFixed(1)}${e.td != null ? ` with ${Math.round(e.td)}` : ""}.${esc(where)}${esc(fact)} ${call} <span class="muted">Expected points, ${e.g} games.</span></div>`;
 }
 /* Where our grade and the market disagree: the edge. 2+ grade steps = buy or sell; 1 step = we lean that way. */
 function edgeLine(a, G) {
@@ -366,7 +468,7 @@ function edgeLine(a, G) {
   const M = gradeOf(a, true), d = gIdx(M.g) - gIdx(G.g);
   if (!d) return gradeParts(a);
   const up = d > 0, strong = Math.abs(d) >= 2;
-  return `${gradeParts(a)}<div class="edge ${up ? "buy" : "sell"}"><b>${strong ? (up ? "Buy" : "Sell") : (up ? "We like him" : "We're cooler on him")}</b>
+  return `${gradeParts(a)}<div class="edge ${up ? "buy" : "sell"}"><b>${tagIco(strong ? (up ? "up" : "down") : (up ? "like" : "cool"))}${strong ? (up ? "Buy" : "Sell") : (up ? "We like him" : "We're cooler on him")}</b>
     Our grade ${esc(G.g)}, the market ${esc(M.g)}. ${esc(gradeWhy(a, up))}</div>`;
 }
 function gradeChip(a, withArrow = true) {
@@ -391,13 +493,27 @@ const kdefGrade = a => (S.W ? Week.kdef_season_grades(S.values, S.cfg, S.W)[Stri
 /* The card's matchup lines (2026-10-20): what this week's opponent gives up to his position, his offense's pace and
    pass rate, and a short week or extra rest. From nflverse stats and the schedule (Week.team_context). */
 const nth = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+/* The week's reasons as short tags (2026-10-20, the user's ask: clean the card up): "home +2%" -> Home +2%, "implied 24.0
+   pts +4%" -> Vegas +4%, "vs IND defense vs QB +5%" -> IND defense +5%, "offense form +5%" -> Form +5%, "our model 13.2
+   pts" -> Model 13.2; green up, red down. */
+function reasonTags(reasons) {
+  if (!reasons || !reasons.length) return "";
+  const tag = r => {
+    const m = /([+-]\d+%)\s*$/.exec(r), pct = m ? m[1] : "", body = m ? r.slice(0, m.index).trim() : r;
+    let t = body.replace(/^implied [\d.]+ pts$/, "Vegas").replace(/^vs (\w+) defense vs \w+$/, "$1 defense").replace(/^offense form$/, "Form")
+      .replace(/^our model ([\d.]+) pts$/, "Model $1").replace(/^favored by .*$/, "Favored").replace(/^underdog by .*$/, "Underdog");
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+    return `<span class="rtag${pct ? (pct[0] === "+" ? " up" : " dn") : ""}">${esc(t)}${pct ? ` ${esc(pct)}` : ""}</span>`;
+  };
+  return `<div class="rtags">${reasons.map(tag).join("")}</div>`;
+}
 function matchupLines(a, w) {
   const c = w && w.ctx; if (!c) return "";
   const rows = [];
-  if (c.def && w.opp) { const r = c.def; rows.push(`${esc(String(w.opp).replace(/^@/, ""))} give up ${r.ppg.toFixed(1)} pts a game to ${esc(a.pos)}s: ${r.rank <= r.of / 2 ? `${nth(r.rank)} most` : `${nth(r.of + 1 - r.rank)} fewest`}`); }
-  if (c.off) rows.push(`${esc(a.team)} offense: ${c.off.plays.toFixed(0)} plays a game (${nth(c.off.playsRank)} most), passes ${Math.round(100 * c.off.pass)}% (${nth(c.off.passRank)})`);
-  if (c.rest && c.rest.days != null && (c.rest.days <= 5 || c.rest.days >= 10)) rows.push(c.rest.days <= 5 ? `Short week: ${c.rest.days} days of rest` : `Extra rest: ${c.rest.days} days`);
-  return rows.length ? `<div class="mu">${rows.map(r => `<div class="mu-l">${r}</div>`).join("")}</div>` : "";
+  if (c.def && w.opp) { const r = c.def; rows.push([`${esc(String(w.opp).replace(/^@/, ""))} vs ${esc(a.pos)}s`, `${r.ppg.toFixed(1)} a game · ${r.rank <= r.of / 2 ? `${nth(r.rank)} most` : `${nth(r.of + 1 - r.rank)} fewest`}`]); }
+  if (c.off) rows.push([`${esc(a.team)} offense`, `${c.off.plays.toFixed(0)} plays (${nth(c.off.playsRank)}) · ${Math.round(100 * c.off.pass)}% pass (${nth(c.off.passRank)})`]);
+  if (c.rest && c.rest.days != null && (c.rest.days <= 5 || c.rest.days >= 10)) rows.push(["Rest", c.rest.days <= 5 ? `short week, ${c.rest.days} days` : `${c.rest.days} days`]);
+  return rows.length ? `<div class="mu">${rows.map(([l, v]) => `<div class="mu-l"><span>${l}</span><b>${v}</b></div>`).join("")}</div>` : "";
 }
 function seasonCell(a) {
   if (a.is_pick || !a.sleeper_id || !S.values || E.is_redraft(S.cfg)) return "";
@@ -424,7 +540,7 @@ function ensureWeek(tab) {
 function assetRow(a, opts = {}) {
   const right = opts.right ?? gradeRight(a);
   return `<div class="item" data-id="${esc(a.id)}" data-act="${opts.act || "card"}">
-    ${opts.rank !== undefined ? `<span class="rk${opts.rank <= 3 ? " medal m" + opts.rank : ""}">${opts.rank}</span>` : ""}${avatar(a)}
+    ${opts.rank !== undefined ? (opts.rkSub ? `<span class="rk-wrap"><span class="rk${opts.rank <= 3 ? " medal m" + opts.rank : ""}">${opts.rank}</span>${opts.rkSub}</span>` : `<span class="rk${opts.rank <= 3 ? " medal m" + opts.rank : ""}">${opts.rank}</span>`) : ""}${avatar(a)}
     <div class="nm"><div class="n"><span class="nt">${opts.nameLink && !a.is_pick ? `<a class="plink" data-pcard="${esc(a.id)}">${esc(a.name)}</a>` : esc(a.is_pick ? a.name.replace(/\s*\(via [^)]*\)\s*$/, "") : a.name)}</span>${opts.flag ? `<span class="flag ${esc(opts.flag)}">${esc(opts.flag)}</span>` : statusFlag(a)}${opts.tag || ""}</div><div class="s">${opts.sub ?? sub(a)}</div>${opts.extra || ""}</div>
     <div class="v">${right}</div>${opts.x ? `<button class="x" data-x="${esc(a.id)}" aria-label="Remove">×</button>` : ""}</div>`;
 }
@@ -1299,7 +1415,10 @@ function renderRank(el) {
         : listPos && oursOn && a.orank != null ? gradeRight(a, { val: fmt(a.orank) }) : undefined;
       const extra = SP && spOf(a) && spOf(a).gp ? ` · ${spOf(a).ppg.toFixed(1)} ppg` : "";
       const rk = listPos && (R.order !== "ours" || oursOn) ? i + 1 : R.q || R.who !== "all" ? i + 1 : (R.pos === "ALL" || R.pos === "PICK" ? a.rank || i + 1 : a.pos_rank || i + 1);
-      return assetRow(a, { rank: rk, tag: free ? `<span class="tag-free">Available</span>` : "", sub: extra ? `${esc(a.team || "FA")}${extra}` : undefined, right });
+      // rising or falling over the last 30 days, by the name (2026-10-20, the user's ask); redraft shows it by the grade already
+      const mv = !E.is_redraft(S.cfg) ? rankMove(a) : null;
+      const arrow = mv ? `<span class="rk-mv ${mv.dir}" title="${mv.dir === "up" ? "Up" : "Down"} ${mv.spots} spots in ${mv.days} days" aria-label="${mv.dir === "up" ? "Rising" : "Falling"} ${mv.spots} spots">${ARROW[mv.dir]}<small>${mv.spots}</small></span>` : "";
+      return assetRow(a, { rank: rk, rkSub: arrow, tag: free ? `<span class="tag-free">Available</span>` : "", sub: extra ? `${esc(a.team || "FA")}${extra}` : undefined, right });
     }).join("") + (pool.length > shown.length ? `<button class="add-btn" id="more">Show more</button>` : "") + (!pool.length ? `<div class="empty">${R.pos === "EDGE" ? "No players here: we agree with the market on everyone who matches." : "Nobody matches."}</div>` : "");
     bindCards($("#rlist"));
     const m = $("#more");
@@ -1893,11 +2012,33 @@ async function loadDraft(a) {
 function draftHtml(d) {
   const lgOn = !!(S.values && S.values.league);
   if (!d) return `<div class="sec"><h3>Drafted</h3><p class="note muted">Loading…</p></div>`;
-  const nfl = d.nfl === null ? "—" : d.nfl.none ? "Undrafted" : `${d.nfl.season} · round ${d.nfl.round}, pick ${d.nfl.pick}${d.nfl.team ? ` · ${esc(d.nfl.team)}` : ""}`;
+  const nfl = d.nfl === null ? "—" : d.nfl.none ? "Undrafted" : `${d.nfl.season} · round ${d.nfl.round}, pick ${d.nfl.pick}${d.nfl.team ? ` · ${esc(d.nfl.team)}` : ""}`;   // (shown compactly below)
   const slot = x => `${x.round}.${String(x.slot || 0).padStart(2, "0")}`;
   const lg = !lgOn ? "" : d.lg === null ? "—" : d.lg.none ? `Not drafted here${d.lg.earliest ? ` (drafts back to ${d.lg.earliest})` : ""}`
-    : `${d.lg.season} ${esc(d.lg.kind)} · ${slot(d.lg)}${d.lg.no ? ` (${E.ordinal(d.lg.no)} overall)` : ""} by ${esc(d.lg.by)}`;
+    : `${d.lg.season} ${esc(d.lg.kind)} · ${slot(d.lg)}${d.lg.no ? ` (${E.ordinal(d.lg.no)})` : ""} · ${esc(d.lg.by)}`;
   return `<div class="sec"><h3>Drafted</h3><div class="kv"><span>NFL</span><b class="wrap">${nfl}</b></div>${lgOn ? `<div class="kv"><span>This league</span><b class="wrap">${lg}</b></div>` : ""}</div>`;
+}
+/* An icon for each grade label (2026-10-20, the user's ask): the card shows the icon with the label in smaller print. */
+const GL_ICONS = {
+  "Elite": '<path d="M3 18h18M4 18L3 8l5 4 4-7 4 7 5-4-1 10"/>',
+  "Star": '<path d="M12 3l2.7 5.6 6.2.9-4.5 4.4 1.1 6.1L12 17.1 6.5 20l1.1-6.1L3.1 9.5l6.2-.9z"/>',
+  "Great": '<circle cx="12" cy="15" r="5"/><path d="M8 3l4 7 4-7M12 13v4"/>',
+  "Very good": '<path d="M7 11v9H4v-9zM7 11l4-8a2 2 0 012 2v4h5a2 2 0 012 2.3l-1.2 7a2 2 0 01-2 1.7H7"/>',
+  "Good": '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
+  "Starter": '<circle cx="12" cy="12" r="9"/><path d="M10 8l6 4-6 4z"/>',
+  "Solid": '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>',
+  "Depth": '<path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5"/>',
+  "Bench": '<path d="M3 10h18M5 10V7h14v3M6 10v8M18 10v8M3 14h18"/>',
+  "Long shot": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  "Waiver": '<path d="M4 12a8 8 0 0114-5.3L20 9M20 4v5h-5M20 12a8 8 0 01-14 5.3L4 15M4 20v-5h5"/>',
+  "Starting QB": '<path d="M5 19c-2-2-2-8 2-12s10-4 12-2 2 8-2 12-10 4-12 2zM9 15l6-6M10 11l1 1M12 9l1 1M11 13l1 1"/>',
+  "points": '<path d="M5 20v-9M12 20V4M19 20v-6"/>',
+  "none": '<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>',
+};
+function gradeLabelHtml(label) {
+  const k = GL_ICONS[label] ? label : /by points$/.test(label || "") ? "points" : /^(Not ranked|No points yet)$/.test(label || "") ? "none" : null;
+  const ico = k ? `<svg class="gl-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${GL_ICONS[k]}</svg>` : "";
+  return `${ico}<span class="gl-txt">${esc(label || "")}</span>`;
 }
 const CARD_TABS = [["overview", "Overview"], ["stats", "Stats"], ["news", "News"]];
 function card(a, opts = {}) {
@@ -1911,7 +2052,7 @@ function card(a, opts = {}) {
         <div class="chips">${hdr && hdr.team ? `<button class="chip link" data-depth="${esc(hdr.team)}" aria-label="${esc(hdr.team)} depth chart">${hdr.pos} ›</button>`
           : `<span class="chip">${hdr ? hdr.pos : esc(a.pos) + (a.is_pick ? "" : " · " + esc(a.team || "FA"))}</span>`}${a.age != null ? `<span class="chip">age ${Math.floor(a.age)}</span>` : ""}${hdr ? hdr.health : status}</div>
         <div class="band-grade"><span class="big-grade ${G.cls}">${esc(G.g)}</span>
-          <div><div class="bg-label">${esc(G.label)}</div>
+          <div><div class="bg-label">${gradeLabelHtml(G.label)}</div>
             <div class="bg-move ${M.dir}">${M.dir === "up" ? "▲ Rising" : (M.dir === "down" ? "▼ Falling" : "– Steady")}${M.amt ? ` <span>${M.amt > 0 ? "+" : "−"}${fmt(Math.abs(M.amt))} in 30 days</span>` : ""}</div>
             <div class="bg-value">Value ${fmt(a.value)}</div>
             ${!a.is_pick && a.pred ? `<div class="bg-scope">Forecast: ${E.is_redraft(S.cfg) ? `${a.pred.ros.toFixed(1)} pts a game the rest of this season` : `${a.pred.next.toFixed(1)} pts a game next season · ${Math.round(a.pred.play * 100)}% to play 4+ games`}</div>` : ""}
@@ -1926,20 +2067,20 @@ function card(a, opts = {}) {
     // the card in three parts (2026-10-20, the user's ask): Overview, Stats, News; the trade buttons stay pinned below
     const tabNow = a.is_pick ? "overview" : cardTab;
     if (tabNow === "overview") {
-      h += `${a.is_pick ? "" : draftHtml(draftInfo)}
-      ${!a.is_pick && S.values.league && S.cfg.my_roster_id != null ? (C.owner === "free agent" ? `<button class="btn ghost block" id="wcFromCard" style="margin-top:10px">Check adding him</button>`
-        : C.owner_id === S.cfg.my_roster_id ? `<button class="btn ghost block" id="wcFromCard" style="margin-top:10px">Check dropping him</button>` : "") : ""}
-      ${!a.is_pick && typeof GM !== "undefined" && GM.available() ? `<button class="btn ghost block" id="gmFromCard" style="margin-top:10px">Ask the GM about him</button>` : ""}
-      ${a.is_pick ? "" : `<button class="link-btn" id="avoidBtn" style="display:block;margin:10px auto 0">${avoidList().includes(a.id) ? "Suggest this player again" : "Don't suggest this player"}</button>`}`;
       if (!a.is_pick && !(W && W.valuesOnly)) {
         if (C.week && !C.week.none) {
           const w = C.week;
           h += `<div class="sec"><h3>Week ${w.week}${w.grade ? ` <span class="grade sm ${w.grade.cls}">${esc(w.grade.letter)}</span> <span class="muted" style="font-weight:400;font-size:13px">${esc(w.grade.label)} · ${esc(a.pos)}${w.grade.posRank} this week</span>` : ""}</h3><div class="kv"><span>${w.opp ? (w.home === false ? "at " : "vs ") + esc(w.opp) : ""}${w.weather && w.weather !== "dome" ? " · " + esc(w.weather) : ""}</span><b>${w.adj.toFixed(1)} pts</b></div>
-            ${w.reasons && w.reasons.length ? `<p class="note muted">${esc(w.reasons.join(", "))}</p>` : ""}${matchupLines(a, w)}
+            ${reasonTags(w.reasons)}${matchupLines(a, w)}
             ${C.ppg != null ? `<div class="kv"><span>This season</span><b>${C.ppg.toFixed(1)} per game</b></div>` : ""}</div>`;
         } else if (C.week) h += `<div class="sec"><h3>Week ${C.week.week}</h3><p class="note muted">${C.week.bye ? "Bye week" : "Not expected to play"}</p></div>`;
         else if (!W) h += `<div class="sec"><h3>This week</h3><p class="note muted">Loading…</p></div>`;
       }
+        h += `${a.is_pick ? "" : draftHtml(draftInfo)}
+        <div class="card-acts">${!a.is_pick && S.values.league && S.cfg.my_roster_id != null ? (C.owner === "free agent" ? `<button class="btn ghost block" id="wcFromCard">Check adding him</button>`
+          : C.owner_id === S.cfg.my_roster_id ? `<button class="btn ghost block" id="wcFromCard">Check dropping him</button>` : "") : ""}
+        ${!a.is_pick && typeof GM !== "undefined" && GM.available() ? `<button class="btn ghost block" id="gmFromCard">Ask the GM</button>` : ""}</div>
+        ${a.is_pick ? "" : `<button class="link-btn" id="avoidBtn" style="display:block;margin:10px auto 0">${avoidList().includes(a.id) ? "Suggest this player again" : "Don't suggest this player"}</button>`}`;
       h += locked() ? `<div class="sec"><h3>Value over time ${Pro.tag()}</h3><button class="btn soft block" data-lock="chart">See how this value has moved</button></div>`
         : `<div class="sec"><h3>Value over time</h3>${sparkline(C.series)}</div>`;
       let extra = `<div class="sub-h">What the grade means</div><p class="note">${GRADES.map(([, g, l]) => `<b>${g}</b> ${l.toLowerCase()}`).join(" · ")}.
@@ -2274,16 +2415,22 @@ function renderLeague(el) {
   let h = "";
   const have = Object.entries(p.profiles);
   if (have.length) {                                       // every league with its remove button, even when there is just one (2026-10-07)
-    h += `<section class="card flush"><div class="grp">Your leagues</div>${have.map(([id, pr]) => `<div class="item" data-prof="${esc(id)}"><div class="nm"><div class="n">${esc(pr.name)}</div></div>
-      ${id === p.active ? '<span class="tag-start">Open</span>' : ""}<button class="x" data-del="${esc(id)}" aria-label="Remove ${esc(pr.name)}">×</button></div>`).join("")}</section>`;
+    // a drop-down (2026-10-20, the user's ask): one row until it's opened; it stays open while you're on the page
+    h += `<section class="card flush lg-card"><details class="lg-det"${S.lgOpen ? " open" : ""}><summary><span class="lg-dt">Your leagues</span><span class="lg-dn">${have.length}</span></summary>${have.map(([id, pr]) => `<div class="item" data-prof="${esc(id)}"><div class="nm"><div class="n">${esc(pr.name)}</div></div>
+      ${id === p.active ? '<span class="tag-start">Open</span>' : ""}<button class="x" data-del="${esc(id)}" aria-label="Remove ${esc(pr.name)}">×</button></div>`).join("")}</details></section>`;
   }
   if (locked() && have.length) h += `<section class="card"><h2>Add another league ${Pro.tag()}</h2><div class="hint">Basic includes one league. Pro keeps all your leagues in one app.</div>
       <button class="btn soft block" data-lock="leagues" style="margin-top:12px">Add more leagues with Pro</button></section>`;
-  else h += `<section class="card"><h2>${S.cfg ? "Add another league" : "Add your league"}</h2><div class="hint">Enter your Sleeper username to see your leagues.</div>
+  else {
+    const addForm = `<div class="hint">Enter your Sleeper username to see your leagues.</div>
     <div class="row" style="margin-top:10px"><input type="text" id="sUser" autocapitalize="off" autocomplete="off" value="${esc((a.sleeper || {}).username || "")}" placeholder="Sleeper username"><button class="btn primary" id="findL">Find</button></div>
     <div id="lres" class="list"></div>
     ${more("Other ways to add a league", `<label class="lbl">Sleeper league ID</label><div class="row"><input type="text" id="lid" inputmode="numeric" placeholder="Long number from Sleeper"><button class="btn ghost" id="addId">Add</button></div>
-      <label class="lbl" style="margin-top:12px">League not on Sleeper (build the rosters yourself)</label><div class="row"><input type="text" id="mName" placeholder="League name"><button class="btn ghost" id="addManual">Create</button></div>`)}</section>`;
+      <label class="lbl" style="margin-top:12px">League not on Sleeper (build the rosters yourself)</label><div class="row"><input type="text" id="mName" placeholder="League name"><button class="btn ghost" id="addManual">Create</button></div>`)}`;
+    // with leagues already here, adding another folds into the Your leagues card (2026-10-20, a compact League page)
+    if (have.length) h = h.replace(/<\/details><\/section>$/, `<div class="add-lg">${more("+ Add another league", addForm)}</div></details></section>`);
+    else h += `<section class="card"><h2>${S.cfg ? "Add another league" : "Add your league"}</h2>${addForm}</section>`;
+  }
   h += Pro.ON ? Pro.accountCard() : "";
   if (S.cfg) {
     const v = S.values, lg = v && v.league;
@@ -2291,14 +2438,12 @@ function renderLeague(el) {
     h += `<section class="card"><div class="kicker">Current league</div>${others.length > 1
       ? `<select class="league-pick" id="lgPick" aria-label="Switch league">${others.map(([id, pr]) => `<option value="${esc(id)}" ${id === E.P.id ? "selected" : ""}>${esc(pr.name)}</option>`).join("")}</select>`
       : `<h2 class="league-title">${esc((p.profiles[E.P.id] || {}).name || S.cfg.league.name)}</h2>`}
-      <div class="hint">${esc(formatText(S.cfg))}</div>
-      <div class="kv" style="margin-top:10px"><span>Player values</span><b>${v ? esc(ago(v.meta.fetched)) : "not downloaded"}</b></div>
-      ${lg ? `<div class="kv"><span>Rosters</span><b>${esc(ago(lg.imported))}</b></div>` : ""}
+      <div class="hint lg-times">Values ${v ? esc(ago(v.meta.fetched)) : "not downloaded"}${lg ? ` · rosters ${esc(ago(lg.imported))}` : ""}</div>
       ${lg && lg.league_id && !E.is_redraft(S.cfg) && marketText() ? `<div class="hint" style="margin-top:8px">${esc(marketText())}</div>` : ""}
-      <div class="btns" style="margin-top:12px"><button class="btn primary" id="upd">Update values</button>${lg ? (lg.league_id ? `<button class="btn ghost" id="reimp">Refresh rosters</button>` : `<button class="btn ghost" id="editTeam">Edit rosters</button>`) : ""}</div>
-      ${lg ? `<button class="btn ghost block" id="power" style="margin-top:8px">Power rankings</button>` : ""}
-      ${lg ? `<button class="btn ghost block" id="thist" style="margin-top:8px">Trade history${proTag() ? " " + proTag() : ""}</button>` : ""}
-      ${lg && !E.is_redraft(S.cfg) ? `<button class="btn ghost block" id="toDraftL" style="margin-top:8px">Rookie draft helper</button>` : ""}
+      <div class="lg-acts"><button class="btn primary" id="upd">Update values</button>${lg ? (lg.league_id ? `<button class="btn ghost" id="reimp">Refresh rosters</button>` : `<button class="btn ghost" id="editTeam">Edit rosters</button>`) : ""}
+      ${lg ? `<button class="btn ghost" id="power">Power rankings</button>` : ""}
+      ${lg ? `<button class="btn ghost" id="thist">Trade history${proTag() ? " " + proTag() : ""}</button>` : ""}
+      ${lg && !E.is_redraft(S.cfg) ? `<button class="btn ghost" id="toDraftL">Rookie draft</button>` : ""}</div>
       ${more("Having trouble?", `<p class="note">If this league looks wrong (players missing, odd values, something that won't load), start it over: everything saved for it on this phone is removed and it is downloaded again from Sleeper. Your other leagues aren't touched.</p>
         ${lg && lg.league_id ? `<button class="btn ghost block" id="redoLeague">Start this league over</button>` : ""}
         <button class="link-btn danger" id="rmLeague" style="display:block;margin:12px auto 0">Remove this league from this phone</button>`)}</section>`;
@@ -2327,23 +2472,37 @@ function renderLeague(el) {
     const lockNote = (what, reason) => `<p class="note">${what}</p><button class="btn soft block" data-lock="${reason}" style="margin-top:8px">Unlock with Pro</button>`;
     const settingsBox = locked() ? lockNote(`Your league's scoring ${lg ? "comes from Sleeper automatically" : "uses standard settings"}: ${esc(formatText(S.cfg))}. Changing it (league type, PPR, superflex, TE premium, QB bonuses) is part of Pro.`, "settings") : settings;
     const listsBox = locked() ? lockNote("Values blend every ranking site. Choosing which sites count is part of Pro.", "sources") : lists;
-    h += `<section class="card">${more(locked() ? "League settings · PRO" : "League settings", settingsBox)}${more(locked() ? "Ranking sites · PRO" : "Ranking sites", listsBox)}${more("New season", season)}
+    // one drop-down for all of it (2026-10-20, the user's ask), like Your leagues
+    h += `<section class="card flush lg-card"><details class="lg-det set-det"${S.setOpen ? " open" : ""}><summary><span class="lg-dt">Settings</span><span class="set-sub">league, ranking sites, season, look, about</span></summary><div class="set-body">${more(locked() ? "League settings · PRO" : "League settings", settingsBox)}${more(locked() ? "Ranking sites · PRO" : "Ranking sites", listsBox)}${more("New season", season)}
       ${more("Appearance", `<label class="lbl">Look</label><div class="seg" id="look">${[["classic", "Classic"], ["retro", "8-bit"]].map(([k, l]) => `<button data-v="${k}" class="${(a.look || "classic") === k && (k !== "retro" || !locked()) ? "on" : ""}" ${k === "retro" && locked() ? 'data-lock="retro"' : ""}>${l}${k === "retro" ? " " + proTag() : ""}</button>`).join("")}</div>
-        <label class="lbl" style="margin-top:12px">Colors (Classic look)</label><div class="seg" id="theme">${[["system", "Automatic"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button data-v="${k}" class="${(a.theme || "system") === k ? "on" : ""}">${l}</button>`).join("")}</div>`)}</section>`;
+        <label class="lbl" style="margin-top:12px">Colors (Classic look)</label><div class="seg" id="theme">${[["system", "Automatic"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button data-v="${k}" class="${(a.theme || "system") === k ? "on" : ""}">${l}</button>`).join("")}</div>`)}<!--set-->`;   // the card stays open for About, below
   }
-  const srcs = E.SOURCE_ORDER.filter(n => (!E.PLAY || E.SOURCES[n].play) && E.SOURCES[n].url && (!window.OWN_VALUES_ONLY || n === "dmv"));
-  h += `<section class="card">${more("About", `<p class="note">Dynasty Mover helps you judge fantasy football trades with a blend of public player values. ${Pro.ON
+  // About (updated 2026-10-20, the user's ask): what the app does now and every source it uses, the "Our rank" list
+  // named from this league's values (Pro: MyFantasyLeague ADP; the free editions: FantasyCalc and DynastyProcess)
+  const anchors = ((S.values && S.values.meta && S.values.meta.anchor) || []).filter(n => E.SOURCES[n] && E.SOURCES[n].url);
+  const src = (what, label, url) => `<div class="kv"><span>${esc(what)}</span><a data-link="${esc(url)}" class="lnk">${esc(label)}</a></div>`;
+  const gmOn = typeof GM !== "undefined" && GM.available && GM.available();
+  const aboutBox = `${more("About", `<p class="note">Dynasty Mover is your fantasy football helper for dynasty and redraft leagues: our own player values and grades, a trade checker, your weekly lineup, pickups and news, rankings, a rookie draft helper${gmOn ? " and your GM" : ""}. ${Pro.ON
       ? "Your leagues and trades stay on this phone; your account only holds your email and your plan." : "It's free, has no ads, and keeps everything on this phone."}</p>
-      <div class="sub-h">Data from</div>${srcs.map(n => `<div class="kv"><span>${esc(E.SOURCES[n].label)}</span><a data-link="${esc(E.SOURCES[n].url)}" class="lnk">${esc(E.SOURCES[n].url.replace("https://", ""))}</a></div>`).join("")}
-      <div class="kv"><span>Sleeper (leagues, rosters, injuries, trending)</span><a data-link="https://sleeper.com" class="lnk">sleeper.com</a></div>
-      <div class="kv"><span>MyFantasyLeague (draft ADP)</span><a data-link="https://www.myfantasyleague.com" class="lnk">myfantasyleague.com</a></div>
-      <div class="kv"><span>Bluesky (reporters' posts)</span><a data-link="https://bsky.app" class="lnk">bsky.app</a></div>
-      <div class="kv"><span>Weather: National Weather Service, MET Norway</span><a data-link="https://api.met.no" class="lnk">api.met.no</a></div>
-      <p class="note muted">${window.OWN_VALUES_ONLY ? "Player values are Dynasty Mover's own, calculated from public NFL stats (nflverse, CC BY 4.0), age and draft slot. Not affiliated with, endorsed by, or sponsored by the NFL, the NFLPA, Sleeper or nflverse." : "Not affiliated with, endorsed by, or sponsored by the NFL, Sleeper, FantasyCalc, DynastyProcess or Fantasy Football Calculator."} Player values are opinions for entertainment, not advice.</p>
+      <div class="sub-h">Data from</div>
+      ${src("Stats, schedules, injuries, rosters", "nflverse (CC BY 4.0)", "https://github.com/nflverse/nflverse-data")}
+      ${src("Expected points", "ffopportunity (CC BY-SA 4.0)", "https://github.com/ffverse/ffopportunity")}
+      ${src("Leagues, rosters, trending", "Sleeper", "https://sleeper.com")}
+      ${anchors.length ? `<div class="kv"><span>Our rank starts from</span><span>${anchors.map(n => `<a data-link="${esc(E.SOURCES[n].url)}" class="lnk">${esc(E.SOURCES[n].label.replace(" ADP", ""))}</a>`).join(" and ")}</span></div>` : ""}
+      ${anchors.includes("mfl") ? "" : src("Draft ADP", "MyFantasyLeague", "https://www.myfantasyleague.com")}
+      ${src("Rookie class", "CollegeFootballData.com", "https://collegefootballdata.com")}
+      ${src("Reporters' posts", "Bluesky", "https://bsky.app")}
+      ${src("Weather", "NWS and MET Norway", "https://api.met.no")}
+      ${gmOn ? src("Your GM", "Cloudflare Workers AI", "https://developers.cloudflare.com/workers-ai/") : ""}
+      <p class="note muted">Player values, grades, projections and the GM's answers are Dynasty Mover's opinions, for entertainment, not advice. Not affiliated with, endorsed by, or sponsored by the NFL, the NFLPA, Sleeper, MyFantasyLeague${anchors.includes("fantasycalc") ? ", FantasyCalc" : ""}${anchors.includes("dynastyprocess") ? ", DynastyProcess" : ""}, nflverse or Bluesky.</p>
       <div class="kv"><span>Privacy policy</span><a data-link="${esc(PRIVACY_URL)}" class="lnk">Read</a></div>
-      <div class="kv"><span>Contact</span><span>${esc(CONTACT_EMAIL)}</span></div>`)}</section>
-    <p class="foot">Version ${esc(Store.native && Native.version ? Native.version() : (window.APP_VERSION ? window.APP_VERSION + " web" : "dev"))} · Your leagues stay on this ${Store.web ? "device" : "phone"}.</p>`;
+      <div class="kv"><span>Contact</span><span>${esc(CONTACT_EMAIL)}</span></div>`)}`;
+  // About sits in the settings card when there is one (2026-10-20, a compact League page)
+  if (/<!--set-->$/.test(h)) h = h.replace(/<!--set-->$/, aboutBox + "</div></details></section>"); else h += `<section class="card">${aboutBox}</section>`;
+  h += `<p class="foot">Version ${esc(Store.native && Native.version ? Native.version() : (window.APP_VERSION ? window.APP_VERSION + " web" : "dev"))} · Your leagues stay on this ${Store.web ? "device" : "phone"}.</p>`;
   el.innerHTML = h;
+  const ld = $(".lg-det:not(.set-det)", el); if (ld) ld.ontoggle = () => { S.lgOpen = ld.open; };
+  const sd = $(".set-det", el); if (sd) sd.ontoggle = () => { S.setOpen = sd.open; };
   if (Pro.ON) Pro.bindAccount();
 
   const on = (id, fn) => { const x = $("#" + id); if (x) x.onclick = fn; };
@@ -2549,6 +2708,7 @@ function scoreCard() {
   if (R.grades.length >= 2) rows.push(`<div class="sc-gr-l">Points a game by our grade (higher grades should score more)</div><div class="sc-gr">${R.grades.map(g => `<div><span class="grade sm g${g.g[0].toLowerCase()}">${esc(g.g)}</span><b>${g.ppg.toFixed(1)}</b></div>`).join("")}</div>`);
   if (rows.length) h += `<div class="sub-h" style="margin-top:14px">Lineups, grades and trades</div>${rows.join("")}${tc ? `<p class="note muted" style="margin-top:6px">A trade call is right when the side we liked went on to score more.</p>` : ""}`;
   if (!h) return "";
+  // always open (2026-10-20: the user wants it shown, not a drop-down)
   return `<section class="card tone-green"><h2>How right we've been</h2><div class="hint">What we guessed against what really happened.</div><div style="margin-top:10px">${h}</div></section>`;
 }
 /* Trade calls right: in the league's trades with a 5%+ edge by our values and games played since, how often the side
@@ -2886,7 +3046,8 @@ function go(tab) {
   ({ home: renderHome, trade: renderTrade, rank: renderRank, team: renderTeam, league: renderLeague, gm: el => GM.render(el) })[tab](el);
   window.scrollTo(0, 0);
 }
-$$("#tabs button").forEach(b => b.onclick = () => go(b.dataset.tab));
+// the tabs stay on screen under an open sheet (2026-10-20, the user's ask): a tap closes the sheet and goes there
+$$("#tabs button").forEach(b => b.onclick = () => { if (sheetOpen()) { if (S.busy) return; closeSheet(true); } go(b.dataset.tab); });
 
 applyTheme();
 loadActive();

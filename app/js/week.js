@@ -181,17 +181,20 @@ function adjust_projection(base, pos, team, ctx, trends, aggressiveness) {
   const reasons = [];
   const apply = (fct, text) => { if (Math.abs(fct - 1) >= 0.015) reasons.push(`${text} ${fct >= 1 ? "+" : ""}${Math.round((fct - 1) * 100)}%`); mult *= fct; };
   const c = (ctx || {})[team] || null;
+  // tight ends get no Vegas or home/away adjustment (2026-10-20): over six weeks it made their projections worse (71% -> 67% within 5)
+  const vegas = pos !== "TE";
   if (c) {
-    apply(c.home ? 1.02 : 0.98, c.home ? "home" : "away");
+    if (vegas) apply(c.home ? 1.02 : 0.98, c.home ? "home" : "away");
     if (!c.indoor) {
       const wx = (c.weather || "").toLowerCase(), precip = c.precip || 0;
       if (WET.some(k => wx.includes(k)) || (isNum(precip) && precip >= 50)) apply(pos === "RB" ? 1.03 : 0.93, (c.weather || "wet weather").toLowerCase());
       if (isNum(c.gust) && c.gust >= 20 && pos !== "RB") apply(0.94, `wind ${c.gust.toFixed(0)} mph`);
       if (isNum(c.temp) && c.temp <= 25 && (pos === "QB" || pos === "WR")) apply(0.97, `${c.temp.toFixed(0)}F cold`);
     }
-    if (c.implied != null) apply(Math.max(0.85, Math.min(1.15, Math.pow(c.implied / LEAGUE_AVG_IMPLIED, 0.6))), `implied ${c.implied.toFixed(1)} pts`);
+    // the implied team total counts in full (2026-10-20: exponent 0.6 -> 1.0, the better fit on the season's record)
+    if (vegas && c.implied != null) apply(Math.max(0.85, Math.min(1.15, c.implied / LEAGUE_AVG_IMPLIED)), `implied ${c.implied.toFixed(1)} pts`);
     const sp = c.spread;
-    if (sp != null) {
+    if (vegas && sp != null) {
       if (sp <= -7) apply({ RB: 1.04, WR: 0.98, TE: 0.98, QB: 0.99 }[pos] || 1.0, `favored by ${-sp}`);
       else if (sp >= 7) apply({ RB: 0.95, WR: 1.04, TE: 1.02, QB: 1.03 }[pos] || 1.0, `underdog by ${sp}`);
     }
@@ -296,16 +299,16 @@ async function nws_weather(team, kickoff) {
 }
 /* Game context for a week in the shape the lineup helper and pickups use (see week_context): opp, home, indoor, venue,
    weather, temp, gust, precip, spread (own, negative = favored), total, implied, kickoff. Teams on a bye are absent. */
-async function week_context_nflv(cfg, week, refresh = false) {
+async function week_context_nflv(cfg, week, refresh = false, weather = true) {
   const season = parseInt(cfg.season), name = `ctx.nflv.${season}.${week}.json`, d = Store.get(name);
-  if (d && !refresh && hoursOld(d.fetched) < 6) return d.teams;
+  if (d && !refresh && (hoursOld(d.fetched) < 6 || !weather)) return d.teams;      // a past week's (weather = false) is kept as it was
   const games = (await nflv_games(season)).filter(g => g.week === week), teams = {};
   const off = m => (m >= 11 || m <= 2 ? "-05:00" : "-04:00");             // kickoff times are Eastern
   await Promise.all(games.map(async g => {
     const kickoff = `${g.day}T${g.time.length === 5 ? g.time : "13:00"}:00${off(parseInt(g.day.slice(5, 7), 10))}`;
     const indoor = ["dome", "closed"].includes(g.roof) || (g.roof === "" && RETRACTABLE.has(g.home));
     let wx = null;
-    if (!indoor) { try { wx = ABROAD.test(g.sid) ? await met_weather(g.sid, kickoff) : await nws_weather(g.home, kickoff); } catch (e) { wx = null; } }
+    if (!indoor && weather) { try { wx = ABROAD.test(g.sid) ? await met_weather(g.sid, kickoff) : await nws_weather(g.home, kickoff); } catch (e) { wx = null; } }
     for (const [ab, opp, is_home] of [[g.home, g.away, true], [g.away, g.home, false]]) {
       const own = g.spread == null ? null : (is_home ? -g.spread : g.spread);   // nflverse: positive = home favored
       teams[ab] = { opp, home: is_home, indoor, venue: g.stadium, weather: wx ? wx.weather : null, temp: wx ? wx.temp : null, gust: wx ? wx.gust : null, precip: wx ? wx.precip : null,
@@ -600,32 +603,40 @@ async function accuracy(cfg, W) {
   const pk = pts_key(cfg), name = `acc.${W.season}.${W.week}.${pk}.${W.ours ? "ours" : "sl"}.json`, c = Store.get(name);
   // rebuilt when the injury history changes (it decides which games are left out)
   const hsig = Object.entries((Store.get(`nfl_injury_hist_${W.season}.json`) || {}).weeks || {}).map(([w, o]) => `${w}:${Object.keys(o).length}`).join(",");
-  if (c && c.v === 4 && c.hsig === hsig) return c;
+  if (c && c.v === 5 && c.hsig === hsig) return c;
   const weeks = Object.keys(W.weekly || {}).map(Number).filter(w => w >= 1 && w < W.week).sort((a, b) => a - b);
   const pairs = [], per = {}, hurt = await hurt_in_game(W, weeks);
   let skipped = 0;
   for (const w of weeks) {
     const proj = await past_projections(cfg, W, w), act = W.weekly[w] || {};
+    // the record grades the numbers the screens show (2026-10-20): each projection with that week's matchup (the Vegas
+    // line and home or away as they stood before kickoff); the defense and form trends are left out, as they'd use
+    // games played later
+    const ctx = await (W.ours ? week_context_nflv(cfg, w, false, false) : week_context(cfg, w)).catch(() => ({}));
     for (const [sid, r] of Object.entries(proj || {})) {
       if (!POSITIONS.includes(r.pos) || !(r.pts > 0)) continue;
       const a = act[sid]; if (!a) continue;                              // he didn't play: a bye or an injury, not a projection miss
-      const y = +a[pk] || 0, cut = hurt(sid, w, +r.pts, y);
-      if (r.pts >= ACC_MIN_PTS && !cut) pairs.push({ w, pos: r.pos, p: +r.pts, y });   // the error stats skip tiny projections; the player's record keeps them (2026-10-19)
+      const team = r.team || ((E.P.values && E.P.values.by_sleeper[sid]) || {}).team || "FA";
+      const said = adjust_projection(+r.pts, r.pos, team, ctx, null, 0.6)[0];
+      const y = +a[pk] || 0, cut = hurt(sid, w, said, y);
+      if (r.pts >= ACC_MIN_PTS && !cut) pairs.push({ w, pos: r.pos, p: said, praw: +r.pts, y });   // the error stats skip tiny projections; the player's record keeps them (2026-10-19)
       if (r.pts >= ACC_MIN_PTS && cut) skipped++;
-      (per[sid] = per[sid] || {})[w] = cut ? [Math.round(r.pts * 10) / 10, Math.round(y * 10) / 10, 1] : [Math.round(r.pts * 10) / 10, Math.round(y * 10) / 10];
+      (per[sid] = per[sid] || {})[w] = cut ? [Math.round(said * 10) / 10, Math.round(y * 10) / 10, 1] : [Math.round(said * 10) / 10, Math.round(y * 10) / 10];
     }
   }
+  // the correction is fitted on the raw projections, where the app applies it (before the matchup)
+  const rawOf = L => L.map(x => ({ w: x.w, pos: x.pos, p: x.praw, y: x.y }));
   const rows = weeks.map(w => {
     const P = pairs.filter(x => x.w === w), raw = acc_stats(P);
-    const before = pairs.filter(x => x.w < w && x.w >= 2), C = w >= 3 && before.length >= 4 * CALIB_MIN_N ? fit_calib(before, w) : null;   // the correction as it stood that week
-    const cal = C ? acc_stats(P.map(x => ({ p: apply_calib(C, x.pos, x.p), y: x.y }))) : null;
+    const before = pairs.filter(x => x.w < w && x.w >= 2), C = w >= 3 && before.length >= 4 * CALIB_MIN_N ? fit_calib(rawOf(before), w) : null;   // the correction as it stood that week
+    const cal = C ? acc_stats(P.map(x => ({ p: apply_calib(C, x.pos, x.praw) * (x.praw > 0 ? x.p / x.praw : 1), y: x.y }))) : null;
     return raw ? { w, n: raw.n, mae: raw.mae, close: raw.close, bias: raw.bias, maeCal: cal ? cal.mae : null } : null;
   }).filter(Boolean);
   const byPos = Object.fromEntries(POSITIONS.map(pos => [pos, acc_stats(pairs.filter(x => x.pos === pos))]).filter(([, v]) => v));
   const calRows = rows.filter(r => r.maeCal != null);
   const gain = calRows.length ? { raw: calRows.reduce((s, r) => s + r.mae * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), cal: calRows.reduce((s, r) => s + r.maeCal * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), from: calRows[0].w } : null;
   // the correction is used only while it beats the plain numbers on the past weeks it was tested on (no advice beats bad advice)
-  const out = { v: 4, hsig, skipped, at: now_iso(), source: W.ours ? "ours" : "sleeper", weeks: rows, all: acc_stats(pairs), byPos, calib: fit_calib(pairs, W.week), per,
+  const out = { v: 5, hsig, skipped, at: now_iso(), source: W.ours ? "ours" : "sleeper", weeks: rows, all: acc_stats(pairs), byPos, calib: fit_calib(rawOf(pairs), W.week), per,
     gain, use: !!(gain && gain.cal < gain.raw - 0.01) };
   Store.set(name, out);
   return out;
