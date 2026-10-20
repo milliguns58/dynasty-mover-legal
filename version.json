@@ -1,10 +1,10 @@
 {
- "versionCode": 25,
- "versionName": "3.2.7",
- "notes": "Kickers and defenses for leagues that start them: points, projections, week and season grades, lineup help and pickup suggestions. Lineup rows show this week's grade and last week's grade with what we predicted and what he scored. Fixed players showing as a bare number (Travis Hunter and fullbacks). Weekly stats now come only from nflverse.",
+ "versionCode": 26,
+ "versionName": "3.2.8",
+ "notes": "Pro's Our rank now starts from MyFantasyLeague draft data. Player cards add Draft market, this week's matchup (points the defense allows, pace, rest) and posts from reporters on Bluesky. New League wire on Home: injuries, IR, team and depth chart changes. Weather for games played abroad.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
  },
- "published": "2026-10-19"
+ "published": "2026-10-20"
 }
