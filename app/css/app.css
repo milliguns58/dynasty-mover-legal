@@ -683,7 +683,8 @@ body.gm-on{padding-bottom:calc(var(--tabh) + var(--safe-bottom) + 78px)}
 
 .gm-title .gm-new{margin-left:auto;min-height:32px;padding:4px 12px;font-size:13px}
 
-.gm-input .gm-newbtn{min-height:44px;padding:8px 12px;font-size:14px;flex:none}
+.gm-input .gm-newbtn{min-height:44px;padding:8px 12px;font-size:13px;font-weight:700;flex:none;display:inline-flex;align-items:center;gap:4px;color:var(--accent);border:1px solid var(--line);border-radius:14px}
+.gm-input .gm-newbtn svg{width:16px;height:16px}
 /* Trade history (history.js): the entry row under the trade screen, the list sheet and the trade sheet */
 .th-entry .th-ic{width:40px;height:40px;border-radius:12px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:none}
 .th-entry .th-ic svg{width:22px;height:22px}
@@ -926,3 +927,8 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .seg.ctab{margin:14px 0 4px}
 .card-bar{position:sticky;bottom:-24px;z-index:3;margin:14px -18px -24px;padding:10px 18px calc(12px + var(--safe-bottom));background:var(--surface);border-top:1px solid var(--line)}
 .card-bar .btns{margin:0}
+/* How right we've been: points a game by grade as chips (2026-10-20) */
+.sc-gr-l{font-size:13px;color:var(--ink2);margin:10px 0 6px}
+.sc-gr{display:flex;gap:6px;flex-wrap:wrap}
+.sc-gr>div{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:48px;padding:6px 4px;border-radius:10px;background:var(--raise)}
+.sc-gr b{font-size:13px;font-variant-numeric:tabular-nums}
