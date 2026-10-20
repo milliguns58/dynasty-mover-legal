@@ -1,7 +1,7 @@
 {
- "versionCode": 28,
- "versionName": "3.2.10",
- "notes": "New chat button at the bottom of the GM. How right we've been is simpler to read, and games cut short by an injury no longer count against our numbers.",
+ "versionCode": 29,
+ "versionName": "3.2.11",
+ "notes": "Sharper projections (Vegas lines count in full, tight ends left alone) and the accuracy record grades what you see. Tabs stay on screen, cards open at the top, a cleaner player card with grade icons, player-specific call-outs and rising/falling arrows in Rankings. A compact League page with drop-downs and an updated About.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
