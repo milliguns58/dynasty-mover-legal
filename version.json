@@ -1,7 +1,7 @@
 {
- "versionCode": 29,
- "versionName": "3.2.11",
- "notes": "Sharper projections (Vegas lines count in full, tight ends left alone) and the accuracy record grades what you see. Tabs stay on screen, cards open at the top, a cleaner player card with grade icons, player-specific call-outs and rising/falling arrows in Rankings. A compact League page with drop-downs and an updated About.",
+ "versionCode": 30,
+ "versionName": "3.2.12",
+ "notes": "The web version now tells you when a new version is ready and reloads onto it with one tap.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
