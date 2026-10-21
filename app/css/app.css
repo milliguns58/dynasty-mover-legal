@@ -999,3 +999,18 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .card.tone-orange>h2,.card.tone-orange>.grp,.card.tone-orange>.kicker{color:var(--ink)}
 .card.tone-blue>h2,.card.tone-blue>.grp{color:var(--ink)}
 .credit .lnk{cursor:pointer}
+/* Matchup preview and watchlist (2026-10-21) */
+.mu-card h2{margin:2px 0 4px}
+.mu-card .big-num.good{color:var(--good)}.mu-card .big-num.bad{color:var(--bad)}
+.mu-head{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--muted);padding:2px 2px 6px}
+.mu-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)}
+.mu-row .slot{margin:0}
+.mu-side{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px}
+.mu-side .nt,.mu-side .muted{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mu-side b{flex:none;font-variant-numeric:tabular-nums}.mu-side b.good{color:var(--good)}
+.mu-side.them{text-align:right}.mu-side.them .nt{text-align:right}
+.mu-side .flag{flex:none}
+.watch-btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer}
+.watch-btn.on{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.watch-row .v small{display:block;font-size:11px;font-weight:700}
+.watch-row .v small.good,.watch-row .s .good{color:var(--good)}.watch-row .v small.bad,.watch-row .s .bad{color:var(--bad)}
