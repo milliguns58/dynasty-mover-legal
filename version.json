@@ -1,7 +1,7 @@
 {
- "versionCode": 32,
- "versionName": "3.2.14",
- "notes": "Easier to use: one-line credits, one highlight color, clearer last-3-weeks chips, Pickups leads with suggestions, plain headings, no Ranking sites switch",
+ "versionCode": 33,
+ "versionName": "3.2.15",
+ "notes": "Matchup preview on the Lineup tab: how you stack up against this week's opponent. Watchlist: star players on their card and follow them on Home.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
