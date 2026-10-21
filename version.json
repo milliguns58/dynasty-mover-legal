@@ -1,10 +1,10 @@
 {
- "versionCode": 31,
- "versionName": "3.2.13",
- "notes": "Web version: five tabs with Ask GM at the top, like the phone app.",
+ "versionCode": 32,
+ "versionName": "3.2.14",
+ "notes": "Easier to use: one-line credits, one highlight color, clearer last-3-weeks chips, Pickups leads with suggestions, plain headings, no Ranking sites switch",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
  },
- "published": "2026-10-20"
+ "published": "2026-10-21"
 }
