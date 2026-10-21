@@ -1,7 +1,7 @@
 {
- "versionCode": 33,
- "versionName": "3.2.15",
- "notes": "Matchup preview on the Lineup tab: how you stack up against this week's opponent. Watchlist: star players on their card and follow them on Home.",
+ "versionCode": 34,
+ "versionName": "3.2.16",
+ "notes": "Our rank fix: our own model counts more as the season goes, so this season's games move players (e.g. Purdy and Caleb Williams back ahead of Herbert).",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
