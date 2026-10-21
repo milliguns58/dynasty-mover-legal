@@ -1,7 +1,7 @@
 {
- "versionCode": 34,
- "versionName": "3.2.16",
- "notes": "Our rank fix: our own model counts more as the season goes, so this season's games move players (e.g. Purdy and Caleb Williams back ahead of Herbert).",
+ "versionCode": 36,
+ "versionName": "3.2.18",
+ "notes": "Better dynasty grades: Runway now counts career length, workload and draft slot; superstars still producing keep more runway; QB cliff 39 (35 for rushing QBs); backup QBs rank behind every starter on Our rank.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
