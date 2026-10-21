@@ -757,9 +757,6 @@ body.gm-on{padding-bottom:calc(var(--tabh) + var(--safe-bottom) + 78px)}
 .card.tone-orange>h2,.card.tone-orange>.grp,.card.tone-orange>.kicker{color:var(--rb)}
 .card.set-card{font-size:15px;color:var(--ink2);background:var(--good-soft)}
 .card.set-card b{color:var(--good)}
-#tseg button.on[data-v="waivers"]{background:var(--good)}
-#tseg button.on[data-v="trades"]{background:var(--pick)}
-#tseg button.on[data-v="roster"]{background:var(--rb)}
 .grp.pos-QB{color:var(--qb)}.grp.pos-RB{color:var(--rb)}.grp.pos-WR{color:var(--wr)}.grp.pos-TE{color:var(--te)}.grp.pos-PICK{color:var(--pick)}.grp.pos-K,.grp.pos-DEF{color:var(--def)}
 .item .slot{width:44px;padding:4px 0;border-radius:8px;font-size:11px;font-weight:800;letter-spacing:.02em;color:#fff;background:var(--muted)}
 .item .slot.QB{background:var(--qb)}.item .slot.RB{background:var(--rb)}.item .slot.WR{background:var(--wr)}.item .slot.TE{background:var(--te)}
@@ -995,3 +992,10 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 /* Settings as one drop-down (2026-10-20) */
 .set-sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .set-body{padding-bottom:4px}
+/* One highlight color (2026-10-21, the user's ask: easier on the eyes): the cards' side stripes and titles share the
+   accent; color elsewhere means something (grades, gains and losses, injuries) */
+.card.tone-green,.card.tone-purple,.card.tone-orange{box-shadow:inset 4px 0 0 var(--accent)}
+.card.tone-green>h2,.card.tone-green>.grp,.card.tone-green>.kicker,.card.tone-purple>h2,.card.tone-purple>.grp,.card.tone-purple>.kicker,
+.card.tone-orange>h2,.card.tone-orange>.grp,.card.tone-orange>.kicker{color:var(--ink)}
+.card.tone-blue>h2,.card.tone-blue>.grp{color:var(--ink)}
+.credit .lnk{cursor:pointer}
