@@ -654,11 +654,15 @@ const watching = a => watchList().some(w => w.k === watchKey(a));
 function toggleWatch(a) {
   const k = watchKey(a), on = !watching(a), pid = E.P && E.P.id;
   saveApp({ watch: on ? watchList().concat({ k, name: a.name, pos: a.pos, added: Date.now(), base: pid ? { [pid]: [a.value || 0, a.pos_rank || null] } : {} }) : watchList().filter(w => w.k !== k) });
-  const box = $("#watchBox"); if (box) box.innerHTML = watchCard();
+  const box = $("#watchBox"); if (box) box.innerHTML = watchCard(true);
   return on;
 }
-function watchCard() {
-  const L = watchList(); if (!L.length || !S.values) return "";
+/* tab: true for Home's Watchlist tab, which shows a hint instead of nothing when the list is empty. */
+function watchCard(tab) {
+  const L = watchList();
+  const hint = t => tab ? `<section class="card"><div class="empty">${t}</div></section>` : "";
+  if (!S.values) return hint("Player values are still loading. Your watchlist shows up once they're in.");
+  if (!L.length) return hint("No one on your watchlist yet. Open any player and tap ☆ Watch to add him here.");
   const owner = {}, me = S.cfg ? S.cfg.my_roster_id : null, pid = E.P && E.P.id, since = Date.now() - 14 * 86400000, wire = E.load_wire();
   for (const t of teams()) for (const p of t.players) owner[String(p)] = t;
   let fill = false;
@@ -676,30 +680,31 @@ function watchCard() {
       <div class="v"><b>${a.value ? fmt(a.value) : "–"}</b>${Math.abs(dv) >= 1 ? `<small class="${dv > 0 ? "good" : "bad"}">${dv > 0 ? "▲ +" : "▼ −"}${fmt(Math.abs(dv))}</small>` : ""}</div></div>` };
   }).filter(Boolean);
   if (fill) saveApp({ watch: L });
-  if (!rows.length) return "";
+  if (!rows.length) return hint("None of your watched players have a value in this league's lists yet.");
   rows.sort((x, y) => (y.free - x.free) || (y.v - x.v));                 // the ones you could add right now first
-  return `<section class="card flush"><div class="grp">Your watchlist<span class="grp-note">since you added them</span></div><div class="list">${rows.map(r => r.html).join("")}</div></section>`;
+  return `<section class="card flush">${tab ? "" : `<div class="grp">Your watchlist<span class="grp-note">since you added them</span></div>`}<div class="list">${rows.map(r => r.html).join("")}</div></section>`;
 }
 function renderHome(el) {
-  const H = S.home, adds = H.kind === "adds";
-  el.innerHTML = `<section class="hero-home ${adds ? "" : "drops"}">
-      <div class="hh-top"><div><div class="hh-kicker">Trending now</div><h1>${adds ? "Most added" : "Most dropped"}</h1>
-        <div class="hh-sub">Across all Sleeper leagues, last 2 days</div></div>
-        <div class="hh-flame">${adds ? "🔥" : "🧊"}</div></div>
-      <div class="hh-toggle"><button data-k="adds" class="${adds ? "on" : ""}">Adds</button><button data-k="drops" class="${adds ? "" : "on"}">Drops</button></div>
-      <div class="podium" id="podium">${[1, 2, 3].map(() => `<div class="pod skel"></div>`).join("")}</div>
+  const H = S.home, watch = H.kind === "watch", adds = H.kind === "adds";   // three tabs on the hero: Adds, Drops, Watchlist
+  const nW = watchList().length;
+  el.innerHTML = `<section class="hero-home ${watch ? "watch" : adds ? "" : "drops"}">
+      <div class="hh-top"><div><div class="hh-kicker">${watch ? "Keeping an eye on" : "Trending now"}</div><h1>${watch ? "Your watchlist" : adds ? "Most added" : "Most dropped"}</h1>
+        <div class="hh-sub">${watch ? (nW ? `${nW} player${nW === 1 ? "" : "s"} · how they've moved since you added them` : "Players you want to keep an eye on") : "Across all Sleeper leagues, last 2 days"}</div></div>
+        <div class="hh-flame">${watch ? "⭐" : adds ? "🔥" : "🧊"}</div></div>
+      <div class="hh-toggle">${[["adds", "Adds"], ["drops", "Drops"], ["watch", "Watchlist"]].map(([k, t]) => `<button data-k="${k}" class="${H.kind === k ? "on" : ""}">${t}</button>`).join("")}</div>
+      ${watch ? "" : `<div class="podium" id="podium">${[1, 2, 3].map(() => `<div class="pod skel"></div>`).join("")}</div>`}
     </section>
     ${S.cfg ? "" : `<section class="card cta"><div><b>Add your league</b><div class="hint">See who's still available and value trades.</div></div><button class="btn primary sm" id="homeAdd">Add</button></section>`}
     ${typeof GM !== "undefined" ? GM.homeCard() : ""}
-    <div id="watchBox">${watchCard()}</div>
-    <section class="card flush"><div class="list" id="trend">${loading("Loading trending players…")}</div></section>
+    ${watch ? `<div id="watchBox">${watchCard(true)}</div>` : `<section class="card flush"><div class="list" id="trend">${loading("Loading trending players…")}</div></section>`}
     ${wireCard()}
-    <p class="credit">Trending data from <a data-link="https://sleeper.com">Sleeper</a>.${S.values ? " " + credits().replace(/^<p class="credit">|<\/p>$/g, "") : ""}</p>`;
+    ${watch ? (S.values ? credits() : "") : `<p class="credit">Trending data from <a data-link="https://sleeper.com">Sleeper</a>.${S.values ? " " + credits().replace(/^<p class="credit">|<\/p>$/g, "") : ""}</p>`}`;
   $$(".hh-toggle button", el).forEach(b => b.onclick = () => { H.kind = b.dataset.k; renderHome(el); });
   if (typeof GM !== "undefined") GM.bindHome(el);
   ensureWeek("home");
   const ha = $("#homeAdd");
   if (ha) ha.onclick = () => go("league");
+  if (watch) return;                                                     // the watchlist needs no trending call
   const owner = {};
   for (const t of teams()) for (const pid of t.players) owner[pid] = t;
   const me = S.cfg ? S.cfg.my_roster_id : null;
@@ -2204,7 +2209,7 @@ function card(a, opts = {}) {
     if (wb) wb.onclick = () => {
       const on = toggleWatch(a);
       wb.classList.toggle("on", on); wb.textContent = on ? "★ Watching" : "☆ Watch";
-      toast(on ? `Watching ${a.name}: he's on your Home screen` : `${a.name} is off your watchlist`);
+      toast(on ? `Watching ${a.name}: he's under Home > Watchlist` : `${a.name} is off your watchlist`);
     };
     const av = $("#avoidBtn", body);
     if (av) av.onclick = () => {

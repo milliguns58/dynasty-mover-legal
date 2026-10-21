@@ -879,7 +879,7 @@ const DMV = {"w26":0.0858,"w25":0.0407,"w24":0.0163,"k":2.0755,"best":0.0513,"E_
    the values and ranks the Pro app trades on. DMV: our own dynasty view (the research age curves and the breakout bump);
    this gives the grades. Where the two disagree, the user gets a buy or sell hint the market doesn't show. */
 const DMV_MKT = {"w26":1.2308,"w25":0.3516,"w24":0.1384,"best_QB":0.2754,"best_RB":0.0042,"best_WR":0.0,"best_TE":0.0799,"E_QB":2.4573,"E_RB":2.0561,"E_WR":1.9325,"E_TE":1.6575,"S_QB":6.3241,"S_RB":19.8025,"S_WR":37.3424,"S_TE":64.0041,"R_QB":4.2772,"R_RB":-1.632,"R_WR":1.0846,"R_TE":1.3444,"peak_QB":28.7639,"peak_RB":23.0034,"peak_WR":25.0003,"peak_TE":27.4564,"dec_QB":0.1019,"dec_RB":0.142,"dec_WR":0.0921,"dec_TE":0.1034,"young":0.6011,"D_QB":2033.7033,"D_RB":2902.7461,"D_WR":2029.4478,"D_TE":1419.4604,"L":128.1501,"kd":7.4094,"C":82304.0844,"ped":0.2743};
-const DMV_MODEL = 22;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
+const DMV_MODEL = 23;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
 const DMV_TYPICAL = { QB: 14, RB: 9, WR: 8, TE: 6 };          // a typical starter's points a game (half-PPR): the anchor for thin samples
 const DMV_REPLACEMENT = { QB: 12, RB: 6.5, WR: 6, TE: 4 };   // a replacement-level player's points a game (half-PPR): the redraft anchor for thin samples
 const DMV_PRIOR_ADJ = { QB: 0.55 };                      // 1QB leagues: QBs are worth about half of superflex
@@ -1666,6 +1666,15 @@ function attach_ours(assets, ours, redraft) {
    view, trimmed 15%. Checked against a consensus of FantasyCalc, DynastyProcess and Dynasty Daddy: the average rank
    miss across its top 50 went from 9.9 (our model alone) and 5.1 (FantasyCalc with a 0.35 say) to 2.5. */
 const ORANK_W = 0.2, ORANK_LO = 0.6, ORANK_HI = 1.6, ORANK_UNLISTED = 0.85;
+/* How far the season has gone, 0 before kickoff to 1 by week 8 (2026-10-21). MFL's draft lists are summer boards (4
+   keeper drafts since this season's kickoff), so as games are played our model, which sees them, gets more say in Our
+   rank: Pro had Justin Herbert, struggling, ahead of Brock Purdy in week 7 on his August draft spot. Kickoff is the
+   Thursday after Labor Day. */
+function season_progress(cfg, now = Date.now()) {
+  const y = parseInt(cfg.season, 10), sep1 = new Date(y, 8, 1), labor = 1 + ((8 - sep1.getDay()) % 7);
+  const kickoff = new Date(y, 8, labor + 3).getTime();
+  return Math.max(0, Math.min(1, (now - kickoff) / (7 * 86400000) / 8));
+}
 /* MyFantasyLeague ADP (2026-10-20): free "to use in almost any way" (api.myfantasyleague.com/<year>/api_info). Redraft:
    redraft drafts; dynasty: keeper-league drafts (a board for now) and rookie-only drafts. Each list read at most once a
    day; the web version goes through the Worker's proxy. Returns { main, rookie }: { drafts, label, players: [{ key,
@@ -1769,17 +1778,20 @@ async function attach_orank(cfg, assets, results, log) {
   // our model's lean at each position, over the market's top 200
   const top = players.filter(a => base(a) && ours(a)).sort((x, y) => base(y) - base(x)).slice(0, 200), lean = {};
   for (const pos of POSITIONS) { const r = top.filter(a => a.pos === pos).map(a => Math.log(ours(a) / base(a))).sort((x, y) => x - y); lean[pos] = r.length >= 5 ? Math.exp(r[r.length >> 1]) : 1; }
+  // against MFL's summer board our model's say grows through the season: 0.2 before kickoff, 0.6 by week 8, and it may
+  // move a player further (the free editions' live trade market keeps 0.2)
+  const sp = M === X ? season_progress(cfg) : 0, ow = ORANK_W + 0.4 * sp, olo = ORANK_LO - 0.2 * sp, ohi = ORANK_HI + 0.9 * sp;
   let n = 0;
   for (const a of players) {
     const b = base(a), o = ours(a) != null ? ours(a) / (lean[a.pos] || 1) : null;
     if (!b && !o) continue;
-    a.orank = b ? (o ? pyround(b * Math.pow(Math.min(ORANK_HI, Math.max(ORANK_LO, o / b)), ORANK_W)) : pyround(b)) : pyround(o * ORANK_UNLISTED);
+    a.orank = b ? (o ? pyround(b * Math.pow(Math.min(ohi, Math.max(olo, o / b)), ow)) : pyround(b)) : pyround(o * ORANK_UNLISTED);
     // for Market vs ours (2026-10-16): the outside market's value and our model's own view, on the same scale
     a.omkt = b ? pyround(b) : null; a.oview = o ? pyround(o) : null;
     n++;
   }
   const used = [fc && "fantasycalc", dp && "dynastyprocess", M === X && "mfl"].filter(Boolean);
-  log(`Our rank: ${n} players, starting from ${used.map(u => SOURCES[u].label).join(" and ")}`);
+  log(`Our rank: ${n} players, starting from ${used.map(u => SOURCES[u].label).join(" and ")}${sp ? `, our model's weight ${ow.toFixed(2)}` : ""}`);
   return used;
 }
 /* The stored values came from an older value formula: rebuild them whatever their age. */
