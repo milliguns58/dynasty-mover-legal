@@ -797,6 +797,30 @@ async function live_matchup(values, cfg, W, team) {
   const oppTeam = lg.teams.find(t => t.roster_id === opp.roster_id);
   return { week: W.week, p, me: A, them: B, opponent: oppTeam ? oppTeam.team_name : `Roster ${opp.roster_id}`, final: A.playing === 0 && A.left === 0 && B.playing === 0 && B.left === 0, started: A.done + A.playing + B.done + B.playing > 0 };
 }
+/* Matchup preview (2026-10-21, the user's ask: how you stack up against this week's opponent). Before kickoff: your
+   best lineup against theirs, slot by slot, both on our projections, and the chance to win on the live card's spread.
+   Sleeper leagues only (Sleeper's matchups say who you play). Once a starter's game kicks off, the live card takes over.
+   No projections for either side means no preview (no advice beats bad advice). */
+async function matchup_preview(values, cfg, W, team) {
+  const lg = values.league; if (!lg || !lg.league_id || !W || !W.week || W.valuesOnly) return null;
+  const mus = await Net.json(`${E.SLEEPER_URL}/league/${lg.league_id}/matchups/${W.week}`, null, 30000).catch(() => null);
+  if (!Array.isArray(mus)) return null;
+  const mine = mus.find(m => m.roster_id === team.roster_id); if (!mine || mine.matchup_id == null) return null;
+  const opp = mus.find(m => m.matchup_id === mine.matchup_id && m.roster_id !== team.roster_id); if (!opp) return null;
+  const them = lg.teams.find(t => t.roster_id === opp.roster_id); if (!them) return null;
+  const A = lineup_helper(values, cfg, team, W), B = lineup_helper(values, cfg, them, W), now = Date.now();
+  if (!(A.rec_total > 0) || !(B.rec_total > 0)) return null;
+  const started = [A, B].some(L => L.recommended.some(x => x.team && (played_share(W.ctx, x.team, now) || 0) > 0));
+  // the two lineups share the league's slots: pair them in order
+  const left = B.recommended.slice();
+  const rows = A.recommended.map(x => { const i = left.findIndex(y => y.slot === x.slot); return { slot: x.slot, me: x, them: i >= 0 ? left.splice(i, 1)[0] : null }; });
+  left.forEach(y => rows.push({ slot: y.slot, me: null, them: y }));
+  const sdOf = L => Math.sqrt(L.recommended.reduce((t, x) => t + Math.pow(LIVE_SD * (x.pts || 0), 2), 0));
+  const sd = Math.hypot(sdOf(A), sdOf(B)), p = sd > 0 ? normal_cdf((A.rec_total - B.rec_total) / sd) : 0.5;
+  const edge = {};                                           // the edge at each slot type (flex slots count as their own)
+  for (const r of rows) edge[r.slot] = (edge[r.slot] || 0) + ((r.me && r.me.pts) || 0) - ((r.them && r.them.pts) || 0);
+  return { week: W.week, opponent: them.team_name, me: A.rec_total, them: B.rec_total, set_now: A.has_current ? A.cur_total : null, gain: A.gain, p, rows, edge, started };
+}
 // ---------------------------------------------------------------------------
 // Lineup helper
 // ---------------------------------------------------------------------------
@@ -1945,6 +1969,6 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
   return { band: band[1], tone: band[2], score, pct, lens, lensTxt, reasons, sweeteners, need, message, summary, owner, mode: B.mode, thin: B.thin, deep: B.deep, trades: T };
 }
 
-return { met_weather, team_context, kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
+return { met_weather, team_context, kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, matchup_preview, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
   waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades, season_grades, season_points, past_week_grades };
 })();

@@ -644,6 +644,42 @@ function wireCard() {
     return `<div class="wire-row"><div class="n"><a class="plink" data-pcard="${esc(e.sid)}">${esc(e.name)}</a> <span class="muted">${esc(e.pos)} · ${esc(e.team)}</span>${mineTag}</div><div class="s">${esc(e.text)} · ${esc(ago(e.t))}</div></div>`;
   }).join("")}</div><p class="credit" style="text-align:left;padding:6px 0 0">From Sleeper's player list and the NFL's reports via nflverse.</p></section>`;
 }
+/* The watchlist (2026-10-21, the user's ask: players you like and want to keep an eye on). One list for the whole app,
+   kept by Sleeper id. Each league keeps the value and position rank he had when you started watching (or when you first
+   opened that league with him on the list), so the list shows how he has moved since; with it, whether he's free in this
+   league, and his latest news. Tap the star on any player card to add or remove him. */
+const watchList = () => app().watch || [];
+const watchKey = a => String(a.sleeper_id || a.id);
+const watching = a => watchList().some(w => w.k === watchKey(a));
+function toggleWatch(a) {
+  const k = watchKey(a), on = !watching(a), pid = E.P && E.P.id;
+  saveApp({ watch: on ? watchList().concat({ k, name: a.name, pos: a.pos, added: Date.now(), base: pid ? { [pid]: [a.value || 0, a.pos_rank || null] } : {} }) : watchList().filter(w => w.k !== k) });
+  const box = $("#watchBox"); if (box) box.innerHTML = watchCard();
+  return on;
+}
+function watchCard() {
+  const L = watchList(); if (!L.length || !S.values) return "";
+  const owner = {}, me = S.cfg ? S.cfg.my_roster_id : null, pid = E.P && E.P.id, since = Date.now() - 14 * 86400000, wire = E.load_wire();
+  for (const t of teams()) for (const p of t.players) owner[String(p)] = t;
+  let fill = false;
+  const rows = L.map(w => {
+    const a = resolvePlayer(w.k); if (!a) return null;
+    const b = w.base = w.base || {};
+    if (pid && !b[pid]) { b[pid] = [a.value || 0, a.pos_rank || null]; fill = true; }
+    const [v0, r0] = b[pid] || [a.value || 0, a.pos_rank || null], dv = (a.value || 0) - v0;
+    const t = owner[String(a.sleeper_id || "")], free = teams().length && !t;
+    const where = !teams().length ? "" : t ? (t.roster_id === me ? `<span class="tag-start">Yours</span>` : `<span class="muted"> · ${esc(t.team_name)}</span>`) : `<span class="tag-free">Available</span>`;
+    const news = wire.find(e => e.sid === String(a.sleeper_id || "") && new Date(e.t).getTime() >= since);
+    const rk = a.pos_rank ? `${esc(a.pos)}${a.pos_rank}${r0 && r0 !== a.pos_rank ? ` <span class="${a.pos_rank < r0 ? "good" : "bad"}">(was ${esc(a.pos)}${r0})</span>` : ""}` : esc(a.pos);
+    return { free, v: a.value || 0, html: `<div class="item watch-row" data-pcard="${esc(a.id)}">${avatar(a)}<div class="nm"><div class="n"><span class="nt">${esc(a.name)}</span>${statusFlag(a)}${where}</div>
+      <div class="s">${rk} · ${esc(a.team || "FA")}${news ? ` · ${esc(news.text)}, ${esc(ago(news.t))}` : ""}</div></div>
+      <div class="v"><b>${a.value ? fmt(a.value) : "–"}</b>${Math.abs(dv) >= 1 ? `<small class="${dv > 0 ? "good" : "bad"}">${dv > 0 ? "▲ +" : "▼ −"}${fmt(Math.abs(dv))}</small>` : ""}</div></div>` };
+  }).filter(Boolean);
+  if (fill) saveApp({ watch: L });
+  if (!rows.length) return "";
+  rows.sort((x, y) => (y.free - x.free) || (y.v - x.v));                 // the ones you could add right now first
+  return `<section class="card flush"><div class="grp">Your watchlist<span class="grp-note">since you added them</span></div><div class="list">${rows.map(r => r.html).join("")}</div></section>`;
+}
 function renderHome(el) {
   const H = S.home, adds = H.kind === "adds";
   el.innerHTML = `<section class="hero-home ${adds ? "" : "drops"}">
@@ -655,6 +691,7 @@ function renderHome(el) {
     </section>
     ${S.cfg ? "" : `<section class="card cta"><div><b>Add your league</b><div class="hint">See who's still available and value trades.</div></div><button class="btn primary sm" id="homeAdd">Add</button></section>`}
     ${typeof GM !== "undefined" ? GM.homeCard() : ""}
+    <div id="watchBox">${watchCard()}</div>
     <section class="card flush"><div class="list" id="trend">${loading("Loading trending players…")}</div></section>
     ${wireCard()}
     <p class="credit">Trending data from <a data-link="https://sleeper.com">Sleeper</a>.${S.values ? " " + credits().replace(/^<p class="credit">|<\/p>$/g, "") : ""}</p>`;
@@ -1619,7 +1656,7 @@ function drawLineup(body, t, W) {
   const num = x => W.valuesOnly ? fmt(x) : x.toFixed(1);
   const starts = L.changes.filter(c => c.action === "start"), benches = L.changes.filter(c => c.action === "bench");
   const better = L.gain > (W.valuesOnly ? 1 : 0.05);
-  let h = `<div id="liveCard"></div><section class="card stat-card tone-blue"><div><div class="big-num">${num(L.rec_total)}</div><div class="hint">${W.valuesOnly ? "best lineup value" : `projected points, week ${L.week}`}</div></div>
+  let h = `<div id="liveCard"></div><div id="muCard"></div><section class="card stat-card tone-blue"><div><div class="big-num">${num(L.rec_total)}</div><div class="hint">${W.valuesOnly ? "best lineup value" : `projected points, week ${L.week}`}</div></div>
     ${L.has_current ? `<div><div class="big-num ${better ? "good" : ""}">${better ? "+" + num(L.gain) : "✓"}</div><div class="hint">${better ? "if you make the changes" : "lineup is set"}</div></div>` : ""}</section>`;
   if (W.valuesOnly) {                                            // no projections this week: the lineup is shown by value, but no changes are called (no advice beats bad advice)
     h += `<section class="card tone-green set-card"><b>No projections for this week yet.</b> The lineup below is by value; no changes are suggested until the week's numbers are in.</section>`;
@@ -1648,6 +1685,7 @@ function drawLineup(body, t, W) {
   h += `<section class="card">${more("How this works", extra)}${W.valuesOnly ? "" : `<button class="btn ghost block" id="wref" style="margin-top:12px">Refresh rosters and projections</button>${lgi ? `<div class="hint" style="text-align:center;margin-top:6px">Rosters from Sleeper ${esc(lgi)}</div>` : ""}`}</section>`;
   body.innerHTML = h;
   liveCard(body, t, W);
+  matchupCard(body, t, W);
   $$("[data-card-name]", body).forEach(it => it.onclick = () => { const a = S.values.by_id[it.dataset.cardName]; if (a) card(a); });
   if ($("#wref")) $("#wref").onclick = () => { body.innerHTML = loading("Refreshing rosters and projections…"); freshRosters(true).then(() => weekData(true)).then(W2 => drawLineup(body, teamById(t.roster_id) || t, W2), e => toast("Couldn't refresh. Check your connection.")); };
 }
@@ -2053,7 +2091,7 @@ function card(a, opts = {}) {
     const ch = C.changes || {}, d30 = ch["30d"];
     const move = d30 ? d30[0] : (a.trend || 0), G = gradeOf(a), M = moveOf(a);
     const status = C.status ? `<span class="chip ${Week.INJURY_OUT.has(C.status) ? "alert" : "amber"}">${esc(C.status)}</span>` : "";
-    let h = `<div class="sheet-head"><span></span><button class="close" aria-label="Close">×</button></div>
+    let h = `<div class="sheet-head">${a.is_pick ? "<span></span>" : `<span><button class="watch-btn${watching(a) ? " on" : ""}" id="watchBtn">${watching(a) ? "★ Watching" : "☆ Watch"}</button></span>`}<button class="close" aria-label="Close">×</button></div>
       <div class="band ${esc(a.pos)}">${C.owner && C.owner !== "free agent" ? `<span class="band-owner${C.owner_id != null && C.owner_id === S.cfg.my_roster_id ? " mine" : ""}">${C.owner_id != null && C.owner_id === S.cfg.my_roster_id ? "Your team" : esc(C.owner)}</span>` : ""}<div class="band-top">${avatar(a, "xl")}<div><div class="band-name">${esc(a.name)}</div>${hdr && hdr.bio ? `<div class="band-bio">${hdr.bio}</div>` : ""}</div></div>
         <div class="chips">${hdr && hdr.team ? `<button class="chip link" data-depth="${esc(hdr.team)}" aria-label="${esc(hdr.team)} depth chart">${hdr.pos} ›</button>`
           : `<span class="chip">${hdr ? hdr.pos : esc(a.pos) + (a.is_pick ? "" : " · " + esc(a.team || "FA"))}</span>`}${a.age != null ? `<span class="chip">age ${Math.floor(a.age)}</span>` : ""}${hdr ? hdr.health : status}</div>
@@ -2161,6 +2199,12 @@ function card(a, opts = {}) {
       if (/adding/.test(wcb.textContent)) keep.add = a.id; else keep.drop = a.id;
       S.wc = keep; S.team.id = me; S.team.seg = "waivers"; closeSheet(); go("team");
       setTimeout(() => { const c = $("#wcCard"); if (c) c.scrollIntoView({ behavior: "smooth", block: "start" }); }, 400);
+    };
+    const wb = $("#watchBtn", body);
+    if (wb) wb.onclick = () => {
+      const on = toggleWatch(a);
+      wb.classList.toggle("on", on); wb.textContent = on ? "★ Watching" : "☆ Watch";
+      toast(on ? `Watching ${a.name}: he's on your Home screen` : `${a.name} is off your watchlist`);
     };
     const av = $("#avoidBtn", body);
     if (av) av.onclick = () => {
@@ -2617,6 +2661,34 @@ function manualSetup(name, el) {
     if (E.P.id === pid && S.values) { S.team.id = 1; go("team"); rosterBuilder(1); }
   };
 }
+/* This week's matchup before kickoff (2026-10-21, the user's ask): your best lineup against your opponent's, slot by
+   slot, both on our projections (week.js matchup_preview). Your own team only; the live card takes over once a game starts. */
+function matchupCard(body, t, W) {
+  const box = $("#muCard", body); if (!box || W.valuesOnly || t.roster_id !== S.cfg.my_roster_id) return;
+  Week.matchup_preview(S.values, S.cfg, W, t).then(M => {
+    if (!box.isConnected) return;
+    if (!M || M.started) { box.innerHTML = ""; return; }
+    const pct = Math.round(M.p * 100), tone = pct >= 55 ? "good" : pct <= 45 ? "bad" : "";
+    const call = pct >= 70 ? "You're the favorite" : pct >= 55 ? "A slight edge to you" : pct > 45 ? "A coin flip" : pct > 30 ? "A slight edge to them" : "They're the favorite";
+    const who = x => !x || x.name === "(empty)" ? `<span class="muted">empty</span>`
+      : `${x.pos === "DEF" ? `<span class="nt">${esc(x.name)}</span>` : `<a class="plink nt" data-pcard="${esc(x.id || x.pid || x.name)}">${esc(x.name)}</a>`}${x.flag ? `<span class="flag ${esc(x.flag)}">${esc(x.flag)}</span>` : ""}`;
+    const pts = (x, win) => `<b class="${win ? "good" : ""}">${x && x.name !== "(empty)" ? x.pts.toFixed(1) : "–"}</b>`;
+    const rows = M.rows.map(r => {
+      const a = (r.me && r.me.pts) || 0, b = (r.them && r.them.pts) || 0, d = a - b;
+      return `<div class="mu-row"><div class="mu-side">${who(r.me)}${pts(r.me, d >= 0.5)}</div><span class="slot ${esc(slotClass(r.slot))}">${esc(SLOT_LABEL(r.slot))}</span><div class="mu-side them">${pts(r.them, d <= -0.5)}${who(r.them)}</div></div>`;
+    }).join("");
+    const lbl = k => SLOT_LABEL(k), ahead = Object.entries(M.edge).filter(([, d]) => d >= 1).sort((x, y) => y[1] - x[1]), behind = Object.entries(M.edge).filter(([, d]) => d <= -1).sort((x, y) => x[1] - y[1]);
+    const list = L => L.slice(0, 3).map(([k, d]) => `${esc(lbl(k))} (${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(1)})`).join(", ");
+    const where = [ahead.length ? `You're ahead at ${list(ahead)}.` : "", behind.length ? `They're ahead at ${list(behind)}.` : ""].filter(Boolean).join(" ");
+    const fix = M.set_now != null && M.gain > 0.05 ? `<p class="note">Your lineup as set now projects ${M.set_now.toFixed(1)}. The changes below add ${M.gain.toFixed(1)}.</p>` : "";
+    box.innerHTML = `<section class="card mu-card"><div class="kicker">Week ${M.week} matchup</div><h2>vs ${esc(M.opponent)}</h2>
+      <div class="live-row"><div><div class="big-num ${tone}">${pct}%</div><div class="hint">chance to win</div></div>
+        <div class="live-sides"><div class="kv"><span>You</span><b>${M.me.toFixed(1)}</b></div><div class="kv"><span>${esc(M.opponent)}</span><b>${M.them.toFixed(1)}</b></div></div></div>
+      <p class="note"><b>${call}.</b> ${where}</p>${fix}
+      ${more("Slot by slot", `<div class="mu-head"><span>You</span><span>Them</span></div>${rows}`)}
+      <p class="hint">Both teams' best lineups on our projections. Once games start, this turns into the live score.</p></section>`;
+  }, () => { if (box.isConnected) box.innerHTML = ""; });
+}
 /* Live win probability on game days: Sleeper's live points plus our projection for what is left (week.js live_matchup).
    Drawn into #liveCard on the lineup, refreshed every two minutes while that screen is open. */
 const LIVE_EVERY = 2 * 60000;
@@ -2627,6 +2699,7 @@ async function liveCard(body, t, W) {
     if (!box.isConnected) { clearInterval(S.liveTimer); S.liveTimer = null; return; }
     let L = null; try { L = await Week.live_matchup(S.values, S.cfg, W, t); } catch (e) { L = null; }
     if (!L || !L.started) { box.innerHTML = ""; return; }
+    const mu = $("#muCard", body); if (mu) mu.innerHTML = "";
     const pct = Math.round(L.p * 100), tone = pct >= 60 ? "good" : pct <= 40 ? "bad" : "";
     const line = s => `${s.actual.toFixed(1)}${L.final ? "" : ` → ${s.mean.toFixed(1)}`}`;
     box.innerHTML = `<section class="card tone-green live-card"><div class="kicker">${L.final ? `Week ${L.week}: final` : `Live, week ${L.week}`}</div>
