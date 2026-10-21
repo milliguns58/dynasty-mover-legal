@@ -545,16 +545,21 @@ function assetRow(a, opts = {}) {
     <div class="v">${right}</div>${opts.x ? `<button class="x" data-x="${esc(a.id)}" aria-label="Remove">×</button>` : ""}</div>`;
 }
 /* Every screen that shows values credits its sources, with a link to FantasyCalc.com (its terms require it). */
+/* One line of credit at the foot of a screen (2026-10-21, the user's ask: easier to read); every source, with its
+   license, is in About, which the Sources link opens. FantasyCalc keeps its own link wherever its values are used, as
+   its terms ask. */
 function credits(extra = "") {
-  // the lists "Our rank" starts from (values.json anchor) are credited too
   const used = [...new Set([].concat((S.values && S.values.meta.sources_used) || [], (S.values && S.values.meta.anchor) || []))];
-  const fc = used.includes("fantasycalc"), dmv = used.includes("dmv") || !used.length;
-  const names = used.filter(n => n !== "fantasycalc" && n !== "dmv").map(n => (E.SOURCES[n] || {}).label || n);
-  const parts = (fc ? [`<a data-link="https://fantasycalc.com">FantasyCalc.com</a>`] : []).concat(dmv ? ["Dynasty Mover"] : []).concat(names.map(esc));
-  const ep = dmv && S.values && S.values.players.some(a => a.ep);
-  const stats = dmv ? ` Stats from <a data-link="https://github.com/nflverse/nflverse-data">nflverse</a> (CC BY 4.0).${ep ? ` Expected points from <a data-link="https://github.com/ffverse/ffopportunity">ffopportunity</a> (CC BY-SA 4.0).` : ""}` : "";
-  return `<p class="credit">Values from ${parts.join(", ")}.${stats}${extra ? " " + esc(extra) + "." : ""}</p>`;
+  const fc = used.includes("fantasycalc");
+  return `<p class="credit">Data from <a data-link="https://github.com/nflverse/nflverse-data">nflverse</a> (CC BY 4.0), Sleeper${fc ? `, <a data-link="https://fantasycalc.com">FantasyCalc.com</a>` : ""} and more${extra ? " · " + esc(extra) : ""} · <a class="lnk" data-sources="1">Sources</a></p>`;
 }
+document.addEventListener("click", e => {
+  if (!e.target.closest("[data-sources]")) return;
+  e.preventDefault();
+  if (sheetOpen()) closeSheet(true);
+  S.setOpen = true; go("league");
+  setTimeout(() => { const d = [...document.querySelectorAll(".set-det details.more")].find(x => /About/.test(x.querySelector("summary").textContent)); if (d) { d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); } }, 150);
+});
 /* Player links: any name marked data-pcard opens that player's card, wherever it appears (even inside a row that does
    something else when tapped). The key can be a value-list id, a Sleeper id or a name; players on no value list get a
    plain card from Sleeper's player list. */
@@ -1352,7 +1357,7 @@ function renderRank(el) {
         : E.is_redraft(S.cfg) ? "The grade is ours: the points he'll score this season (production, role and health). Age doesn't count in redraft. The value and rank are the market's."
         : "The grade is ours: what his future holds (production, the prime years he has left, role and health). The value and rank are the market's."}
       ${E.is_redraft(S.cfg) ? `<span class="mv up">▲</span> value rising, <span class="mv down">▼</span> falling, <span class="mv flat">–</span> steady (last 30 days).` : ""}</p>`)}
-    <section class="card flush"><div class="list${R.pos === "EDGE" ? " edge-list" : ""}" id="rlist"></div></section>${credits(R.pos === "ROOK" ? "College data provided by CollegeFootballData.com" : "")}`;
+    <section class="card flush"><div class="list${R.pos === "EDGE" ? " edge-list" : ""}" id="rlist"></div></section>${credits(R.pos === "ROOK" ? "College data: CollegeFootballData.com" : "")}`;
   const drawClass = () => {
     const list = $("#rlist"), Y = draftYear();
     list.innerHTML = loading(`Loading the ${Y} class…`);
@@ -1522,7 +1527,7 @@ function renderTeam(el) {
       <span class="record">${esc(t.record)}</span>${manual ? `<button class="btn ghost sm" id="editRoster">Edit</button>` : ""}</div>
     ${S.cfg.my_roster_id == null ? `<button class="btn soft block" id="setMine">This is my team</button>` : ""}
     <div class="seg" id="tseg">${segs.map(([k, l]) => `<button data-v="${k}" class="${S.team.seg === k ? "on" : ""}" ${locked() && k !== "roster" ? 'data-lock="team"' : ""}>${l}${k !== "roster" ? " " + proTag() : ""}</button>`).join("")}</div>
-    <div id="tbody"></div>${credits(E.PLAY ? "Rosters, injuries and trending pickups from Sleeper · Schedule and lines from nflverse (CC BY 4.0) · Weather from the National Weather Service and MET Norway" : "Rosters and trending pickups from Sleeper")}`;
+    <div id="tbody"></div>${credits()}`;
   $("#tsel").onchange = e => { S.team.id = +e.target.value; saveUi(); renderTeam(el); };
   const er = $("#editRoster");
   if (er) er.onclick = () => rosterBuilder(t.roster_id);
@@ -1579,7 +1584,7 @@ function drawRoster(body, t) {
    players on the roster the market has wrong. */
 function teamRead(roster, st, rank) {
   const n = teams().length || 12, rd = E.is_redraft(S.cfg);
-  if (locked()) return `<section class="card"><h2>Team read ${Pro.tag()}</h2><div class="hint">Contender or rebuilding? Which players to sell before the cliff, and which ones the market undervalues.</div>
+  if (locked()) return `<section class="card"><h2>Your team ${Pro.tag()}</h2><div class="hint">Contender or rebuilding? Which players to sell before the cliff, and which ones the market undervalues.</div>
       <button class="btn soft block" data-lock="ourgrade" style="margin-top:12px">Show me with Pro</button></section>`;
   const pl = roster.filter(a => !a.is_pick && a.oscore != null);
   if (pl.length < 5) return "";
@@ -1603,9 +1608,9 @@ function teamRead(roster, st, rank) {
   else { title = "In between"; text = `Middle of the pack, and our grades (${g} on average) say the starters are about what they look like. Pick a direction: consolidate for a run, or sell the older names and get younger.`; }
   const row = a => `<div class="kv"><span>${plinkName(a.name)} <span class="muted">${esc(a.pos)} · ${a.age != null ? Math.floor(a.age) : ""}</span></span><b>ours ${esc(gradeOf(a).g)} · market ${esc(gradeOf(a, true).g)}</b></div>`;
   let extra = "";
-  if (sells.length) extra += `<div class="sub-h">The market has these higher than we do${rd ? "" : ": sell candidates"}</div>` + sells.slice(0, 4).map(row).join("");
-  if (holds.length) extra += `<div class="sub-h">The market has these lower than we do${rd ? "" : ": hold, or buy more"}</div>` + holds.slice(0, 4).map(row).join("");
-  return `<section class="card tone-orange"><h2>Team read: ${esc(title)}</h2><p class="note">${text}</p>${extra}</section>`;
+  if (sells.length) extra += `<div class="sub-h">${rd ? "Worth less than people think" : "Worth less than people think: sell"}</div>` + sells.slice(0, 4).map(row).join("");
+  if (holds.length) extra += `<div class="sub-h">${rd ? "Worth more than people think" : "Worth more than people think: hold or buy"}</div>` + holds.slice(0, 4).map(row).join("");
+  return `<section class="card tone-orange"><h2>Your team: ${esc(title)}</h2><p class="note">${text}</p>${extra}</section>`;
 }
 
 function drawLineup(body, t, W) {
@@ -1835,8 +1840,7 @@ function drawWaivers(body, t, W) {
   const hasDef = Week.kdef_ready(W) && (S.values.league.roster_positions || []).includes("DEF");
   const defenses = hasDef ? Week.defense_streamers(S.values, S.cfg, W) : [];
   const moves = Week.roster_moves(S.values, S.cfg, t, W, { n: 6, per_group: 2, fas, metric: M, defenses });
-  let h = waiverCheckCard(t, fas, W, M) + weakSpots(t, fas, W, M);
-  h += `<section class="card tone-green"><h2>Suggested pickups</h2>`;
+  let h = `<section class="card tone-green"><h2>Suggested pickups</h2>`;
   h += moves.length ? `<div class="list">${moves.map(m => `<div class="move" data-card="${esc(m.add.id)}">
       <div class="move-main">${badge(m.add.pos)}<div class="nm"><div class="n">Add ${esc(m.add.name)}</div>
         <div class="s">${m.drop ? "Drop " + plink(m.drop) : "Open roster spot"}</div></div>
@@ -1849,8 +1853,10 @@ function drawWaivers(body, t, W) {
     if (!rows.length) continue;
     board += `<div class="grp">${esc(grp)}${W.acc ? PW_LEGEND : ""}</div>` + rows.map(a => assetRow(a, { sub: esc(whyPlain(parts, a, "not playing much yet")), extra: pastWeeks(a) })).join("");
   }
+  h += weakSpots(t, fas, W, M);                                        // (2026-10-21: the suggestions lead; weak spots, the board and the checker follow)
   if (board) h += `<section class="card">${more("Best available players", `<div class="list">${board}</div>`)}</section>`;
   if (defenses.length) h += `<section class="card">${more(`Best defenses for week ${defenses[0].week}`, defenses.slice(0, 8).map(d => `<div class="kv"><span><b>${esc(d.team)}</b> ${d.home === false ? "at" : "vs"} ${esc(d.opp || "?")}${d.owner ? "" : ' <span class="tag-free">Available</span>'}</span><b>${d.adj.toFixed(1)}</b></div>`).join(""))}</section>`;
+  h += waiverCheckCard(t, fas, W, M);
   body.innerHTML = h;
   bindCards(body);
   $$("[data-card]", body).forEach(b => b.onclick = () => { const a = S.values.by_id[b.dataset.card] || fas.find(x => x.id === b.dataset.card); if (a) card(a); });
@@ -1972,7 +1978,7 @@ async function depthChart(team, from) {
       }).join("") + (rows.length > keep ? `<button class="link-btn more-depth" data-g="${g}">Show ${rows.length - keep} more</button>` : "");
     }
     $("#depthBody", body).innerHTML = (h || `<div class="empty">Sleeper has no depth chart for ${esc(team)} right now.</div>`) +
-      credits("Depth charts from Sleeper");                // grades come from the value lists, so they get credited too
+      credits();                // grades come from the value lists, so they get credited too
     $$("[data-sid]", body).forEach(n => n.onclick = () => { const x = resolvePlayer(n.dataset.sid); if (x) card(x); else toast("No card for this player yet"); });
     $$(".more-depth", body).forEach(b => b.onclick = () => {
       let n = b.previousElementSibling;
@@ -2473,7 +2479,7 @@ function renderLeague(el) {
     const settingsBox = locked() ? lockNote(`Your league's scoring ${lg ? "comes from Sleeper automatically" : "uses standard settings"}: ${esc(formatText(S.cfg))}. Changing it (league type, PPR, superflex, TE premium, QB bonuses) is part of Pro.`, "settings") : settings;
     const listsBox = locked() ? lockNote("Values blend every ranking site. Choosing which sites count is part of Pro.", "sources") : lists;
     // one drop-down for all of it (2026-10-20, the user's ask), like Your leagues
-    h += `<section class="card flush lg-card"><details class="lg-det set-det"${S.setOpen ? " open" : ""}><summary><span class="lg-dt">Settings</span><span class="set-sub">league, ranking sites, season, look, about</span></summary><div class="set-body">${more(locked() ? "League settings · PRO" : "League settings", settingsBox)}${more(locked() ? "Ranking sites · PRO" : "Ranking sites", listsBox)}${more("New season", season)}
+    h += `<section class="card flush lg-card"><details class="lg-det set-det"${S.setOpen ? " open" : ""}><summary><span class="lg-dt">Settings</span><span class="set-sub">${window.OWN_VALUES_ONLY ? "league, season, look, about" : "league, ranking sites, season, look, about"}</span></summary><div class="set-body">${more(locked() ? "League settings · PRO" : "League settings", settingsBox)}${window.OWN_VALUES_ONLY ? "" : more(locked() ? "Ranking sites · PRO" : "Ranking sites", listsBox)}${more("New season", season)}
       ${more("Appearance", `<label class="lbl">Look</label><div class="seg" id="look">${[["classic", "Classic"], ["retro", "8-bit"]].map(([k, l]) => `<button data-v="${k}" class="${(a.look || "classic") === k && (k !== "retro" || !locked()) ? "on" : ""}" ${k === "retro" && locked() ? 'data-lock="retro"' : ""}>${l}${k === "retro" ? " " + proTag() : ""}</button>`).join("")}</div>
         <label class="lbl" style="margin-top:12px">Colors (Classic look)</label><div class="seg" id="theme">${[["system", "Automatic"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button data-v="${k}" class="${(a.theme || "system") === k ? "on" : ""}">${l}</button>`).join("")}</div>`)}<!--set-->`;   // the card stays open for About, below
   }
@@ -2726,7 +2732,7 @@ function tradeCalls() {
 }
 /* A player's last weeks on a row (2026-10-19): our estimate, then what he scored, green when he beat it and red
    when he fell short. From the projection record; nothing for a player we had no estimate for. */
-const PW_LEGEND = `<span class="grp-note pw-key">last 3 wks: our estimate, what he scored</span>`;
+const PW_LEGEND = `<span class="grp-note pw-key">last 3 weeks: our guess → his score</span>`;
 /* Lineup rows (2026-10-19): last week's grade, what we predicted and what he scored. */
 function lastWeekLine(a, W) {
   if (!a || !W || !W.acc || !W.week || W.week < 2) return "";
@@ -2740,7 +2746,7 @@ function pastWeeks(a, n = 3) {
     if (!per) return "";
     const ws = Object.keys(per).map(Number).sort((x, y) => y - x).slice(0, n);
     if (!ws.length) return "";
-    return `<div class="pw">${ws.map(w => { const [e, got] = per[w]; return `<span class="pw-c ${got >= e ? "up" : "dn"}" title="Week ${w}: we said ${e.toFixed(1)}, he scored ${got.toFixed(1)}"><i>W${w}</i>${e.toFixed(1)} <b>${got.toFixed(1)}</b></span>`; }).join("")}</div>`;
+    return `<div class="pw">${ws.map(w => { const [e, got] = per[w]; return `<span class="pw-c ${got >= e ? "up" : "dn"}" title="Week ${w}: we said ${e.toFixed(1)}, he scored ${got.toFixed(1)}"><i>Wk ${w}</i>${e.toFixed(1)} → <b>${got.toFixed(1)}</b></span>`; }).join("")}</div>`;
   } catch (e) { return ""; }
 }
 /* Our estimate against what he scored, his last weeks (the projection record), else the live snapshot. */
