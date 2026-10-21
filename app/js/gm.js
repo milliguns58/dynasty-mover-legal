@@ -48,7 +48,7 @@ const GM = (() => {
     if (Week.is_star(a)) t.push("STAR");
     // whether a QB starts for his NFL team (Sleeper's depth chart): a starter and a backup are different assets (2026-10-16)
     if (a.pos === "QB") { const d = (E.load_player_status()[String(a.sleeper_id || "")] || {}).depth; if (a.team && a.team !== "FA" && d) t.push(d === 1 ? "NFL starter" : `NFL backup (QB${d})`); }
-    const st = E.is_redraft(S.cfg) ? "" : E.age_stage(a.pos, a.age);
+    const st = E.is_redraft(S.cfg) ? "" : E.age_stage(a.pos, a.age, a.rush);
     if (st === "cliff") t.push(`past the ${a.pos} cliff`); else if (st === "near") t.push("cliff next year"); else if (st === "decline") t.push("declining");
     if (a.pos === "QB" && !E.is_redraft(S.cfg)) { const p = ppgNow(a), u = parseInt(S.cfg.league.num_qbs, 10) >= 2 ? E.QB_USABLE.sf : E.QB_USABLE.one; if (p != null) t.push(p >= u ? `usable QB ${p.toFixed(1)}/g` : p < u - 3 ? `not scoring ${p.toFixed(1)}/g` : `${p.toFixed(1)}/g`); }
     return t.length ? ` [${t.join(", ")}]` : "";
@@ -69,7 +69,7 @@ const GM = (() => {
     if (rd) { out.push("- Redraft: points only. Age, runway, youth and draft slot count for nothing; the best roster scores the most this season. Most players can be replaced: sell the name, keep the points."); }
     else {
       const C = E.AGE_CLIFF;
-      out.push(`- Age cliffs: RB ${C.RB}, WR ${C.WR}, TE ${C.TE}, QB ${C.QB}; the slide starts two years before each. Sell a year early rather than a year late. Player lines carry "declining", "cliff next year" or "past the cliff".`);
+      out.push(`- Age cliffs: RB ${C.RB}, WR ${C.WR}, TE ${C.TE}, QB ${C.QB} (35 for a QB who relies on running); the slide starts two years before each. Sell a year early rather than a year late. Player lines carry "declining", "cliff next year" or "past the cliff".`);
       out.push("- Young talent is the currency: never trade away or drop a young player with long-term value for a short-term fill-in.");
       out.push(`- Usable quarterbacks: a QB scoring ${sf ? E.QB_USABLE.sf : E.QB_USABLE.one}+ points a game this season is a usable starter and worth more than his reputation says; one well under it is worth less. Player lines show his points a game.${sf ? " Superflex: a young starting QB is the hardest asset to acquire; never give one away." : ""}`);
       if (sf) out.push("- Superflex QB trades: never trade a QB who starts for his NFL team (\"NFL starter\") for a backup or a rookie who isn't starting (\"NFL backup\"), whatever their values say. Selling a starting QB needs a starting QB back, or a clear overpay of at least 25% more value, and the manager must keep two starting QBs. A rookie's draft-day hype is not a starting job.");

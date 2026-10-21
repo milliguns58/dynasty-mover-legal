@@ -1310,7 +1310,7 @@ function waiver_check(values, cfg, team, drop, add, W, opts = {}) {
     if (established && (redraft ? (pa.ppg_trim ?? 0) <= (pd.ppg ?? 0) : add.value <= drop.value)) stop.push(line); else note.push(line);
   }
   if (!redraft) {
-    const aging = drop.age != null && drop.age >= (DYN_VET_AGE[drop.pos] || 29), filler = drop.value < 300;
+    const aging = drop.age != null && drop.age >= E.decline_of(drop), filler = drop.value < 300;
     const ratio = drop.value > 0 ? add.value / drop.value : 9;
     if (!filler && ratio < 0.9 && !(aging && drop.value < 1000))
       stop.push(`You'd give up long-term value: ${drop.name} is worth ${fmt(drop.value)}, ${add.name} ${fmt(add.value)}.`);
@@ -1353,7 +1353,7 @@ function _one_move(values, cfg, roster, add, drop, metric, metric_name, parts, s
   // dynasty: don't give up long-term value for a short-term fill-in. The add must be worth about as much long-term,
   // unless the drop is roster filler, or an aging vet whose spot a better player takes. Young talent is never cut for less.
   if (!is_redraft(cfg)) {
-    const aging = drop.age != null && drop.age >= (DYN_VET_AGE[drop.pos] || 29), filler = drop.value < 300;
+    const aging = drop.age != null && drop.age >= E.decline_of(drop), filler = drop.value < 300;
     if (!filler && add.value < 0.9 * drop.value && !(aging && drop.value < 1000)) return null;
     if (drop.age != null && drop.age <= 25 && drop.value >= 400 && add.value < drop.value) return null;
   }
@@ -1674,7 +1674,7 @@ function trade_targets(values, cfg, me, week, n = 8) {
     for (const id of sellers) {
       if (id === me.roster_id) continue;
       const O = info.get(id);
-      for (const a of O.players.filter(a => a.pos === pos && a.value > mine * 1.15 && a.value >= 1500 && (a.age == null || a.age >= VET_AGE[pos] - 2))) {
+      for (const a of O.players.filter(a => a.pos === pos && a.value > mine * 1.15 && a.value >= 1500 && (a.age == null || a.age >= E.decline_of(a) - 2))) {
         const g = pack(spare(M), cost(a));
         if (!g) continue;
         ideas.push({ kind: "buy", team: O.t, get: [a], give: g.items, score: (a.value - mine) * (1.2 - O.standing),
@@ -1683,7 +1683,7 @@ function trade_targets(values, cfg, me, week, n = 8) {
     }
   }
   // 2. sell older starters to contenders who are thin at that spot (dynasty only: in redraft nobody's value "will drop")
-  if (!redraft && direction !== "contend") for (const a of M.players.filter(a => M.startIds.has(a.id) && a.age != null && a.age >= VET_AGE[a.pos] && a.value >= 1500)) {
+  if (!redraft && direction !== "contend") for (const a of M.players.filter(a => M.startIds.has(a.id) && a.age != null && a.age >= E.decline_of(a) && a.value >= 1500)) {
     for (const id of buyers) {
       if (id === me.roster_id) continue;
       const O = info.get(id), need = needOf(O)[a.pos];
@@ -1718,7 +1718,7 @@ function trade_targets(values, cfg, me, week, n = 8) {
   const sfLg = parseInt(cfg.league.num_qbs, 10) >= 2;
   const keep = a => !a.is_pick && ((sfLg && !redraft && a.pos === "QB" && a.age != null && a.age <= 25.5) || (!redraft && direction === "rebuild" && a.age != null && a.age <= 24));
   const offer = pool => pool.filter(a => !keep(a) && !hurt(a));
-  const decline = pos => VET_AGE[pos] || 99;
+  const decline = a => E.decline_of(a);                    // his own: a running QB slides sooner
   const epr = a => (a.ep && a.ep.g >= 4 && a.ep.exp > 0 ? a.ep.pts / a.ep.exp : null);
   const usageOk = a => a.ep && a.ep.exp / a.ep.g >= (a.pos === "QB" ? 15 : 9);   // a real role: expected points a game
   const others = [...info.values()].filter(O => O.t.roster_id !== me.roster_id);
@@ -1736,7 +1736,7 @@ function trade_targets(values, cfg, me, week, n = 8) {
   // 4. buy low: scoring under what his usage earns; the points usually follow the usage
   for (const O of others) for (const a of O.players) {
     const r = epr(a);
-    if (a.pos === "TE" || r == null || r > 0.85 || !usageOk(a) || a.value < 1500 || hurt(a) || (!redraft && a.age != null && a.age >= decline(a.pos))
+    if (a.pos === "TE" || r == null || r > 0.85 || !usageOk(a) || a.value < 1500 || hurt(a) || (!redraft && a.age != null && a.age >= decline(a))
       || (!redraft && direction === "rebuild" && !(a.age != null && a.age <= 25))) continue;   // a rebuilder buys low only on young players
     const g = pack(offer(spare(M)).filter(x => !qbSale(x) || (a.pos === "QB" && canSellQb(x))), a.value * 0.9);
     if (!g) continue;
@@ -1760,7 +1760,7 @@ function trade_targets(values, cfg, me, week, n = 8) {
   // 6. injury buy (dynasty): a good young player who is hurt, from a contender who needs points now
   if (!redraft && direction !== "contend") for (const O of others) {
     if (!(O.standing >= 0.5)) continue;
-    for (const a of O.players.filter(a => hurt(a) && a.pos !== "TE" && a.value >= 2500 && a.age != null && a.age < decline(a.pos) - 1)) {
+    for (const a of O.players.filter(a => hurt(a) && a.pos !== "TE" && a.value >= 2500 && a.age != null && a.age < decline(a) - 1)) {
       const g = pack(offer(spare(M)).filter(x => !qbSale(x)), a.value * 0.8);
       if (!g) continue;
       const inj = (st[String(a.sleeper_id)] || {}).inj;
@@ -1918,7 +1918,7 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
   if (best && theyGive.some(b => b.id === best.id)) { score -= lens === "contend" ? 12 : 8; reasons.push({ good: false, text: `${best.name} is their best player; managers rarely move that piece${lens === "contend" ? ", and they're trying to win now" : ""}` }); }
   // what their mode wants
   if (!rd) {
-    const picks = theyGet.filter(a => a.is_pick), young = theyGet.filter(a => !a.is_pick && a.age != null && a.age <= 24), old = theyGet.filter(a => !a.is_pick && a.age != null && a.age >= VET_AGE[a.pos]);
+    const picks = theyGet.filter(a => a.is_pick), young = theyGet.filter(a => !a.is_pick && a.age != null && a.age <= 24), old = theyGet.filter(a => !a.is_pick && a.age != null && a.age >= E.decline_of(a));
     if (lens === "contend" && picks.length && picks.reduce((s, a) => s + a.value, 0) > gets * 0.4) { score -= 4; reasons.push({ good: false, text: "They're trying to win now; picks don't help them this season" }); }
     if (lens === "rebuild" && (picks.length || young.length)) { score += 4; reasons.push({ good: true, text: "Picks and youth are exactly what a rebuilding team wants" }); }
     if (lens === "rebuild" && old.length && old.reduce((s, a) => s + a.value, 0) > gets * 0.5) { score -= 4; reasons.push({ good: false, text: `${old[0].name} is ${Math.floor(old[0].age)}; a rebuilding team isn't buying that` }); }

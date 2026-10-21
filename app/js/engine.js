@@ -13,9 +13,16 @@ const SLEEPER_URL = "https://api.sleeper.app/v1";
 const POSITIONS = ["QB", "RB", "WR", "TE"];
 /* The age cliffs (the user's rule, 2026-10-12): the age a player's dynasty value falls off, and the age the slide
    starts, two years before. Every age threshold in the app reads these. */
-const AGE_CLIFF = { QB: 40, RB: 29, WR: 31, TE: 37 };
+const AGE_CLIFF = { QB: 39, RB: 29, WR: 31, TE: 37 };                     // QB 40 -> 39 (2026-10-21, the user's rule)
+/* A QB's cliff by how much of his scoring comes from running (the user's rule, 2026-10-21): 39 for a passer, 35 for a QB
+   who relies on rushing (28%+ of his fantasy points, his last four seasons: Lamar Jackson, Josh Allen, Jalen Hurts), in
+   between from 20% (a scrambler like Herbert or Purdy counts as a passer) to 28%. Every other
+   position has one cliff. x is a player (a.rush) or the model's facts (f.rush). The slide starts two years before. */
+const QB_RUSH_CLIFF = 35;
+const cliff_of = x => !x ? 99 : x.pos === "QB" && x.rush != null ? Math.round(2 * (AGE_CLIFF.QB - (AGE_CLIFF.QB - QB_RUSH_CLIFF) * Math.min(1, Math.max(0, (x.rush - 0.20) / 0.08)))) / 2 : (AGE_CLIFF[x.pos] || 99);
+const decline_of = x => cliff_of(x) - 2;
 const AGE_DECLINE = Object.fromEntries(Object.entries(AGE_CLIFF).map(([p, a]) => [p, a - 2]));
-const age_stage = (pos, age) => (age === null || age === undefined ? "" : age >= (AGE_CLIFF[pos] || 99) ? "cliff" : age >= (AGE_CLIFF[pos] || 99) - 1 ? "near" : age >= (AGE_DECLINE[pos] || 99) ? "decline" : "");
+const age_stage = (pos, age, rush = null) => { if (age === null || age === undefined) return ""; const c = cliff_of({ pos, rush }); return age >= c ? "cliff" : age >= c - 1 ? "near" : age >= c - 2 ? "decline" : ""; };
 const HIDDEN_POSITIONS = ["K", "DEF", "DST", "P"];
 const MODES = ["neutral", "contend", "rebuild"];
 const FLEX_ELIGIBLE = {
@@ -46,7 +53,7 @@ const DEFAULT_CONFIG = {
       rebuild: { pick: 1.30, young: 1.20, prime: 1.0, aging: 0.75 },    // rebuilding: picks and youth are the currency
     },
     verdict_pct: { even: 5, slight: 12, lopsided: 25 },
-    // The user's age model (2026-10-12): the cliff is RB 29, WR 31, QB about 40, TE 37 (the Travis Kelce curve: slowed
+    // The user's age model (2026-10-12; QB 39, and 35 for a QB who relies on running, since 2026-10-21): the cliff is RB 29, WR 31, TE 37 (the Travis Kelce curve: slowed
     // at about 35, close to done at 37-38); the decline starts two years before each cliff. AGE_CLIFF below is the table.
     age_curve: {
       QB: [[24, 1.05], [28, 1.03], [33, 1.0], [36, 0.96], [38, 0.9], [39, 0.8], [40, 0.65], [42, 0.45]],
@@ -307,6 +314,15 @@ function bench_qb_cap(values, cfg) {
   if (starters.length < 20) return;                                                  // the week's data isn't in yet
   const ranked = starters.slice().sort((x, y) => y.value - x.value);              // the bar is the 32nd starter, not an emergency fill-in
   const floor = ranked[Math.min(31, ranked.length - 1)].value * BENCH_QB_CAP;
+  // Our rank too (2026-10-21: Pro had Justin Fields, KC's backup with no games this season, above Sam Darnold on Our
+  // rank, which this rule never touched; MFL drafts don't list a backup, so his Our rank was our model's alone): the
+  // best backup sits just under the 32nd starter's Our rank and the rest keep their order below him
+  const os = starters.filter(a => a.orank != null).map(a => a.orank).sort((x, y) => y - x);
+  if (os.length >= 20) {
+    const ofloor = os[Math.min(31, os.length - 1)] * BENCH_QB_CAP;
+    const ob = qbs.filter(a => !starter(a) && !hurt(a) && !prospect(a) && a.orank > ofloor).sort((x, y) => y.orank - x.orank);
+    if (ob.length) { const otop = ob[0].orank; for (const a of ob) a.orank = pyround(ofloor * a.orank / otop); }
+  }
   const backups = qbs.filter(a => !starter(a) && !hurt(a) && !prospect(a) && a.value > floor).sort((x, y) => y.value - x.value);
   if (!backups.length) return;
   const top = backups[0].value;
@@ -879,7 +895,7 @@ const DMV = {"w26":0.0858,"w25":0.0407,"w24":0.0163,"k":2.0755,"best":0.0513,"E_
    the values and ranks the Pro app trades on. DMV: our own dynasty view (the research age curves and the breakout bump);
    this gives the grades. Where the two disagree, the user gets a buy or sell hint the market doesn't show. */
 const DMV_MKT = {"w26":1.2308,"w25":0.3516,"w24":0.1384,"best_QB":0.2754,"best_RB":0.0042,"best_WR":0.0,"best_TE":0.0799,"E_QB":2.4573,"E_RB":2.0561,"E_WR":1.9325,"E_TE":1.6575,"S_QB":6.3241,"S_RB":19.8025,"S_WR":37.3424,"S_TE":64.0041,"R_QB":4.2772,"R_RB":-1.632,"R_WR":1.0846,"R_TE":1.3444,"peak_QB":28.7639,"peak_RB":23.0034,"peak_WR":25.0003,"peak_TE":27.4564,"dec_QB":0.1019,"dec_RB":0.142,"dec_WR":0.0921,"dec_TE":0.1034,"young":0.6011,"D_QB":2033.7033,"D_RB":2902.7461,"D_WR":2029.4478,"D_TE":1419.4604,"L":128.1501,"kd":7.4094,"C":82304.0844,"ped":0.2743};
-const DMV_MODEL = 23;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
+const DMV_MODEL = 25;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
 const DMV_TYPICAL = { QB: 14, RB: 9, WR: 8, TE: 6 };          // a typical starter's points a game (half-PPR): the anchor for thin samples
 const DMV_REPLACEMENT = { QB: 12, RB: 6.5, WR: 6, TE: 4 };   // a replacement-level player's points a game (half-PPR): the redraft anchor for thin samples
 const DMV_PRIOR_ADJ = { QB: 0.55 };                      // 1QB leagues: QBs are worth about half of superflex
@@ -1328,6 +1344,7 @@ async function src_dmv(cfg, curve, ours) {
     f.elite = elite[k] || 0;
     f.week = week;
     f.top6 = top6[k] || 0;
+    f.load = st.reduce((a, o) => a + (o ? (o[11] || 0) + (o[10] || 0) : 0), 0);   // touches (carries + targets), this season and the three before: a runway factor
     f.tpg = st[0] && st[0][0] >= 2 ? (st[0][10] || 0) / st[0][0] : st[1] && st[1][0] ? (st[1][10] || 0) / st[1][0] : 0;   // targets per game
     // opportunities a game (pass attempts / carries + targets / targets): this season, with healthy weeks he sat out
     // counted as zero, plus last season at about a third of the weight
@@ -1458,11 +1475,30 @@ function forecast_horizon(f) {
   const p = f.pred, a0 = f.ageNext || f.age || 27, base = Math.max(0.1, p.next);
   return base * (1 + 0.7 * forecast_age_ratio(f, a0, 1) + 0.5 * forecast_age_ratio(f, a0, 2)) / 2.2 * (0.6 + 0.4 * (p.play ?? 1));
 }
-function forecast_runway(f) {
-  const a0 = f.ageNext || f.age || 27;
-  let s = 0;
-  for (let t = 1; t <= 5; t++) s += Math.min(1, forecast_age_ratio(f, a0, t)) / 5;
-  return s;
+/* Runway (2026-10-21, the user's ask: "more diverse, more factors"; it was age alone and nearly everyone scored 60-90,
+   Aaron Rodgers 52 at 43): how much of a starting career is left over the next five seasons, near seasons counting
+   more. Each season: the share of today's level he keeps (the forecast model's age effect when it has one, else our
+   age curve), times the chance he's still a fantasy starter (falling through the house age cliffs, RB 29, WR 31,
+   QB 40, TE 37; a running back with heavy use the last four seasons ages up to two years faster). Then what the future
+   holds him: his production and, for a young player, his draft slot (fading out by his fourth season). */
+const RUNWAY_W = [1, 0.9, 0.8, 0.7, 0.6], RUNWAY_SLOPE = 0.5, RUNWAY_PAST = 2, RUNWAY_FLOOR = 0.2;   // softened 2026-10-21 (the user: "too harsh")
+function runway_score(f, prod, forecast) {
+  const a0 = f.ageNext || f.age || 27, age = f.age || 27, cliff = cliff_of(f);
+  const miles = f.pos === "RB" && f.load ? Math.min(2, Math.max(0, (f.load - 900) / 400)) : 0;
+  // the superstar rule (the user's, 2026-10-21: "especially if they're still producing at a high level"): stars play
+  // longer, so a player producing at a high level now has his cliff pushed back up to a year, two with elite seasons
+  // behind him (top-12 WR, top-10 RB, top-6 TE by points a game)
+  const star = Math.min(1, Math.max(0, (prod - 0.65) / 0.25)) * ((f.elite || 0) >= 1 ? 2 : 1);
+  let s = 0, wsum = 0;
+  for (let t = 1; t <= 5; t++) {
+    const level = Math.min(1, forecast ? forecast_age_ratio(f, a0, t) : age_curve(f, age + t));
+    const alive = RUNWAY_FLOOR + (1 - RUNWAY_FLOOR) / (1 + Math.exp(RUNWAY_SLOPE * (age + t + miles - star - cliff - RUNWAY_PAST)));
+    s += RUNWAY_W[t - 1] * level * alive; wsum += RUNWAY_W[t - 1];
+  }
+  const dc = f.pick == null ? 0.3 : f.pick <= 10 ? 1 : f.pick <= 32 ? 0.9 : f.pick <= 64 ? 0.75 : f.pick <= 100 ? 0.6 : f.pick <= 150 ? 0.45 : 0.35;
+  const dcw = f.exp <= 1 ? 0.6 : f.exp === 2 ? 0.4 : f.exp === 3 ? 0.2 : 0;
+  const promise = Math.max(prod, (1 - dcw) * prod + dcw * dc);
+  return (s / wsum) * (0.7 + 0.3 * promise);
 }
 const clip01 = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 /* The dynasty outlook respects the house age cliffs (2026-10-14): past the cliff the outlook is C+ at best, the year
@@ -1471,7 +1507,7 @@ const clip01 = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const AGE_CAP = { cliff: 66, near: 71, decline: 76 };
 function age_cap(score, f, pos, redraft) {
   if (redraft) return score;
-  const st = age_stage(pos, f.age);
+  const st = age_stage(pos, f.age, pos === "QB" ? f.rush || 0 : null);
   return st && AGE_CAP[st] ? Math.min(score, AGE_CAP[st]) : score;
 }
 function grade_scores(players, cfg, redraft) {
@@ -1533,11 +1569,7 @@ function grade_scores(players, cfg, redraft) {
       // season (a 3-game sample), less once 12+ games say the volume isn't turning into points. 2 targets a game move nothing,
       // and volume alone can only imply a solid starter (0.8), never an elite one: that takes points.
       if (fc == null && usage > prod && prod < 0.8) prod += (Math.min(usage, 0.8) - prod) * ((pos === "QB" ? 0.5 : 0.6) - 0.25 * clip(f.g[0] / 12));
-      let runway = 0;
-      if (fc != null && !redraft) runway = forecast_runway(f);  // the model's age effect: the share of today's level he keeps over the next five seasons
-      else for (let t = 1; t <= 5; t++) runway += age_curve(f, f.age + t) / 5;
-      runway *= 0.7 + 0.3 * prod;                              // a long future is only as bright as the talent in it
-      if (redraft) runway = 1;
+      let runway = redraft ? 1 : runway_score(f, prod, fc != null);   // (2026-10-21) age, career length, workload, draft slot and production
       const role = !f.team ? Math.min(usage, 0.1) : usage;
       const hs = [];
       if (f.week >= 1 && (f.depth === 1 || f.inj)) hs.push(clip(f.g[0] / Math.max(1, f.week * 0.85)));   // games missed as the starter or hurt, not on the bench
@@ -1548,6 +1580,7 @@ function grade_scores(players, cfg, redraft) {
       if (fc != null && !redraft && f.pred.play != null) health = 0.5 * health + 0.5 * f.pred.play;   // and the model's chance he plays 4+ games next season
       // QBs are the scarcest starters, most of all in superflex (2 start): up to +12 points there, +5 in 1QB
       const qb = pos === "QB" ? (fc != null ? (sf ? GRADE_QB_SF_FC : GRADE_QB_1QB_FC) * prod * prod : (sf ? GRADE_QB_SF : GRADE_QB_1QB) * prod) : 0;
+      if (pos === "QB") x.rush = Math.round((f.rush || 0) * 100) / 100;                  // his share of points from running: his cliff (cliff_of)
       x._prod = prod; x.games = games; x.patient = games < 8 || (pos === "TE" && f.exp <= 1);   // TEs: about half break out within 2 seasons
       if (f.pred) x.pred = { next: Math.round(f.pred.next * 10) / 10, play: Math.round(f.pred.play * 100) / 100, ros: Math.round(f.pred.ros * 10) / 10, horizon: redraft ? null : Math.round(forecast_horizon(f) * 10) / 10 };
       if (redraft) {                                            // most points wins: production, role, health (TEs: + situation)
@@ -1647,7 +1680,7 @@ function te_situation(x, byTeam, players, starting, clip) {
 function attach_ours(assets, ours, redraft) {
   const mine = Object.fromEntries(ours.map(x => [x.sleeper_id, x.value]));
   const card = Object.fromEntries(ours.map(x => [x.sleeper_id, x]));
-  for (const a of assets) { const c = !a.is_pick && card[a.sleeper_id]; if (c) { a.dpick = c.dpick ?? null; a.exp = c.exp ?? null; } if (c && c.score != null) { a.oscore = c.score; a.oparts = c.parts; a.ogames = c.games; a.opatient = c.patient; a.ep = c.ep || null; a.pred = c.pred || null; if (!(a.age > 0) && c.age > 0) a.age = c.age; } }   // some lists carry no age
+  for (const a of assets) { const c = !a.is_pick && card[a.sleeper_id]; if (c) { a.dpick = c.dpick ?? null; a.exp = c.exp ?? null; a.rush = c.rush ?? null; } if (c && c.score != null) { a.oscore = c.score; a.oparts = c.parts; a.ogames = c.games; a.opatient = c.patient; a.ep = c.ep || null; a.pred = c.pred || null; if (!(a.age > 0) && c.age > 0) a.age = c.age; } }   // some lists carry no age
   const set = assets.filter(a => !a.is_pick && a.sleeper_id && mine[a.sleeper_id] != null);
   const market = set.map(a => a.value).sort((x, y) => y - x);
   const key = a => (a.oscore != null ? a.oscore * 1e6 : 0) + mine[a.sleeper_id];               // by the grade, then by our value
@@ -3010,7 +3043,7 @@ const read_log = () => Store.get(f("trades.json")) || [];
 
 // ---------------------------------------------------------------------------
 return {
-  load_wire, bsky_posts, fantasy_pos, hide_positions, PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, injuries_due, refresh_injuries, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
+  load_wire, bsky_posts, fantasy_pos, hide_positions, PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, cliff_of, decline_of, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, injuries_due, refresh_injuries, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
   pyround, clone, now_iso, today_iso, ordinal, fmt, fmt_signed, fmt_pct, compact, norm, title, player_key, ppr_bucket,
   is_bestball, is_redraft, league_kind, league_kind_label,
   load_profiles, save_profiles, set_profile, profile_new, profile_rename, profile_delete, load_config, save_config,

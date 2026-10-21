@@ -46,7 +46,7 @@ function needs(values, cfg, team) {
     const pool = values.players.filter(a => a.pos === pos && !a.unranked).sort((x, y) => y.value - x.value);
     const k = Math.max(1, Math.round(N * slots[pos])), floor = (pool[k - 1] || pool[pool.length - 1] || { value: 0 }).value;
     const have = mine.filter(a => a.pos === pos && a.value >= floor * 0.85);
-    const vets = have.filter(a => a.age !== null && a.age !== undefined && a.age >= VET[pos]).length;
+    const vets = have.filter(a => a.age !== null && a.age !== undefined && a.age >= E.decline_of(a)).length;   // his own slide: a running QB starts sooner
     const need = Math.max(0, slots[pos] - have.length) + vets * 0.5;
     out.push({ pos, slots: Math.round(slots[pos] * 10) / 10, have: have.length, vets, need: Math.round(need * 10) / 10 });
   }

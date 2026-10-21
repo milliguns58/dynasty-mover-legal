@@ -412,8 +412,8 @@ function gradeWhy(a, up) {
     if (s != null && s >= 65) R.push("his situation is built for a tight end");
     if (!R.length) R.push(!rd && age <= 26 && p < 35 ? "he's young enough to still be a lottery ticket" : rd ? "his points say more than his price does" : "his numbers say more than his price does");
   } else {
-    const stage = E.age_stage(pos, age);                                             // the user's cliffs: RB 29, WR 31, QB 40, TE 37, the slide two years before
-    if (!rd && r < 45 && stage) R.push(stage === "cliff" ? `he's past the ${pos} cliff (${E.AGE_CLIFF[pos]})` : stage === "near" ? "his age curve says the cliff is close" : "his age curve is past its peak");
+    const stage = E.age_stage(pos, age, a.rush);                                     // the user's cliffs: RB 29, WR 31, QB 39 (35 for a runner), TE 37, the slide two years before
+    if (!rd && r < 45 && stage) R.push(stage === "cliff" ? `he's past the ${pos} cliff (${E.cliff_of(a)})` : stage === "near" ? "his age curve says the cliff is close" : "his age curve is past its peak");
     if (o < 30) R.push(st.depth > 3 ? `he's buried on the depth chart (${pos}${st.depth})` : "he isn't getting the ball");
     else if (p < 35) R.push(age >= 25 || a.ogames >= 20 ? (o >= 60 ? "his points don't match the ball he's getting" : "his points are down") : "he hasn't produced yet");
     else if (p < 60) R.push("his production doesn't match his price");
@@ -1340,10 +1340,10 @@ function picker(k) {
 const EDGE_KINDS = [["buy", "Buy"], ["sellhigh", "Sell high"], ["sell", "Sell"]];
 const EDGE_OUT = ["IR", "PUP", "Out", "Sus", "Suspended", "DNR", "NA"];
 function dynastyEdge(a) {
-  if (!a || a.is_pick || a.unranked || !a.omkt || a.age == null || !E.AGE_DECLINE[a.pos]) return null;
-  const st = E.load_player_status()[a.sleeper_id] || {}, dec = E.AGE_DECLINE[a.pos], age = a.age, yrs = Math.floor(age);
+  if (!a || a.is_pick || a.unranked || !a.omkt || a.age == null || !E.AGE_DECLINE[a.pos]) return null;            // (QB: his own cliff, 39 or down to 35 for a runner)
+  const st = E.load_player_status()[a.sleeper_id] || {}, dec = E.decline_of(a), age = a.age, yrs = Math.floor(age);
   const ratio = a.oview ? a.oview / a.omkt : 1, ep = a.ep;
-  const g = gradeOf(a).g, top = g === "A+" || g === "A", cliff = E.AGE_CLIFF[a.pos];
+  const g = gradeOf(a).g, top = g === "A+" || g === "A", cliff = E.cliff_of(a);
   if (a.omkt >= 1500 && age >= dec) return { kind: "sell", score: a.omkt, why: age >= cliff ? `${a.pos} at ${yrs}: past the cliff` : `${a.pos} at ${yrs}: decline years` };
   if (a.omkt >= 1500 && age >= 25 && ratio <= 0.75 && ["C+", "C", "C-", "D", "F"].includes(g)) return { kind: "sell", score: a.omkt * (1 - ratio), why: "Short on dynasty value" };
   if (a.omkt >= 3000 && age >= dec - 1) return { kind: "sellhigh", score: a.omkt, why: `${a.pos} at ${yrs}: a year from the decline` };
@@ -1637,7 +1637,7 @@ function teamRead(roster, st, rank) {
   const step = a => gIdx(gradeOf(a, true).g) - gIdx(gradeOf(a).g);
   const sells = pl.filter(a => step(a) <= -2 && gIdx(gradeOf(a, true).g) <= gIdx("C+")).sort((a, b) => b.value - a.value);   // the market has him at C+ or better
   const holds = pl.filter(a => step(a) >= 2 && gIdx(gradeOf(a).g) <= gIdx("B-")).sort((a, b) => b.value - a.value);          // we have him at B- or better
-  const toCliff = mean(aged, a => (E.AGE_CLIFF[a.pos] || 99) - a.age);            // years the core has left before its cliffs, on average (the user's age model)
+  const toCliff = mean(aged, a => E.cliff_of(a) - a.age);            // years the core has left before its cliffs, on average (the user's age model)
   const top = rank <= Math.ceil(n / 3), bottom = rank > n - Math.ceil(n / 3), strong = score >= 72, young = age < 26.5, old = aged.length > 0 && toCliff <= 2.5;
   let title, text;
   if (rd) { title = top ? "Contender" : bottom ? "Long shot" : "In the hunt"; text = `The starters grade ${g} on average for this season. In redraft, most points wins: play the hot hand and use the waiver wire.`; }
