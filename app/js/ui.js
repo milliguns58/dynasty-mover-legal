@@ -1588,6 +1588,11 @@ function renderTeam(el) {
 /* The rosters as Sleeper has them right now: a quiet re-import when the last one is more than a few minutes old, so
    the lineup the manager just set in Sleeper is the lineup the app judges (the user's complaint, 2026-10-13). */
 const ROSTERS_FRESH = 3 * 60000;
+/* One league import at a time (2026-10-22): the refresh on open and a screen's roster check used to start two at once. */
+function importRosters() {
+  if (!S.rostersImport) S.rostersImport = E.sleeper_import(S.cfg, S.values.league.league_id, () => {}, (app().sleeper || {}).user_id).finally(() => { S.rostersImport = null; });
+  return S.rostersImport;
+}
 async function freshRosters(force = false) {
   const lg = S.values && S.values.league;
   if (!lg || !lg.league_id || !navigator.onLine || S.busy) return false;
@@ -1595,7 +1600,7 @@ async function freshRosters(force = false) {
   if (!force && age < ROSTERS_FRESH) return false;
   if (S.rostersLoading) return S.rostersLoading;
   const pid = E.P.id;
-  S.rostersLoading = E.sleeper_import(S.cfg, lg.league_id, () => {}, (app().sleeper || {}).user_id)
+  S.rostersLoading = importRosters()
     .then(() => { if (E.P.id === pid) { S.values = E.load_values(S.cfg); S.W = null; header(); } return true; }, () => false)
     .finally(() => { S.rostersLoading = null; });
   return S.rostersLoading;
@@ -3044,13 +3049,16 @@ function leaguesSheet() {
 // (if older than 15 minutes) and player values (if older than 6 hours; FantasyCalc allows once an hour).
 // ---------------------------------------------------------------------------
 const ROSTERS_EVERY = 3 * 60000, VALUES_EVERY = 60 * 60000;    // on open: rosters after 3 min (a lineup set in Sleeper shows at once), values after an hour (FantasyCalc's rule)
+const VALUES_EVERY_PRO = 6 * 3600000;                            // Pro calls no FantasyCalc: values when new stats are due, else every 6 hours (2026-10-22)
 async function autoRefresh() {
   if (S.busy || S.auto || !S.cfg || !navigator.onLine) return;
   const pid = E.P.id, lg = S.values && S.values.league;
   const age = iso => iso ? Date.now() - new Date(iso).getTime() : Infinity;
   const rosters = !!lg && !!lg.league_id && age(lg.imported) > ROSTERS_EVERY;   // leagues built by hand have nothing to fetch
   const modelNew = E.model_changed(S.values);                    // a new value formula: rebuild now, whatever the age
-  const values = (!S.values || modelNew || age(S.values.meta.fetched) > VALUES_EVERY) && (modelNew || !E.update_wait_minutes(S.cfg));
+  const pro = window.EDITION === "pro";
+  const values = !S.values || modelNew || (pro ? age(S.values.meta.fetched) > VALUES_EVERY_PRO || await E.stats_due(S.cfg).catch(() => false)
+    : age(S.values.meta.fetched) > VALUES_EVERY && !E.update_wait_minutes(S.cfg));
   const injuries = E.injuries_due();                             // the NFL's injury report: every 2 hours on game days, 6 otherwise
   if (!rosters && !values && !injuries) return;
   S.auto = true;
@@ -3058,7 +3066,7 @@ async function autoRefresh() {
   let changed = false, updated = false;
   try {
     if (rosters) {
-      const r = await E.sleeper_import(S.cfg, lg.league_id, () => {}, (app().sleeper || {}).user_id);
+      const r = await importRosters();
       changed = true;
       if (r.feed_changed && !E.update_wait_minutes(S.cfg)) { await E.update_values(S.cfg, () => {}); }
     }

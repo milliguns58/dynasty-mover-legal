@@ -58,8 +58,10 @@ async function parse_drafts(lg, rosters, drafts) {
 async function fetch_season(lid) {
   const lg = await get(`${SL}/league/${lid}`, null);
   if (!lg) throw new Error("league not found");
-  const [users, rosters, drafts, ...txw] = await Promise.all([get(`${SL}/league/${lid}/users`, []), get(`${SL}/league/${lid}/rosters`, []),
-    get(`${SL}/league/${lid}/drafts`, []), ...Array.from({ length: WEEKS }, (_, i) => get(`${SL}/league/${lid}/transactions/${i + 1}`, []))]);
+  // the weeks' transactions from the league import's cache: a finished week is downloaded once (2026-10-22)
+  const [users, rosters, drafts, txw0] = await Promise.all([get(`${SL}/league/${lid}/users`, []), get(`${SL}/league/${lid}/rosters`, []),
+    get(`${SL}/league/${lid}/drafts`, []), E.sleeper_weeks(lid, "tx", WEEKS, parseInt(lg.season, 10))]);
+  const txw = txw0.map(x => x || []);
   const teams = team_map(users, rosters);
   const trades = [];
   for (let w = 1; w <= WEEKS; w++) for (const t of txw[w - 1]) {

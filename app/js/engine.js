@@ -867,9 +867,55 @@ async function prospects(year, maxHours = 24) {
 /* Expected fantasy points (ffverse/ffopportunity, data CC BY-SA 4.0): what each player's usage was worth, play by play,
    against what he scored. Summed by season and cached a day at a time as ep_{season}.json:
    {name|pos: [games, points, expected points, touchdowns, expected touchdowns]}. */
+/* Where the NFL season is (Sleeper's state: season, week, season_type), read at most every half hour. */
+let nflStateMem = null;
+async function nfl_state() {
+  if (!nflStateMem || Date.now() - nflStateMem.at > 1800000) nflStateMem = { at: Date.now(), s: await Net.json(`${SLEEPER_URL}/state/nfl`) };
+  return nflStateMem.s;
+}
+/* How long a cache of this season's stats may stand (2026-10-22, the user's ask: stay up to date faster). nflverse
+   publishes a week's stats about a day after its games. When last week's games are done and not in the cache yet
+   (last: the newest week it holds), look again every hour until they arrive; on the days new stats land (Monday,
+   Tuesday and Friday) at least every 3 hours; otherwise the cache's usual time. */
+async function stats_hours(season, last, maxHours) {
+  if (!(maxHours > 0) || maxHours > 48) return maxHours;              // a forced download, or a past season
+  let st = null;
+  try { st = await nfl_state(); } catch (e) { return maxHours; }
+  if (!st || parseInt(st.season, 10) !== parseInt(season, 10) || !["regular", "post"].includes(st.season_type)) return maxHours;
+  const done = parseInt(st.week, 10) - 1;
+  if (done >= 1 && !(last >= done)) return Math.min(maxHours, 1);
+  return [1, 2, 5].includes(new Date().getDay()) ? Math.min(maxHours, 3) : maxHours;
+}
+const cache_age_h = c => (c && c.fetched ? (Date.now() - new Date(c.fetched).getTime()) / 3600000 : Infinity);
+/* Are this season's stats due a fresh download (for Pro's values: rebuild when new stats are out)? */
+async function stats_due(cfg) {
+  const season = parseInt(cfg.season, 10), c = Store.get(`nflv_wk_${season}.json`);
+  return !c || cache_age_h(c) >= await stats_hours(season, c.last, 12);
+}
+/* A Sleeper league's matchups ("mu") or transactions ("tx"), week by week (2026-10-22, the user's ask: a smoother app;
+   a roster refresh was downloading the whole season every time). A finished week never changes, so it is kept; the
+   current week and the one before (stat corrections, late trades) are always downloaded again, and weeks still to come
+   at most once a day. A past season is all finished. Returns one entry a week (null where nothing came back). */
+async function sleeper_weeks(lid, kind, weeks, season) {
+  const name = `sl_${kind}_${lid}.json`, c = Store.get(name) || { v: 1, w: {} };
+  let cur = null;
+  try { const st = await nfl_state(); cur = parseInt(st.season, 10) > parseInt(season, 10) ? 99 : parseInt(st.season, 10) === parseInt(season, 10) ? Math.max(1, parseInt(st.week, 10) || 1) : 0; } catch (e) { cur = null; }
+  const url = w => `${SLEEPER_URL}/league/${lid}/${kind === "mu" ? "matchups" : "transactions"}/${w}`;
+  let changed = false;
+  const out = await Promise.all(Array.from({ length: weeks }, async (_, i) => {
+    const w = i + 1, e = c.w[w];
+    const keep = e && cur != null && (w < cur - 1 || (w > cur && Date.now() - e.at < 24 * 3600000));
+    if (keep) return e.d;
+    if (kind === "tx" && cur != null && cur !== 99 && w > cur) return [];   // no trades in weeks still to come
+    try { const d = await Net.json(url(w)); c.w[w] = { at: Date.now(), d }; changed = true; return d; }
+    catch (err) { return e ? e.d : null; }
+  }));
+  if (changed) Store.set(name, c);
+  return out;
+}
 async function ep_stats(season, maxHours = 24) {
   const name = `ep_${season}.json`, c = Store.get(name);
-  if (c && c.v === 3 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;
+  if (c && c.v === 3 && cache_age_h(c) < await stats_hours(season, c.last, maxHours)) return c.players;
   const players = {}, weeks = {};
   try {
     await remap_ready();
@@ -886,7 +932,8 @@ async function ep_stats(season, maxHours = 24) {
       const w = o[5][r.week] || (o[5][r.week] = [0, 0]); w[0] = Math.round((w[0] + pts) * 10) / 10; w[1] = Math.round((w[1] + exp) * 10) / 10;
     }
     for (const o of Object.values(players)) for (let i = 1; i < 5; i++) o[i] = Math.round(o[i] * 10) / 10;
-    Store.set(name, { v: 3, fetched: now_iso(), players });
+    let last = 0; for (const o of Object.values(players)) for (const w of Object.keys(o[5])) last = Math.max(last, parseInt(w, 10) || 0);
+    Store.set(name, { v: 3, fetched: now_iso(), last, players });
     return players;
   } catch (e) { return c ? c.players : {}; }
 }
@@ -916,7 +963,8 @@ const DMV_ADJUST = {
 const kick_pts = r => { const n = k => parseFloat(r[k]) || 0; return 3 * (n("fg_made_0_19") + n("fg_made_20_29") + n("fg_made_30_39")) + 4 * n("fg_made_40_49") + 5 * (n("fg_made_50_59") + n("fg_made_60_")) + n("pat_made") - n("fg_missed") - n("pat_missed"); };
 async function nflv_stats(year, weekly, maxHours) {
   const name = `nflv_${weekly ? "wk" : "reg"}_${year}.json`, c = Store.get(name);
-  if (c && c.v === 8 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;   // v7: fantasy positions, v8: kickers (2026-10-19)
+  const mh = weekly ? await stats_hours(year, c && c.last, maxHours) : maxHours;   // this season's: sooner when new stats are due (2026-10-22)
+  if (c && c.v === 8 && cache_age_h(c) < mh) return c.players;   // v7: fantasy positions, v8: kickers (2026-10-19)
   let players = {};
   const kick = {};                                                  // kickers: name|K -> { team, gp, pts, w: {week: [pts, opp]} }
   const teams = {};                                                 // team context: pass attempts, carries and EPA, for the prediction models
@@ -970,7 +1018,8 @@ async function nflv_stats(year, weekly, maxHours) {
   // deeper numbers (target share, EPA, team context) where its rows exist. Not in the Play editions (2026-10-19):
   // Sleeper's stats endpoint isn't cleared for them (store/SOURCES.md), and nflverse's 2026 weekly file is complete again.
   if (weekly && !PLAY) { try { await sleeper_week_overlay(year, players, log); } catch (e) { /* offline: nflverse's numbers stand */ } }
-  Store.set(name, { v: 8, fetched: now_iso(), players, teams });
+  let last = 0; for (const o of Object.values(log)) for (const w of Object.keys(o)) last = Math.max(last, parseInt(w, 10) || 0);   // the newest week it holds
+  Store.set(name, { v: 8, fetched: now_iso(), last, players, teams });
   if (Object.keys(kick).length) Store.set(`nflv_k${weekly ? "" : "reg"}_${year}.json`, { v: 1, fetched: now_iso(), players: kick });
   if (weekly && Object.keys(log).length) Store.set(`nflv_log_${year}.json`, { v: 1, fetched: now_iso(), players: log });
   if (!weekly) Store.set(`nflv_car_${year}.json`, { v: 1, fetched: now_iso(), players: car });
@@ -1027,7 +1076,7 @@ function nflv_team_ctx(year, weekly) {
 /* Offensive snap shares by game (nflverse snap_counts, from Pro Football Reference): name|pos -> [[week, share], ...]. */
 async function snap_stats(season, maxHours = 12) {
   const name = `snaps_${season}.json`, c = Store.get(name);
-  if (c && c.v === 2 && Date.now() - new Date(c.fetched).getTime() < maxHours * 3600000) return c.players;
+  if (c && c.v === 2 && cache_age_h(c) < await stats_hours(season, c.last, maxHours)) return c.players;
   const players = {};
   try {
     await remap_ready();
@@ -1042,7 +1091,8 @@ async function snap_stats(season, maxHours = 12) {
     }
   } catch (e) { return c ? c.players : {}; }
   for (const l of Object.values(players)) l.sort((a, b) => a[0] - b[0]);
-  Store.set(name, { v: 2, fetched: now_iso(), players });
+  let last = 0; for (const l of Object.values(players)) if (l.length) last = Math.max(last, l[l.length - 1][0]);
+  Store.set(name, { v: 2, fetched: now_iso(), last, players });
   return players;
 }
 /* NFL draft picks since 2000 (nflverse): name|pos -> [season, round, pick, team]. The values model reads the slot; the
@@ -1831,6 +1881,7 @@ async function attach_orank(cfg, assets, results, log) {
 function model_changed(values) { return !!values && ((values.meta || {}).params || {}).model !== DMV_MODEL; }
 /* FantasyCalc asks for its values to be fetched at most once an hour. */
 function update_wait_minutes(cfg) {
+  if (typeof window !== "undefined" && window.EDITION === "pro") return 0;   // Pro never calls FantasyCalc (2026-10-22)
   const v = Store.get(f("values.json"));
   if (!v || !v.fetched) return 0;
   const p = v.params || {}, lg = cfg.league;
@@ -2616,13 +2667,14 @@ async function sleeper_import(cfg, league_id, log = () => {}, my_user_id = null)
   const reg_end = parseInt(settings.playoff_week_start || 15) - 1;
   log("Downloading schedule and trade history ...");
   const schedule = {}, trades = [];
-  const weeks = await Promise.all(Array.from({ length: reg_end }, (_, i) => Net.json(`${L}/matchups/${i + 1}`).catch(() => null)));
+  const weeks = await sleeper_weeks(league_id, "mu", reg_end, season);
   for (let w = 1; w <= reg_end; w++) {
     const mus = weeks[w - 1];
     if (!mus || !mus.length) break;
-    schedule[String(w)] = mus.filter(m => m.matchup_id !== null && m.matchup_id !== undefined).map(m => [m.roster_id, m.matchup_id, parseFloat(m.points || 0)]);
+    // [roster, matchup, points, starters]: the starters so last week's story credits the lineup, not the bench (2026-10-22)
+    schedule[String(w)] = mus.filter(m => m.matchup_id !== null && m.matchup_id !== undefined).map(m => [m.roster_id, m.matchup_id, parseFloat(m.points || 0), (m.starters || []).filter(s => s && s !== "0").map(String)]);
   }
-  const txw = await Promise.all(Array.from({ length: 18 }, (_, i) => Net.json(`${L}/transactions/${i + 1}`).catch(() => null)));
+  const txw = await sleeper_weeks(league_id, "tx", 18, season);
   for (let w = 1; w <= 18; w++) {
     for (const t of txw[w - 1] || []) {
       if (t.type !== "trade" || t.status !== "complete") continue;
@@ -3043,7 +3095,7 @@ const read_log = () => Store.get(f("trades.json")) || [];
 
 // ---------------------------------------------------------------------------
 return {
-  load_wire, bsky_posts, fantasy_pos, hide_positions, PLAY, update_wait_minutes, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, cliff_of, decline_of, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, injuries_due, refresh_injuries, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
+  load_wire, bsky_posts, fantasy_pos, hide_positions, PLAY, update_wait_minutes, stats_due, stats_hours, nfl_state, sleeper_weeks, model_changed, src_dmv, AGE_CLIFF, AGE_DECLINE, cliff_of, decline_of, age_stage, QB_USABLE, league_market_mult, evaluate_side, nflv_team_ctx, snap_stats, ep_stats, GRADE_CUTS, game_log, career_stats, weekly_points, nflv_stats, nflv_draft, nfl_team, parse_csv, league_median, hype_mult, te_risk, injuries_due, refresh_injuries, project_standings, projected_pick, simulate_standings, trade_impact, prospects, prospects_cached, POSITIONS, HIDDEN_POSITIONS, MODES, FLEX_ELIGIBLE, SOURCES, SOURCE_ORDER, DEFAULT_CONFIG, SLEEPER_URL, DMV_REPLACEMENT, DMV_TYPICAL, DMV_DEPTH_MAX, P, f,
   pyround, clone, now_iso, today_iso, ordinal, fmt, fmt_signed, fmt_pct, compact, norm, title, player_key, ppr_bucket,
   is_bestball, is_redraft, league_kind, league_kind_label,
   load_profiles, save_profiles, set_profile, profile_new, profile_rename, profile_delete, load_config, save_config,

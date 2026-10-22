@@ -135,7 +135,17 @@ const Net = (() => {
     return get(url).catch(e => { const p = proxy(url); if (p && e instanceof TypeError) return get(p); throw e; });
   }
 
+  /* The same URL asked for again while it is still downloading shares that download (2026-10-22: an open read the
+     league, rosters and trending lists twice); requests with headers go on their own. */
+  const inflight = new Map();
   function text(url, headers, timeoutMs = 180000) {
+    if (headers && Object.keys(headers).length) return text1(url, headers, timeoutMs);
+    if (inflight.has(url)) return inflight.get(url);
+    const p = text1(url, headers, timeoutMs).finally(() => inflight.delete(url));
+    inflight.set(url, p);
+    return p;
+  }
+  function text1(url, headers, timeoutMs = 180000) {
     if (Store.native) {
       return new Promise((resolve, reject) => {
         const id = "r" + (++seq);

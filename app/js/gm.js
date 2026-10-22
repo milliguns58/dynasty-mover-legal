@@ -243,8 +243,17 @@ const GM = (() => {
     }
     const wk = W && W.weekly && W.weekly[prev], pk = Week.pts_key ? Week.pts_key(S.cfg) : null;
     if (me && wk && pk) {
-      const pts = E.team_assets(v, S.cfg, me).filter(a => !a.is_pick && a.sleeper_id && wk[a.sleeper_id]).map(a => [a.name, parseFloat(wk[a.sleeper_id][pk] || 0)]).sort((x, y) => y[1] - x[1]);
-      if (pts.length) out.push(`The manager's players last week: ${pts.map(([n, p]) => `${n} ${p.toFixed(1)}`).join("; ")}.`);
+      // starters and bench apart (2026-10-22, the user: the GM credited J.J. McCarthy for a win from the bench). Only the
+      // starters' points counted; without last week's lineup (an older import) the list says so.
+      const mineRow = ((lg.schedule || {})[String(prev)] || []).find(r => String(r[0]) === String(me.roster_id));
+      const started = mineRow && Array.isArray(mineRow[3]) ? new Set(mineRow[3]) : null;
+      const pts = E.team_assets(v, S.cfg, me).filter(a => !a.is_pick && a.sleeper_id && wk[a.sleeper_id]).map(a => [a.name, parseFloat(wk[a.sleeper_id][pk] || 0), String(a.sleeper_id)]).sort((x, y) => y[1] - x[1]);
+      const list = l => l.map(([n, p]) => `${n} ${p.toFixed(1)}`).join("; ");
+      if (pts.length && started) {
+        const st = pts.filter(x => started.has(x[2])), bn = pts.filter(x => !started.has(x[2]) && x[1] > 0);
+        if (st.length) out.push(`The manager's starters last week (only these points counted): ${list(st)}.`);
+        if (bn.length) out.push(`On the bench last week (these points did NOT count; never credit them for the result): ${list(bn)}.`);
+      } else if (pts.length) out.push(`The manager's players last week (who started is not known, so do not say who won or lost the game for them): ${list(pts)}.`);
     }
     try {
       const H = E.load_history();

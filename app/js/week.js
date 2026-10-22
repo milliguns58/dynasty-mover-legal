@@ -230,7 +230,7 @@ const NWS_HEADERS = { "User-Agent": "DynastyMover/3.0 (dynastymover.app@gmail.co
 /* This season's regular-season games from nflverse, kept for a day. */
 async function nflv_games(season) {
   const name = `nflv_games_${season}.json`, c = Store.get(name);
-  if (c && c.v === 3 && hoursOld(c.fetched) < 24) return c.games;   // v3: rest days and surface (2026-10-20)
+  if (c && c.v === 3 && hoursOld(c.fetched) < await E.stats_hours(season, c.last, 24)) return c.games;   // v3: rest days and surface (2026-10-20); scores sooner (2026-10-22)
   const txt = await Net.text(NFLV_GAMES_URL, null, 240000), games = [];
   const pa = { [season]: {}, [season - 1]: {} };                       // points allowed: "week|team" -> points (2026-10-19, for defenses)
   for (const r of E.parse_csv(txt)) {
@@ -244,7 +244,8 @@ async function nflv_games(season) {
       spread: r.spread_line === "" ? null : parseFloat(r.spread_line), total: r.total_line === "" ? null : parseFloat(r.total_line), roof: r.roof || "", stadium: r.stadium || "", sid: r.stadium_id || "",
       rest_a: r.away_rest === "" ? null : parseInt(r.away_rest, 10), rest_h: r.home_rest === "" ? null : parseInt(r.home_rest, 10), surface: r.surface || "" });
   }
-  Store.set(name, { v: 3, fetched: now_iso(), games });
+  const last = Object.keys(pa[season]).reduce((m, k) => Math.max(m, parseInt(k, 10) || 0), 0);   // the newest week with scores
+  Store.set(name, { v: 3, fetched: now_iso(), last, games });
   Store.set(`nflv_pa_${season}.json`, { v: 1, fetched: now_iso(), pa: pa[season] });
   if (Object.keys(pa[season - 1]).length) Store.set(`nflv_pa_${season - 1}.json`, { v: 1, fetched: now_iso(), pa: pa[season - 1] });
   return games;
