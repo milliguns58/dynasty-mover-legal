@@ -1,10 +1,10 @@
 {
- "versionCode": 36,
- "versionName": "3.2.18",
- "notes": "Better dynasty grades: Runway now counts career length, workload and draft slot; superstars still producing keep more runway; QB cliff 39 (35 for rushing QBs); backup QBs rank behind every starter on Our rank.",
+ "versionCode": 37,
+ "versionName": "3.2.19",
+ "notes": "Faster and fresher: quicker roster refreshes, new stats as soon as they're out, and the GM's weekly report only credits your starters.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
  },
- "published": "2026-10-21"
+ "published": "2026-10-22"
 }
