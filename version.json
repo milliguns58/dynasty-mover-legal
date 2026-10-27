@@ -1,7 +1,7 @@
 {
- "versionCode": 40,
- "versionName": "3.2.22",
- "notes": "Weekly Projection leaves off players who are out, on IR or backups who aren't starting; charts mark missed weeks (red), zero weeks (yellow) and byes (gray).",
+ "versionCode": 41,
+ "versionName": "3.2.23",
+ "notes": "Projections leave off players on IR, out, suspended or inactive, and backups who aren't playing; their cards say they're not expected to play.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
