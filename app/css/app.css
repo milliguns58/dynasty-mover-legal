@@ -1015,3 +1015,55 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .watch-btn.on{background:var(--accent-soft);color:var(--accent);border-color:transparent}
 .watch-row .v small{display:block;font-size:11px;font-weight:700}
 .watch-row .v small.good,.watch-row .s .good{color:var(--good)}.watch-row .v small.bad,.watch-row .s .bad{color:var(--bad)}
+/* The Trade page's banner (2026-10-26): the logo on the icon's own pink-to-purple gradient */
+.brand{display:flex;align-items:center;gap:12px;margin:0 0 12px;padding:10px 14px;border-radius:18px;color:#fff;
+  background:linear-gradient(120deg,#8e2de2 0%,#d6338a 55%,#f0806a 100%);box-shadow:0 6px 18px rgba(142,45,226,.22)}
+.brand-logo{width:44px;height:44px;border-radius:12px;flex:none;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+.brand-txt{display:flex;flex-direction:column;min-width:0}
+.brand-txt b{font-size:19px;font-weight:800;letter-spacing:-.01em;line-height:1.15}
+.brand-txt span{font-size:12.5px;opacity:.9}
+/* Player card charts (2026-10-26) */
+.mchart{margin:8px 0 14px}
+.mc-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;margin-bottom:2px}
+.mc-read{color:var(--muted);font-size:12px;text-align:right;min-width:0}
+.mchart svg{width:100%;height:auto;display:block;overflow:visible}
+.mc-grid{stroke:var(--line);stroke-width:1}
+.mc-ax{fill:var(--muted);font-size:9px;font-variant-numeric:tabular-nums}
+.mc-ax.dim{opacity:.45}
+.mc-bar{fill:var(--accent)}
+.mc-avg{stroke:var(--ink2);stroke-width:1;opacity:.7}
+.mc-avg-l{fill:var(--ink2)}
+.mc-line{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.mc-area{fill:var(--accent);fill-opacity:.1}
+.mc-dot{fill:var(--accent);stroke:var(--surface);stroke-width:2}
+.mc-hit{fill:transparent;cursor:pointer}
+.mc-hit.on{fill:var(--ink);fill-opacity:.06}
+/* The no-league Trade screen (2026-10-26) */
+.qt-card .seg{margin-top:10px}
+.qt-card #qtGo{margin-top:14px}
+.qt-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;margin-top:8px;padding:12px 14px;
+  border-radius:14px;border:1px solid var(--line);background:var(--raise);color:var(--ink);cursor:pointer;font:inherit}
+.qt-opt b{display:block;font-size:15px}
+.qt-opt small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.qt-go{font-size:22px;color:var(--muted);flex:none}
+/* Players' view switch (2026-10-26) */
+.pv-seg{margin:0 0 12px}
+.pv-seg button{font-size:13px;padding-left:4px;padding-right:4px}
+/* Rankings' weekly projection note (2026-10-26) */
+.proj-note{margin:8px 2px 4px;font-size:13px}
+#oseg button{font-size:12.5px;padding-left:4px;padding-right:4px;white-space:nowrap}
+/* Next week's prediction on the player card (2026-10-26) */
+.nw{margin:6px 0 16px;padding:12px;border-radius:14px;background:var(--raise)}
+.nw-top{display:flex;gap:12px;align-items:center;margin:8px 0 6px}
+.nw-pts{flex:none;display:flex;flex-direction:column;align-items:center;min-width:76px}
+.nw-pts b{font-size:28px;font-weight:800;line-height:1.1}
+.nw-pts span{font-size:11px;color:var(--muted)}
+.nw-stats{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:6px 8px}
+.nw-stats div{display:flex;flex-direction:column}
+.nw-stats b{font-size:15px;font-variant-numeric:tabular-nums}
+.nw-stats span{font-size:11px;color:var(--muted)}
+.nw-f{display:flex;align-items:baseline;gap:8px;font-size:12.5px;padding:4px 0;border-top:1px solid var(--line)}
+.nw-k{flex:none;width:64px;color:var(--muted);font-weight:600}
+.nw-t{flex:1;min-width:0}
+.nw-f b{flex:none;font-variant-numeric:tabular-nums}.nw-f b.good{color:var(--good)}.nw-f b.bad{color:var(--bad)}
+.nw-pts .nw-band{font-size:11.5px;color:var(--ink2);margin-top:2px;white-space:nowrap}
