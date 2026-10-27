@@ -1072,3 +1072,5 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .mc-key{display:flex;gap:12px;justify-content:flex-end;font-size:11px;color:var(--muted);margin-top:2px}
 .mc-key i{display:inline-block;width:10px;height:6px;border-radius:2px;margin-right:4px;vertical-align:1px}
 .mc-key i.mc-dnp{background:var(--bad)}.mc-key i.mc-zero{background:var(--warn)}.mc-key i.mc-bye{background:var(--muted);opacity:.45}
+/* Our Rank's number labeled (2026-10-27) */
+.gcell .vlab{display:block;font-size:9.5px;line-height:1.1;opacity:.8;white-space:nowrap}
