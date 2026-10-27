@@ -1,7 +1,7 @@
 {
- "versionCode": 42,
- "versionName": "3.2.24",
- "notes": "Projections everywhere now use the same next-week prediction you see on the player card: the Weekly Projection list, your lineup and the week grades all match. How right we've been now grades that prediction too.",
+ "versionCode": 43,
+ "versionName": "3.2.25",
+ "notes": "The Our Rank number is now labeled Our score, and player cards show the trade value and our score side by side. On the Basic plan, player values and advanced stats (charts, matchup details, the full next-week prediction) are part of Pro.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
