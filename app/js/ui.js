@@ -341,8 +341,14 @@ function chartFrame(title, pts, top, axFmt, inner) {
   });
   const hits = pts.map((p, i) => `<rect x="${(CH.l + slot * i).toFixed(1)}" y="${CH.t}" width="${slot.toFixed(1)}" height="${ih}" class="mc-hit" data-tip="${esc(p.tip)}"/>`).join("");
   const last = pts.slice().reverse().find(p => p.y != null);
+  // weeks that need a color of their own (2026-10-27, the user's ask): red, he didn't play; yellow, he played and got 0;
+  // gray, his team's bye. A short block on the baseline, named in the key below the chart and in the tap readout.
+  const bw = Math.min(24, slot * 0.62), used = new Set();
+  const marks = pts.map((p, i) => { if (!p.mark) return ""; used.add(p.mark); const x = CH.l + slot * (i + 0.5) - bw / 2;
+    return `<rect x="${x.toFixed(1)}" y="${(Y(0) - 6).toFixed(1)}" width="${bw.toFixed(1)}" height="6" rx="2" class="mc-${p.mark}"/>`; }).join("");
+  const key = used.size ? `<div class="mc-key">${[["dnp", "didn't play"], ["zero", "played, 0"], ["bye", "bye"]].filter(([k]) => used.has(k)).map(([k, l]) => `<span><i class="mc-${k}"></i>${l}</span>`).join("")}</div>` : "";
   return `<div class="mchart"><div class="mc-head"><b>${esc(title)}</b><span class="mc-read">${esc(last ? last.tip : "")}</span></div>
-    <svg viewBox="0 0 ${CH.w} ${CH.h}" role="img" aria-label="${esc(title)}">${g}${inner(Y, slot)}${hits}</svg></div>`;
+    <svg viewBox="0 0 ${CH.w} ${CH.h}" role="img" aria-label="${esc(title)}">${g}${inner(Y, slot)}${marks}${hits}</svg>${key}</div>`;
 }
 function colChart(title, pts, o = {}) {
   const vals = pts.filter(p => p.y != null).map(p => p.y);
@@ -426,12 +432,18 @@ function modelWeekHtml(a) {
     ${fx}
     <p class="note muted" style="margin:6px 0 0">Our model, trained on every NFL game from 2013 to 2025 and tested on seasons it never saw. It reads his usage, efficiency, snaps and expected points, the defense he faces, the Vegas line and the weather${M.thin ? " (few games so far, so last season helps)" : ""}. The range is where 6 in 10 games like this land.</p></div>`;
 }
+/* Was this week his team's bye? From the season's schedule (this season only: it's the one the app keeps). */
+function teamBye(team, week, season) {
+  const g = (Store.get(`nflv_games_${season}.json`) || {}).games;
+  return !!(g && g.length && team && team !== "FA" && !g.some(x => x.week === week && (x.home === team || x.away === team)));
+}
 /* His share of his team's offensive snaps each week this season (nflverse snap counts). */
 function snapChart(a) {
   const season = parseInt(S.cfg.season, 10), rows = ((Store.get(`snaps_${season}.json`) || {}).players || {})[E.player_key(a.name, a.pos)];
   if (!rows || rows.length < 2) return "";
   const by = Object.fromEntries(rows.map(([w, s]) => [w, s])), last = Math.max(...rows.map(r => r[0]));
-  const pts = Array.from({ length: last }, (_, i) => { const w = i + 1, s = by[w]; return { x: String(w), y: s == null ? null : Math.round(s * 100), tip: s == null ? `Week ${w}: no snaps` : `Week ${w}: on the field for ${Math.round(s * 100)}% of snaps` }; });
+  const pts = Array.from({ length: last }, (_, i) => { const w = i + 1, s = by[w], bye = s == null && teamBye(a.team, w, season);
+    return { x: String(w), y: s == null ? null : Math.round(s * 100), mark: s == null ? (bye ? "bye" : "dnp") : null, tip: s == null ? `Week ${w}: ${bye ? "bye" : "didn't play"}` : `Week ${w}: on the field for ${Math.round(s * 100)}% of snaps` }; });
   return lineChart("Snap share by week", pts, { max: 100, axFmt: v => `${Math.round(v)}%` });
 }
 const mcShow = e => {
@@ -458,9 +470,13 @@ function gameLogHtml(r, a, yr) {
   // charts (2026-10-26): his points each week against his average, the ball he got, and (this season) his snap share
   // running backs: carries and targets as two charts (2026-10-27, the user's ask: "carries and targets separate for RBs")
   const uses = a.pos === "QB" ? [["Pass attempts", g => g.att || 0]] : a.pos === "RB" ? [["Carries", g => g.car || 0], ["Targets", g => g.tgt || 0]] : [["Targets", g => g.tgt || 0]];
-  const useChart = ([lbl, f]) => colChart(`${lbl} by week`, r.rows.map(x => ({ x: String(x.week), y: x.game ? f(x.game) : null, tip: x.game ? `Week ${x.week}: ${f(x.game)} ${lbl.toLowerCase()}` : `Week ${x.week}: no game` })),
+  const useChart = ([lbl, f]) => colChart(`${lbl} by week`, r.rows.map(x => ({ x: String(x.week), y: x.game ? f(x.game) : null, mark: x.game ? (f(x.game) === 0 ? "zero" : null) : noGame(x),
+      tip: x.game ? `Week ${x.week}: ${f(x.game)} ${lbl.toLowerCase()}` : missTip(x) })),
     { avg: games.reduce((t, x) => t + f(x.game), 0) / games.length, int: true });
-  const charts = colChart("Points by week", r.rows.map(x => ({ x: String(x.week), y: x.game ? x.game.pts : null, tip: x.game ? `Week ${x.week} vs ${x.game.opp}: ${x.game.pts.toFixed(1)} pts` : `Week ${x.week}: no game` })), { avg })
+  const noGame = x => (yr === season && teamBye(a.team, x.week, season) ? "bye" : "dnp");
+  const missTip = x => `Week ${x.week}: ${noGame(x) === "bye" ? "bye" : "didn't play"}`;
+  const charts = colChart("Points by week", r.rows.map(x => ({ x: String(x.week), y: x.game ? x.game.pts : null, mark: x.game ? (x.game.pts === 0 ? "zero" : null) : noGame(x),
+      tip: x.game ? `Week ${x.week} vs ${x.game.opp}: ${x.game.pts.toFixed(1)} pts` : missTip(x) })), { avg })
     + uses.map(useChart).join("")
     + (yr === season ? snapChart(a) + nextWeekHtml(a, r) : "");
   const cls = p => (p >= avg * 1.3 ? "hi" : p <= avg * 0.6 ? "lo" : "");
@@ -1562,7 +1578,7 @@ function rankList(el) {
   const wkN = S.W && S.W.week, ORDERS = [["ours", oursOn ? "Our Rank" : "Rank"], ["points", "Season Totals"], ["proj", "Weekly Projection"]];   // the user's names (2026-10-26)
   const byes = R.order === "proj" && S.W && Object.keys(S.W.ctx || {}).length ? Week.NFL_TEAMS.filter(t => !(S.W.ctx || {})[t]) : [];
   const projNote = R.order === "points" ? `<p class="note proj-note"><b>Total fantasy points this season (${S.cfg.season})</b>, in your league's scoring, with points a game under each name.</p>`
-    : R.order === "proj" ? `<p class="note proj-note"><b>Projected points for week ${wkN || "this"}'s games only</b>, in your league's scoring.${byes.length ? ` On a bye this week: ${byes.join(", ")}; their players are at the end of the list.` : ""}</p>` : "";
+    : R.order === "proj" ? `<p class="note proj-note"><b>Projected points for week ${wkN || "this"}'s games only</b>, in your league's scoring.${byes.length ? ` On a bye this week: ${byes.join(", ")}; their players are at the end of the list.` : ""} Players who are out, on IR or doubtful, and backups who aren't starting, are left off.</p>` : "";
   el.innerHTML = `<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <input type="search" id="rq" placeholder="Search players" value="${esc(R.q)}"></div>
     <div class="chips-row">${tabs.map(([p, l]) => `<button class="fchip ${R.pos === p ? "on" : ""}${p === "EDGE" ? " edge-chip" : ""}" data-pos="${p}" ${p === "EDGE" && locked() ? 'data-lock="ourgrade"' : ""}>${l}${p === "EDGE" ? " " + proTag() : ""}</button>`).join("")}
@@ -1621,6 +1637,7 @@ function rankList(el) {
     const SP = listPos && R.order === "points" ? Week.season_points(S.values, S.cfg, S.W) : null;
     const WG = listPos && R.order === "proj" ? Week.week_grades(S.values, S.cfg, S.W) : null;
     const spOf = a => (SP && SP[a.sleeper_id]) || null, wgOf = a => (WG && WG[a.sleeper_id]) || null;
+    if (listPos && R.order === "proj") pool = pool.filter(Week.weekly_eligible(S.values, S.cfg));   // no one who is out, on IR or a backup without a shot at starting (2026-10-27)
     if (listPos) {
       const key = R.order === "points" ? a => (spOf(a) ? spOf(a).pts : -1) : R.order === "proj" ? a => (wgOf(a) ? wgOf(a).pts : -1) : oursOn ? a => (a.orank ?? a.value) : a => a.value;
       pool = pool.slice().sort((x, y) => key(y) - key(x) || y.value - x.value);

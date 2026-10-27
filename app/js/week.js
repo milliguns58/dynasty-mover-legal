@@ -1437,6 +1437,31 @@ function stat_value(row, key, pk) {
   return row[key] == null ? "" : fmt(row[key]);
 }
 
+/* Who belongs in the weekly projections (2026-10-27, the user's rule: "if a player is out, on IR, or a backup that is
+   not starting do not add them unless they have a possibility of starting"). Out: Out, IR, Doubtful, PUP, suspended,
+   not with the team. A backup: deeper on Sleeper's depth chart than the starters (Sleeper numbers each slot, so every
+   starting receiver is a 1; running backs keep their RB2, who shares the work). He stays when a player ahead of him at
+   his position on his team is out (he may start), or when he played 35%+ of the snaps his last 2 games anyway. */
+const START_DEPTH = { QB: 1, RB: 2, WR: 1, TE: 1 };
+function weekly_eligible(values, cfg) {
+  const st = E.load_player_status(), season = parseInt(cfg.season, 10);
+  const snaps = (Store.get(`snaps_${season}.json`) || {}).players || {};
+  const outAt = {};                                                  // "TEAM|POS" -> depth slots of players who are out
+  for (const s of Object.values(st)) if (s && s.team && s.pos && s.depth && INJURY_OUT.has(s.inj)) (outAt[s.team + "|" + s.pos] = outAt[s.team + "|" + s.pos] || []).push(s.depth);
+  return a => {
+    if (!a || a.is_pick || !POSITIONS.includes(a.pos)) return true;  // kickers and defenses: their own rules
+    const s = st[String(a.sleeper_id || "")] || {};
+    if (INJURY_OUT.has(s.inj) || !a.team || a.team === "FA") return false;
+    const d = s.depth, lim = START_DEPTH[a.pos];
+    if (!d || d <= lim) return true;                                  // a starter, or no depth chart to go on
+    if (d - (outAt[a.team + "|" + a.pos] || []).filter(x => x < d).length <= lim) return true;   // someone ahead is out: he may start
+    if (a.pos !== "QB") {
+      const sn = snaps[E.player_key(a.name, a.pos)];
+      if (sn && sn.length) { const l = sn.slice(-2); if (l.reduce((t, x) => t + x[1], 0) / l.length >= 0.35) return true; }   // plays real snaps anyway
+    }
+    return false;
+  };
+}
 /* Next week's stat line from his own numbers (2026-10-26, the user's ask: a formula from the stats on every player card,
    with weather). The game: this week's if he hasn't played it yet, else next week's (its weather is too far out to know).
      usage       his targets, carries or pass attempts a game, recent games counting more (each game back 0.75 of the one
@@ -2092,6 +2117,6 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
   return { band: band[1], tone: band[2], score, pct, lens, lensTxt, reasons, sweeteners, need, message, summary, owner, mode: B.mode, thin: B.thin, deep: B.deep, trades: T };
 }
 
-return { met_weather, team_context, kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, matchup_preview, next_week_line, schedule_ctx, schedule_ctx, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
+return { met_weather, team_context, kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, matchup_preview, next_week_line, schedule_ctx, weekly_eligible, schedule_ctx, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
   waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades, season_grades, season_points, past_week_grades };
 })();
