@@ -1,7 +1,7 @@
 {
- "versionCode": 43,
- "versionName": "3.2.25",
- "notes": "The Our Rank number is now labeled Our score, and player cards show the trade value and our score side by side. On the Basic plan, player values and advanced stats (charts, matchup details, the full next-week prediction) are part of Pro.",
+ "versionCode": 44,
+ "versionName": "3.2.26",
+ "notes": "The Our Rank list shows each player's trade value, the same number as on his card. The card shows his trade value and our score side by side.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
