@@ -44,5 +44,5 @@ window.GM_CFG = { url: "https://dynasty-mover-gm.dynastymover-app.workers.dev", 
 /* The web version (tools/web/build_web.py): files live in the browser's IndexedDB, sources that refuse a browser are
    fetched through the Worker's /proxy, there is no Play billing and no APK updater. */
 window.WEB = true;
-window.APP_VERSION = "3.2.20";
+window.APP_VERSION = "3.2.21";
 window.PROXY_URL = "https://dynasty-mover-gm.dynastymover-app.workers.dev/proxy";

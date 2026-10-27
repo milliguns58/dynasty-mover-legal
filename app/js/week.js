@@ -1535,7 +1535,7 @@ function next_week_line(a, cfg, W, rows) {
   const ppr = parseFloat(cfg.league.ppr || 0), teb = a.pos === "TE" ? (parseFloat(cfg.league.te_premium_bonus_pct || 0) / 20) : 0;
   out.pts = 0.04 * (L.pyd || 0) + 4 * (L.ptd || 0) - 2 * (L.int || 0) + 0.1 * ((L.ryd || 0) + (L.recyd || 0)) + 6 * ((L.rtd || 0) + (L.rectd || 0)) + (ppr + teb) * (L.rec || 0);
   out.line = L;
-  out.factors.unshift({ k: "Usage", t: a.pos === "QB" ? `${att.toFixed(0)} pass attempts a game lately` : a.pos === "RB" ? `${(car + tgt).toFixed(1)} carries + targets a game lately` : `${tgt.toFixed(1)} targets a game lately`, f: 1 });
+  out.factors.unshift({ k: "Usage", t: a.pos === "QB" ? `${att.toFixed(0)} pass attempts a game lately` : a.pos === "RB" ? `${car.toFixed(1)} carries and ${tgt.toFixed(1)} targets a game lately` : `${tgt.toFixed(1)} targets a game lately`, f: 1 });
   out.thin = games.length < 3;
   return out;
 }

@@ -390,8 +390,8 @@ function nextWeekHtml(a, r) {
   const L = N.line, n0 = v => Math.round(v), n1 = v => (Math.round(v * 10) / 10).toFixed(1);
   const stats = a.pos === "QB"
     ? [[`${n0(L.cmp)}/${n0(L.att)}`, "comp/att"], [n0(L.pyd), "pass yds"], [n1(L.ptd), "pass TD"], [n1(L.int), "INT"], [n0(L.ryd), "rush yds"], [n1(L.rtd), "rush TD"]]
-    : a.pos === "RB" ? [[n1(L.car), "carries"], [n0(L.ryd), "rush yds"], [n1(L.rtd), "rush TD"], [n1(L.rec), "catches"], [n0(L.recyd), "rec yds"], [n1(L.rectd), "rec TD"]]
-    : [[n1(L.tgt), "targets"], [n1(L.rec), "catches"], [n0(L.recyd), "rec yds"], [n1(L.rectd), "rec TD"]].concat(L.ryd >= 3 ? [[n0(L.ryd), "rush yds"]] : []);
+    : a.pos === "RB" ? [[n1(L.car), "carries"], [n0(L.ryd), "rush yds"], [n1(L.rtd), "rush TD"], [`${n1(L.rec)}/${n1(L.tgt)}`, "rec/tgt"], [n0(L.recyd), "rec yds"], [n1(L.rectd), "rec TD"]]
+    : [[`${n1(L.rec)}/${n1(L.tgt)}`, "rec/tgt"], [n0(L.recyd), "rec yds"], [n1(L.rectd), "rec TD"]].concat(L.ryd >= 3 ? [[n0(L.ryd), "rush yds"]] : []);
   const fx = N.factors.map(f => { const d = Math.round((f.f - 1) * 100); return `<div class="nw-f"><span class="nw-k">${esc(f.k)}</span><span class="nw-t">${esc(f.t)}</span>${d ? `<b class="${d > 0 ? "good" : "bad"}">${d > 0 ? "+" : ""}${d}%</b>` : ""}</div>`; }).join("");
   return `<div class="nw"><div class="mc-head"><b>Next week: ${head}</b></div>
     <div class="nw-top"><div class="nw-pts"><b>${N.pts.toFixed(1)}</b><span>predicted points</span></div>
@@ -415,8 +415,8 @@ function modelWeekHtml(a) {
   const n0 = v => Math.round(v), n1 = v => (Math.round(v * 10) / 10).toFixed(1);
   const stats = a.pos === "QB"
     ? [[`${n0(g("cmp"))}/${n0(g("att"))}`, "comp/att"], [n0(g("pyd")), "pass yds"], [n1(g("ptd")), "pass TD"], [n1(g("int")), "INT"], [n0(g("ryd")), "rush yds"], [n1(g("rtd")), "rush TD"]]
-    : a.pos === "RB" ? [[n1(g("car")), "carries"], [n0(g("ryd")), "rush yds"], [n1(g("rtd")), "rush TD"], [n1(g("rec")), "catches"], [n0(g("recyd")), "rec yds"], [n1(g("rectd")), "rec TD"]]
-    : [[n1(g("tgt")), "targets"], [n1(g("rec")), "catches"], [n0(g("recyd")), "rec yds"], [n1(g("rectd")), "rec TD"]].concat(g("ryd") >= 3 ? [[n0(g("ryd")), "rush yds"]] : []);
+    : a.pos === "RB" ? [[n1(g("car")), "carries"], [n0(g("ryd")), "rush yds"], [n1(g("rtd")), "rush TD"], [`${n1(g("rec"))}/${n1(g("tgt"))}`, "rec/tgt"], [n0(g("recyd")), "rec yds"], [n1(g("rectd")), "rec TD"]]
+    : [[`${n1(g("rec"))}/${n1(g("tgt"))}`, "rec/tgt"], [n0(g("recyd")), "rec yds"], [n1(g("rectd")), "rec TD"]].concat(g("ryd") >= 3 ? [[n0(g("ryd")), "rush yds"]] : []);
   const opp = String(M.opp || "").replace(/^@/, ""), head = `Week ${M.week}${opp ? ` ${M.home === false ? "at" : "vs"} ${esc(opp)}` : ""}`;
   const fx = (M.effects || []).map(f => { const d = Math.round(((f.f || 1) - 1) * 100); return `<div class="nw-f"><span class="nw-k">${esc(f.k)}</span><span class="nw-t">${esc(f.t)}</span>${d ? `<b class="${d > 0 ? "good" : "bad"}">${d > 0 ? "+" : ""}${d}%</b>` : ""}</div>`; }).join("");
   return `<div class="nw"><div class="mc-head"><b>Next week: ${head}</b></div>
@@ -456,10 +456,12 @@ function gameLogHtml(r, a, yr) {
     : [["REC/TGT", g => `${i(g.rec)}/${i(g.tgt)}`], ["YDS", g => i(g.recyd)], ["TD", g => i(g.rectd + g.rtd)]];
   const games = r.rows.filter(x => x.game), avg = games.reduce((s, x) => s + x.game.pts, 0) / games.length;
   // charts (2026-10-26): his points each week against his average, the ball he got, and (this season) his snap share
-  const use = a.pos === "QB" ? ["Pass attempts", g => g.att || 0] : a.pos === "RB" ? ["Carries + targets", g => (g.car || 0) + (g.tgt || 0)] : ["Targets", g => g.tgt || 0];
-  const useAvg = games.reduce((s, x) => s + use[1](x.game), 0) / games.length;
+  // running backs: carries and targets as two charts (2026-10-27, the user's ask: "carries and targets separate for RBs")
+  const uses = a.pos === "QB" ? [["Pass attempts", g => g.att || 0]] : a.pos === "RB" ? [["Carries", g => g.car || 0], ["Targets", g => g.tgt || 0]] : [["Targets", g => g.tgt || 0]];
+  const useChart = ([lbl, f]) => colChart(`${lbl} by week`, r.rows.map(x => ({ x: String(x.week), y: x.game ? f(x.game) : null, tip: x.game ? `Week ${x.week}: ${f(x.game)} ${lbl.toLowerCase()}` : `Week ${x.week}: no game` })),
+    { avg: games.reduce((t, x) => t + f(x.game), 0) / games.length, int: true });
   const charts = colChart("Points by week", r.rows.map(x => ({ x: String(x.week), y: x.game ? x.game.pts : null, tip: x.game ? `Week ${x.week} vs ${x.game.opp}: ${x.game.pts.toFixed(1)} pts` : `Week ${x.week}: no game` })), { avg })
-    + colChart(`${use[0]} by week`, r.rows.map(x => ({ x: String(x.week), y: x.game ? use[1](x.game) : null, tip: x.game ? `Week ${x.week}: ${use[1](x.game)} ${use[0].toLowerCase()}` : `Week ${x.week}: no game` })), { avg: useAvg, int: true })
+    + uses.map(useChart).join("")
     + (yr === season ? snapChart(a) + nextWeekHtml(a, r) : "");
   const cls = p => (p >= avg * 1.3 ? "hi" : p <= avg * 0.6 ? "lo" : "");
   const body = r.rows.map(x => x.game
