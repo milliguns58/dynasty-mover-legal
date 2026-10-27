@@ -1,7 +1,7 @@
 {
- "versionCode": 38,
- "versionName": "3.2.20",
- "notes": "New layout: Players is home (Rankings, Trending, Watchlist, Wire), compare any NFL players without a league, add your team from a screenshot, charts and a next-week prediction on every player card.",
+ "versionCode": 39,
+ "versionName": "3.2.21",
+ "notes": "Running backs: carries and targets shown apart; next-week stat lines show catches/targets.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
