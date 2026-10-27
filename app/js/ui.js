@@ -628,7 +628,7 @@ function gradeChip(a, withArrow = true) {
    only, 2026-10-16) and then "Dynasty" (the big grade, with the value under it; "Season" in redraft), a thin divider
    after the week so they read as different things. */
 // o.wk / o.val: a number under the week grade / in place of the value (the Rankings tab's Points and Projected orders)
-const gradeRight = (a, o = {}) => { const sc = seasonCell(a); if (isKdef(a) && o.val == null) { const k = kdefGrade(a); o = Object.assign({}, o, { val: k ? `${k.ppg.toFixed(1)}/g` : "–" }); } return `<div class="gcells${sc ? " g3" : ""}">${weekCell(a, o.wk)}${sc}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</small><div class="gv">${gradeChip(a, !sc)}</div>${o.val == null && noVals() ? "" : `<div class="d muted${o.val != null ? " rk-num" : ""}">${o.val != null ? o.val : fmt(a.value)}${o.vlab ? `<small class="vlab">${o.vlab}</small>` : ""}</div>`}</div></div>`; };
+const gradeRight = (a, o = {}) => { const sc = seasonCell(a); if (isKdef(a) && o.val == null) { const k = kdefGrade(a); o = Object.assign({}, o, { val: k ? `${k.ppg.toFixed(1)}/g` : "–" }); } return `<div class="gcells${sc ? " g3" : ""}">${weekCell(a, o.wk)}${sc}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</small><div class="gv">${gradeChip(a, !sc)}</div>${o.val == null && noVals() ? "" : `<div class="d muted${o.val != null ? " rk-num" : ""}">${o.val != null ? o.val : fmt(a.value)}</div>`}</div></div>`; };
 /* A status flag by the name, from Sleeper's injury status: IR, PUP, OUT (this week), DOUB (doubtful), SUS, Q. */
 function statusFlag(a) {
   if (!a || a.is_pick || !a.sleeper_id) return "";
@@ -1602,7 +1602,7 @@ function rankList(el) {
     ${listPos ? `<div class="seg rk-seg" id="oseg">${ORDERS.map(([k, l]) => `<button data-o="${k}" class="${R.order === k ? "on" : ""}">${l}</button>`).join("")}</div>${projNote}
       <details class="tip"><summary>How this list is ordered</summary><p class="note muted">${R.order === "points" ? `Fantasy points scored this season${S.W ? "" : " (loading this week's data…)"}.`
         : R.order === "proj" ? `This week's projected points, with the matchup${S.W ? "" : " (loading this week's data…)"}. No game this week sorts last.`
-        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his Our score, high to low: our own view of him. His trade value, what the market pays and what trades are judged on, is on his card next to it.`
+        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his trade value, the same as on his card: what the market pays and what trades are judged on. The order is ours, so a player we like more than the market can sit above a higher value.`
         : "Ranked by the market's value."}</p></details>` : ""}
     ${R.pos === "ROOK" ? `<div class="seg" id="rseg">${[["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].map(([p, l]) => `<button data-rp="${p}" class="${R.rpos === p ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (production for his team this season and last, the age it came at, receptions for backs, size, recruiting pedigree, efficiency), weighted by what has worked for past classes in the NFL. Until the NFL draft, "Projected draft" is where players with profiles like his have been drafted; it counts a fifth of a running back's or receiver's grade and a tenth of a tight end's. Once the draft happens, the pick's round takes its place.</p>` : ""}
@@ -1669,10 +1669,9 @@ function rankList(el) {
             <div class="d edge-tag ${R.edge}">${n >= 2 ? (R.edge === "buy" ? "Buy" : "Sell") : (R.edge === "buy" ? "Lean buy" : "Lean sell")}</div>` });
       }
       // the number the list is ordered by, where it fits on a phone: season points in place of the value, this week's projection under the week grade
-      // Our rank shows its own number, so the numbers run high to low down the list (2026-10-16: McMillan's trade value
-      // 6,751 sat under Jonathan Taylor's 5,612)
-      const right = SP ? gradeRight(a, { val: spOf(a) ? `${spOf(a).pts.toFixed(1)} pts` : "0 pts" }) : WG ? gradeRight(a, { wk: wgOf(a) ? wgOf(a).pts.toFixed(1) : "bye" })
-        : listPos && oursOn && a.orank != null ? gradeRight(a, { val: fmt(a.orank), vlab: "Our score" }) : undefined;   // labeled (2026-10-27): it isn't the trade value on the card
+      // Our Rank shows the trade value, the same number as the card (2026-10-27, the user's ask), in Our Rank's order; from
+      // 2026-10-16 it had shown its own score so the numbers ran high to low
+      const right = SP ? gradeRight(a, { val: spOf(a) ? `${spOf(a).pts.toFixed(1)} pts` : "0 pts" }) : WG ? gradeRight(a, { wk: wgOf(a) ? wgOf(a).pts.toFixed(1) : "bye" }) : undefined;
       const extra = SP && spOf(a) && spOf(a).gp ? ` · ${spOf(a).ppg.toFixed(1)} ppg` : "";
       const rk = listPos && (R.order !== "ours" || oursOn) ? i + 1 : R.q || R.who !== "all" ? i + 1 : (R.pos === "ALL" || R.pos === "PICK" ? a.rank || i + 1 : a.pos_rank || i + 1);
       // rising or falling over the last 30 days, by the name (2026-10-20, the user's ask); redraft shows it by the grade already
