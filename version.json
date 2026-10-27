@@ -1,10 +1,10 @@
 {
- "versionCode": 37,
- "versionName": "3.2.19",
- "notes": "Faster and fresher: quicker roster refreshes, new stats as soon as they're out, and the GM's weekly report only credits your starters.",
+ "versionCode": 38,
+ "versionName": "3.2.20",
+ "notes": "New layout: Players is home (Rankings, Trending, Watchlist, Wire), compare any NFL players without a league, add your team from a screenshot, charts and a next-week prediction on every player card.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
  },
- "published": "2026-10-22"
+ "published": "2026-10-27"
 }
