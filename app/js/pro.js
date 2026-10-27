@@ -40,13 +40,13 @@ const Pro = (() => {
       screen = "";
       wasPro = s.pro;
       applyTheme();
-      go(entered ? (S.tab || "home") : "home");
+      go(entered ? (S.tab || "rank") : "rank");
       if (!entered) setTimeout(autoRefresh, 800);
       entered = true;
     } else if (s.pro !== wasPro) {                        // trial ended, or just subscribed: redraw with features locked or unlocked
       wasPro = s.pro;
       applyTheme();
-      if (!sheetOpen()) go(S.tab || "home");
+      if (!sheetOpen()) go(S.tab || "rank");
     }
     bar(s);
     if (s.kind === "basic" && !app().basicNotice) { saveApp({ basicNotice: true }); setTimeout(() => paywallSheet("ended"), 600); }
@@ -54,7 +54,7 @@ const Pro = (() => {
   function onChange(extra) {
     if (extra.error) toast(extra.error, 4200);
     if (extra.justBought) { toast("Thanks! You're on Dynasty Mover Pro.", 3600); if (sheetOpen()) closeSheet(); }
-    if (extra.justBoughtAddon) { toast("Thanks! The draft kit is yours.", 3600); if (sheetOpen()) closeSheet(); if (!gated() && !busy) go(S.tab || "home"); }
+    if (extra.justBoughtAddon) { toast("Thanks! The draft kit is yours.", 3600); if (sheetOpen()) closeSheet(); if (!gated() && !busy) go(S.tab || "rank"); }
     if (busy) return;                                     // a form is running; it decides when it finishes
     decide();
     if (!gated() && $("#acct")) { $("#acct").outerHTML = accountCard(); bindAccount(); }

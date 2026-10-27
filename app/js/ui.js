@@ -8,7 +8,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const { fmt, fmt_signed } = E;
 
 const S = {
-  tab: "home", home: { kind: "adds" }, values: null, cfg: null,
+  tab: "rank", home: { kind: "adds" }, pview: "rank",   // the app opens on Players, on its Rankings view (2026-10-26) values: null, cfg: null,
   sides: { A: { team: null, mode: "neutral", items: [] }, B: { team: null, mode: "neutral", items: [] } },
   result: null, busy: false,
   team: { id: null, seg: "lineup" },
@@ -68,7 +68,7 @@ $("#scrim").addEventListener("click", () => { if (!S.busy) closeSheet(); });
 window.onNativeBack = () => {
   if (sheetOpen()) { if (!S.busy) closeSheet(); return true; }
   if (Pro.ON && Pro.gated()) return false;                  // sign-in or paywall screen: back leaves the app
-  if (S.tab !== "home") { go("home"); return true; }
+  if (S.tab !== "rank") { go("rank"); return true; }
   return false;
 };
 /* Look: "classic" (the default) or "retro" (8-bit, css/retro.css). Theme (light/dark) applies to Classic only. */
@@ -324,6 +324,126 @@ function careerHtml(st, a) {
   return tabs + table + foot + (rows.length ? `<p class="credit" style="text-align:left;padding-top:2px">Stats from nflverse</p>` : "");
 }
 /* The player card's game log table. r: { rows, last } from E.game_log, null while loading, or { error }. */
+/* Small charts for the player card (2026-10-26, the user's ask: graphs and charts for the stats on player cards).
+   Plain SVG drawn in the app's own colors, so they follow light and dark mode. One series a chart, so the title names
+   it (no legend box); thin columns with a rounded top, a hairline grid, his average as a labeled line. A tap or hover
+   on a week shows its value in the line beside the title, which starts on the latest week. */
+const CH = { w: 320, h: 96, l: 26, r: 6, t: 10, b: 16 };
+const niceMax = v => { if (!(v > 0)) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))), m = v / p; return ([1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find(x => m <= x) || 10) * p; };   // the next clean step, not the next big one
+function chartFrame(title, pts, top, axFmt, inner) {
+  const ih = CH.h - CH.t - CH.b, Y = v => CH.t + ih - (Math.max(0, v) / top) * ih, slot = (CH.w - CH.l - CH.r) / pts.length;
+  let g = "";
+  for (const t of [0, top / 2, top]) g += `<line x1="${CH.l}" x2="${CH.w - CH.r}" y1="${Y(t).toFixed(1)}" y2="${Y(t).toFixed(1)}" class="mc-grid"/><text x="${CH.l - 4}" y="${(Y(t) + 3).toFixed(1)}" class="mc-ax" text-anchor="end">${axFmt(t)}</text>`;
+  const every = pts.length > 18 ? 2 : 1;
+  pts.forEach((p, i) => {
+    const cx = CH.l + slot * (i + 0.5);
+    if (i % every === 0) g += `<text x="${cx.toFixed(1)}" y="${CH.h - 4}" class="mc-ax${p.y == null ? " dim" : ""}" text-anchor="middle">${esc(p.x)}</text>`;
+  });
+  const hits = pts.map((p, i) => `<rect x="${(CH.l + slot * i).toFixed(1)}" y="${CH.t}" width="${slot.toFixed(1)}" height="${ih}" class="mc-hit" data-tip="${esc(p.tip)}"/>`).join("");
+  const last = pts.slice().reverse().find(p => p.y != null);
+  return `<div class="mchart"><div class="mc-head"><b>${esc(title)}</b><span class="mc-read">${esc(last ? last.tip : "")}</span></div>
+    <svg viewBox="0 0 ${CH.w} ${CH.h}" role="img" aria-label="${esc(title)}">${g}${inner(Y, slot)}${hits}</svg></div>`;
+}
+function colChart(title, pts, o = {}) {
+  const vals = pts.filter(p => p.y != null).map(p => p.y);
+  if (!vals.length || !(Math.max(...vals) > 0)) return "";
+  const top = o.max || niceMax(Math.max(...vals, o.avg || 0) * 1.05), fmt = v => (o.int || top >= 20 ? String(Math.round(v)) : v.toFixed(1).replace(/\.0$/, ""));
+  return chartFrame(title, pts, top, fmt, (Y, slot) => {
+    const bw = Math.min(24, slot * 0.62);
+    let s = "";
+    pts.forEach((p, i) => {
+      if (!(p.y > 0)) return;
+      const x = CH.l + slot * (i + 0.5) - bw / 2, y0 = Y(0), y1 = Y(p.y), r = Math.min(4, (y0 - y1) / 2, bw / 2);
+      s += `<path d="M${x.toFixed(1)},${y0.toFixed(1)}V${(y1 + r).toFixed(1)}Q${x.toFixed(1)},${y1.toFixed(1)} ${(x + r).toFixed(1)},${y1.toFixed(1)}H${(x + bw - r).toFixed(1)}Q${(x + bw).toFixed(1)},${y1.toFixed(1)} ${(x + bw).toFixed(1)},${(y1 + r).toFixed(1)}V${y0.toFixed(1)}Z" class="mc-bar"/>`;
+    });
+    if (o.avg > 0) s += `<line x1="${CH.l}" x2="${CH.w - CH.r}" y1="${Y(o.avg).toFixed(1)}" y2="${Y(o.avg).toFixed(1)}" class="mc-avg"/><text x="${CH.w - CH.r}" y="${(Y(o.avg) - 3).toFixed(1)}" class="mc-ax mc-avg-l" text-anchor="end">avg ${o.int ? o.avg.toFixed(1) : o.avg.toFixed(1)}</text>`;
+    return s;
+  });
+}
+function lineChart(title, pts, o = {}) {
+  const vals = pts.filter(p => p.y != null).map(p => p.y);
+  if (vals.length < 2) return "";
+  const top = o.max || niceMax(Math.max(...vals) * 1.05);
+  return chartFrame(title, pts, top, o.axFmt || (v => String(Math.round(v))), (Y, slot) => {
+    const xy = pts.map((p, i) => p.y == null ? null : [CH.l + slot * (i + 0.5), Y(p.y)]);
+    const runs = []; let cur = [];
+    for (const q of xy) { if (q) cur.push(q); else if (cur.length) { runs.push(cur); cur = []; } }
+    if (cur.length) runs.push(cur);
+    let s = "";
+    for (const run of runs) {
+      const d = run.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
+      if (run.length > 1) s += `<path d="${d}L${run[run.length - 1][0].toFixed(1)},${Y(0).toFixed(1)}L${run[0][0].toFixed(1)},${Y(0).toFixed(1)}Z" class="mc-area"/><path d="${d}" class="mc-line"/>`;
+    }
+    for (const q of xy) if (q) s += `<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="4" class="mc-dot"/>`;
+    return s;
+  });
+}
+/* Next week's predicted stat line (week.js next_week_line), after the snap share chart (2026-10-26, the user's ask). */
+function nextWeekHtml(a, r) {
+  if (!S.W || S.W.valuesOnly) return "";
+  const M = modelWeekHtml(a);                                    // the trained stat-line model first (2026-10-27)
+  if (M) return M;
+  const N = Week.next_week_line(a, S.cfg, S.W, r.rows);
+  if (!N) return "";
+  const head = `Week ${N.week}${N.opp ? ` ${N.home === false ? "at" : "vs"} ${esc(String(N.opp).replace(/^@/, ""))}` : ""}${N.afterBye ? ` (bye in week ${N.afterBye})` : ""}`;
+  if (N.none) return `<div class="nw"><div class="mc-head"><b>Next week: ${head}</b></div><p class="note muted" style="margin:4px 0 0">${esc(N.none)}</p></div>`;
+  const L = N.line, n0 = v => Math.round(v), n1 = v => (Math.round(v * 10) / 10).toFixed(1);
+  const stats = a.pos === "QB"
+    ? [[`${n0(L.cmp)}/${n0(L.att)}`, "comp/att"], [n0(L.pyd), "pass yds"], [n1(L.ptd), "pass TD"], [n1(L.int), "INT"], [n0(L.ryd), "rush yds"], [n1(L.rtd), "rush TD"]]
+    : a.pos === "RB" ? [[n1(L.car), "carries"], [n0(L.ryd), "rush yds"], [n1(L.rtd), "rush TD"], [n1(L.rec), "catches"], [n0(L.recyd), "rec yds"], [n1(L.rectd), "rec TD"]]
+    : [[n1(L.tgt), "targets"], [n1(L.rec), "catches"], [n0(L.recyd), "rec yds"], [n1(L.rectd), "rec TD"]].concat(L.ryd >= 3 ? [[n0(L.ryd), "rush yds"]] : []);
+  const fx = N.factors.map(f => { const d = Math.round((f.f - 1) * 100); return `<div class="nw-f"><span class="nw-k">${esc(f.k)}</span><span class="nw-t">${esc(f.t)}</span>${d ? `<b class="${d > 0 ? "good" : "bad"}">${d > 0 ? "+" : ""}${d}%</b>` : ""}</div>`; }).join("");
+  return `<div class="nw"><div class="mc-head"><b>Next week: ${head}</b></div>
+    <div class="nw-top"><div class="nw-pts"><b>${N.pts.toFixed(1)}</b><span>predicted points</span></div>
+      <div class="nw-stats">${stats.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("")}</div></div>
+    ${fx}
+    <p class="note muted" style="margin:6px 0 0">Our formula from his own games this season${N.thin ? " (few games so far, so last season helps)" : ""}, recent ones counting more, then his matchup, the Vegas line and the weather. A guide, not a promise.</p></div>`;
+}
+/* Next week from the trained stat-line model (2026-10-27, the user's ask: "your most advanced calculations"): ridge
+   models per position and stat fitted on 2013-2025 (predict.js week_line, tools/predict/line_model.py), with learned
+   wind, cold and game-script effects and the rain/snow rule on top. Its points are half-PPR; here the line is scored
+   the league's way and the floor and ceiling scale with it. Null when the model has too little to go on: the hand
+   formula (week.js next_week_line) shows instead. */
+function modelWeekHtml(a) {
+  if (typeof Predict === "undefined" || !Predict.week_line) return "";
+  let M = null;
+  try { M = Predict.week_line(a, S.W, S.cfg, null); } catch (e) { M = null; }
+  if (!M || !M.line || !(M.pts_half > 0)) return "";
+  const L = M.line, g = k => L[k] || 0, ppr = parseFloat(S.cfg.league.ppr || 0), teb = a.pos === "TE" ? parseFloat(S.cfg.league.te_premium_bonus_pct || 0) / 20 : 0;
+  const pts = 0.04 * g("pyd") + 4 * g("ptd") - 2 * g("int") + 0.1 * (g("ryd") + g("recyd")) + 6 * (g("rtd") + g("rectd")) + (ppr + teb) * g("rec") + (M.other || 0);
+  const k = M.pts_half > 0 ? pts / M.pts_half : 1, lo = (M.floor || 0) * k, hi = (M.ceiling || 0) * k;
+  const n0 = v => Math.round(v), n1 = v => (Math.round(v * 10) / 10).toFixed(1);
+  const stats = a.pos === "QB"
+    ? [[`${n0(g("cmp"))}/${n0(g("att"))}`, "comp/att"], [n0(g("pyd")), "pass yds"], [n1(g("ptd")), "pass TD"], [n1(g("int")), "INT"], [n0(g("ryd")), "rush yds"], [n1(g("rtd")), "rush TD"]]
+    : a.pos === "RB" ? [[n1(g("car")), "carries"], [n0(g("ryd")), "rush yds"], [n1(g("rtd")), "rush TD"], [n1(g("rec")), "catches"], [n0(g("recyd")), "rec yds"], [n1(g("rectd")), "rec TD"]]
+    : [[n1(g("tgt")), "targets"], [n1(g("rec")), "catches"], [n0(g("recyd")), "rec yds"], [n1(g("rectd")), "rec TD"]].concat(g("ryd") >= 3 ? [[n0(g("ryd")), "rush yds"]] : []);
+  const opp = String(M.opp || "").replace(/^@/, ""), head = `Week ${M.week}${opp ? ` ${M.home === false ? "at" : "vs"} ${esc(opp)}` : ""}`;
+  const fx = (M.effects || []).map(f => { const d = Math.round(((f.f || 1) - 1) * 100); return `<div class="nw-f"><span class="nw-k">${esc(f.k)}</span><span class="nw-t">${esc(f.t)}</span>${d ? `<b class="${d > 0 ? "good" : "bad"}">${d > 0 ? "+" : ""}${d}%</b>` : ""}</div>`; }).join("");
+  return `<div class="nw"><div class="mc-head"><b>Next week: ${head}</b></div>
+    <div class="nw-top"><div class="nw-pts"><b>${pts.toFixed(1)}</b><span>predicted points</span><span class="nw-band">${lo.toFixed(1)} to ${hi.toFixed(1)}</span></div>
+      <div class="nw-stats">${stats.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("")}</div></div>
+    ${M.p20 != null ? `<div class="nw-f"><span class="nw-k">Big game</span><span class="nw-t">Chance of 20+ points (half PPR)</span><b>${Math.round(M.p20 * 100)}%</b></div>` : ""}
+    ${fx}
+    <p class="note muted" style="margin:6px 0 0">Our model, trained on every NFL game from 2013 to 2025 and tested on seasons it never saw. It reads his usage, efficiency, snaps and expected points, the defense he faces, the Vegas line and the weather${M.thin ? " (few games so far, so last season helps)" : ""}. The range is where 6 in 10 games like this land.</p></div>`;
+}
+/* His share of his team's offensive snaps each week this season (nflverse snap counts). */
+function snapChart(a) {
+  const season = parseInt(S.cfg.season, 10), rows = ((Store.get(`snaps_${season}.json`) || {}).players || {})[E.player_key(a.name, a.pos)];
+  if (!rows || rows.length < 2) return "";
+  const by = Object.fromEntries(rows.map(([w, s]) => [w, s])), last = Math.max(...rows.map(r => r[0]));
+  const pts = Array.from({ length: last }, (_, i) => { const w = i + 1, s = by[w]; return { x: String(w), y: s == null ? null : Math.round(s * 100), tip: s == null ? `Week ${w}: no snaps` : `Week ${w}: on the field for ${Math.round(s * 100)}% of snaps` }; });
+  return lineChart("Snap share by week", pts, { max: 100, axFmt: v => `${Math.round(v)}%` });
+}
+const mcShow = e => {
+  const t = e.target && e.target.closest ? e.target.closest(".mc-hit") : null;
+  if (!t) return;
+  const c = t.closest(".mchart");
+  c.querySelector(".mc-read").textContent = t.dataset.tip;
+  c.querySelectorAll(".mc-hit.on").forEach(x => x.classList.remove("on"));
+  t.classList.add("on");
+};
+document.addEventListener("pointerover", mcShow);
+document.addEventListener("click", mcShow);
 function gameLogHtml(r, a, yr) {
   const season = parseInt(S.cfg.season, 10);
   const tabs = logTabs(yr);
@@ -335,11 +455,17 @@ function gameLogHtml(r, a, yr) {
     : a.pos === "RB" ? [["CAR", g => i(g.car)], ["YDS", g => i(g.ryd)], ["TD", g => i(g.rtd + g.rectd)], ["REC", g => i(g.rec)], ["REC YDS", g => i(g.recyd)]]
     : [["REC/TGT", g => `${i(g.rec)}/${i(g.tgt)}`], ["YDS", g => i(g.recyd)], ["TD", g => i(g.rectd + g.rtd)]];
   const games = r.rows.filter(x => x.game), avg = games.reduce((s, x) => s + x.game.pts, 0) / games.length;
+  // charts (2026-10-26): his points each week against his average, the ball he got, and (this season) his snap share
+  const use = a.pos === "QB" ? ["Pass attempts", g => g.att || 0] : a.pos === "RB" ? ["Carries + targets", g => (g.car || 0) + (g.tgt || 0)] : ["Targets", g => g.tgt || 0];
+  const useAvg = games.reduce((s, x) => s + use[1](x.game), 0) / games.length;
+  const charts = colChart("Points by week", r.rows.map(x => ({ x: String(x.week), y: x.game ? x.game.pts : null, tip: x.game ? `Week ${x.week} vs ${x.game.opp}: ${x.game.pts.toFixed(1)} pts` : `Week ${x.week}: no game` })), { avg })
+    + colChart(`${use[0]} by week`, r.rows.map(x => ({ x: String(x.week), y: x.game ? use[1](x.game) : null, tip: x.game ? `Week ${x.week}: ${use[1](x.game)} ${use[0].toLowerCase()}` : `Week ${x.week}: no game` })), { avg: useAvg, int: true })
+    + (yr === season ? snapChart(a) + nextWeekHtml(a, r) : "");
   const cls = p => (p >= avg * 1.3 ? "hi" : p <= avg * 0.6 ? "lo" : "");
   const body = r.rows.map(x => x.game
     ? `<tr><td>${x.week}</td><td>${esc(x.game.opp)}</td>${cols.map(([, f]) => `<td>${f(x.game)}</td>`).join("")}<td class="pts ${cls(x.game.pts)}">${x.game.pts.toFixed(1)}</td></tr>`
     : `<tr class="nog"><td>${x.week}</td><td colspan="${cols.length + 2}">No game</td></tr>`).join("");
-  return tabs + `<div class="glog"><table><thead><tr><th>WK</th><th>OPP</th>${cols.map(([h]) => `<th>${h}</th>`).join("")}<th>PTS</th></tr></thead><tbody>${body}</tbody></table></div>
+  return tabs + charts + `<div class="glog"><table><thead><tr><th>WK</th><th>OPP</th>${cols.map(([h]) => `<th>${h}</th>`).join("")}<th>PTS</th></tr></thead><tbody>${body}</tbody></table></div>
     <p class="note muted" style="margin-top:6px">${games.length} game${games.length === 1 ? "" : "s"} · ${avg.toFixed(1)} points a game in your league's scoring</p>
     <p class="credit" style="text-align:left;padding-top:2px">Points by week from Sleeper; stats from nflverse</p>`;
 }
@@ -691,17 +817,14 @@ function renderHome(el) {
       <div class="hh-top"><div><div class="hh-kicker">${watch ? "Keeping an eye on" : "Trending now"}</div><h1>${watch ? "Your watchlist" : adds ? "Most added" : "Most dropped"}</h1>
         <div class="hh-sub">${watch ? (nW ? `${nW} player${nW === 1 ? "" : "s"} · how they've moved since you added them` : "Players you want to keep an eye on") : "Across all Sleeper leagues, last 2 days"}</div></div>
         <div class="hh-flame">${watch ? "⭐" : adds ? "🔥" : "🧊"}</div></div>
-      <div class="hh-toggle">${[["adds", "Adds"], ["drops", "Drops"], ["watch", "Watchlist"]].map(([k, t]) => `<button data-k="${k}" class="${H.kind === k ? "on" : ""}">${t}</button>`).join("")}</div>
+      ${watch ? "" : `<div class="hh-toggle">${[["adds", "Adds"], ["drops", "Drops"]].map(([k, t]) => `<button data-k="${k}" class="${H.kind === k ? "on" : ""}">${t}</button>`).join("")}</div>`}
       ${watch ? "" : `<div class="podium" id="podium">${[1, 2, 3].map(() => `<div class="pod skel"></div>`).join("")}</div>`}
     </section>
     ${S.cfg ? "" : `<section class="card cta"><div><b>Add your league</b><div class="hint">See who's still available and value trades.</div></div><button class="btn primary sm" id="homeAdd">Add</button></section>`}
-    ${typeof GM !== "undefined" ? GM.homeCard() : ""}
     ${watch ? `<div id="watchBox">${watchCard(true)}</div>` : `<section class="card flush"><div class="list" id="trend">${loading("Loading trending players…")}</div></section>`}
-    ${wireCard()}
     ${watch ? (S.values ? credits() : "") : `<p class="credit">Trending data from <a data-link="https://sleeper.com">Sleeper</a>.${S.values ? " " + credits().replace(/^<p class="credit">|<\/p>$/g, "") : ""}</p>`}`;
   $$(".hh-toggle button", el).forEach(b => b.onclick = () => { H.kind = b.dataset.k; renderHome(el); });
-  if (typeof GM !== "undefined") GM.bindHome(el);
-  ensureWeek("home");
+  ensureWeek("rank");
   const ha = $("#homeAdd");
   if (ha) ha.onclick = () => go("league");
   if (watch) return;                                                     // the watchlist needs no trending call
@@ -716,7 +839,7 @@ function renderHome(el) {
   };
   const who = r => r.asset || { name: r.name, pos: r.pos, team: r.team, sleeper_id: r.sid };
   E.trending_list(H.kind, 30, S.values, S.cfg ? E.hide_positions(S.cfg, S.values && S.values.league) : true).then(({ rows }) => {
-    if (!el.isConnected || S.tab !== "home") return;
+    if (!el.isConnected || S.tab !== "rank" || S.pview !== "trend") return;
     if (!rows.length) { $("#trend").innerHTML = `<div class="empty">No trending data right now.</div>`; $("#podium").innerHTML = ""; return; }
     const top = rows[0].count || 1, sign = adds ? "+" : "−";
     $("#podium").innerHTML = rows.slice(0, 3).map((r, i) => `<button class="pod p${i + 1}" data-sid="${esc(r.sid)}" style="animation-delay:${i * 80}ms">
@@ -738,9 +861,53 @@ function renderHome(el) {
 /* The trade screen: "You give", then the verdict bar, then "You get". The bar updates as soon as both sides have
    something (there is no "check" button). Each side is a compact card: team and strategy as pills, then the players,
    then a slim "Add" row. The bar's card also holds the swap and start-over buttons. */
+/* The Dynasty Mover banner, at the top of Players, the page the app opens on (2026-10-26, the user's ask). */
+const BRAND = `<section class="brand"><img src="icon.png" alt="" class="brand-logo"><div class="brand-txt"><b>Dynasty Mover</b><span>Trade analyzer for dynasty and redraft</span></div></section>`;
+/* No league yet (2026-10-26, the user's ask: the default trade screen lets you add players from the NFL, with options to
+   add your Sleeper league, create your own league or upload your team from a screenshot). Comparing needs values, and
+   values need a format, so the first card asks three questions and sets up a "Quick trade" with no league; the second
+   card brings a team in. */
+function quickStart(el) {
+  const q = S.qt = S.qt || { type: "dynasty", sf: false, ppr: "1" };
+  const seg = (id, opts, cur) => `<div class="seg" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${String(cur) === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  el.innerHTML = BRAND + `<section class="card qt-card"><h2>Compare any NFL players</h2>
+      <p class="hint">Pick your format, then add players to each side of the trade.</p>
+      ${seg("qtType", [["dynasty", "Dynasty"], ["redraft", "Redraft"]], q.type)}
+      ${seg("qtSF", [["false", "1 QB"], ["true", "Superflex"]], q.sf)}
+      ${seg("qtPpr", [["1", "Full PPR"], ["0.5", "Half PPR"], ["0", "Standard"]], q.ppr)}
+      <button class="btn primary block big" id="qtGo">Start comparing</button></section>` + bringTeam();
+  const pick = (id, key, conv) => $$(`#${id} button`, el).forEach(b => b.onclick = () => { q[key] = conv(b.dataset.v); quickStart(el); });
+  pick("qtType", "type", v => v); pick("qtSF", "sf", v => v === "true"); pick("qtPpr", "ppr", v => v);
+  $("#qtGo", el).onclick = async () => {
+    const pid = E.profile_new("Quick trade");
+    E.set_profile(pid);
+    S.cfg = E.P.cfg; S.cfg.league.name = "Quick trade";
+    E.apply_settings(S.cfg, { league_type: q.type, ppr: parseFloat(q.ppr), superflex: q.sf, te_premium_pct: 0, teams: 12 });
+    E.save_config(S.cfg);
+    loadActive(); header();
+    await runUpdate();
+    if (E.P.id === pid) go("trade");
+  };
+  bindBringTeam(el);
+}
+/* Bring your team in: a Sleeper league, one you set up yourself, or a screenshot of your roster from any app. */
+function bringTeam() {
+  const shot = typeof GM !== "undefined" && GM.available && GM.available();
+  const opt = (id, t, s) => `<button class="qt-opt" id="${id}"><span><b>${t}</b><small>${s}</small></span><span class="qt-go">›</span></button>`;
+  return `<section class="card qt-card"><h2>Bring your team</h2><p class="hint">Grades, lineup help and trade ideas for your own roster.</p>
+    ${opt("qtSleeper", "Add your Sleeper league", "Enter your Sleeper username and pick the league")}
+    ${opt("qtOwn", "Create your own league", "ESPN, Yahoo or any site: set the format and add your players")}
+    ${shot ? opt("qtShot", "Upload your team from a screenshot", "Take a screenshot of your roster and we'll read the players") : ""}</section>`;
+}
+function bindBringTeam(el) {
+  const on = (id, fn) => { const b = $("#" + id, el); if (b) b.onclick = fn; };
+  on("qtSleeper", () => { S.lgOpen = true; go("league"); setTimeout(() => { const i = $("#sUser"); if (i) { i.scrollIntoView({ block: "center" }); i.focus(); } }, 200); });
+  on("qtOwn", () => manualSetup("My league", $("#view")));
+  on("qtShot", () => { S.shotFirst = true; manualSetup("My league", $("#view")); });
+}
 function renderTrade(el) {
   if (S.sidesDropped) { const n = S.sidesDropped; S.sidesDropped = 0; toast(n === 1 ? "One piece left the trade: it's no longer on that roster (per Sleeper)." : `${n} pieces left the trade: they're no longer on those rosters (per Sleeper).`, 3600); }
-  if (!S.cfg) return needLeague(el);
+  if (!S.cfg) return quickStart(el);
   if (!S.values) return needValues(el);
   const redraft = E.is_redraft(S.cfg);
   if (S.sides.A.team != null && String(S.sides.A.team) === String(S.sides.B.team)) S.sides.B.team = null;   // a team can't trade with itself
@@ -771,7 +938,9 @@ function renderTrade(el) {
   };
   const cap = locked() ? `<p class="foot trade-cap">Basic plan: ${tradeCount()} of ${BASIC_TRADE_MAX} players and picks. <a class="lnk" data-lock="tradesize">Go Pro for bigger trades</a></p>` : "";
   const ideas = tradeIdeas(priced);
-  el.innerHTML = side("A") + (ideas.side === "A" ? ideas.html : "") + `<section class="card tmid" id="tscore"></section>` + side("B") + (ideas.side === "B" ? ideas.html : "") + cap + `<div id="result"></div><div id="tlog"></div>${credits()}`;
+  const noLeague = !(S.values.league && (S.values.league.teams || []).length);
+  el.innerHTML = side("A") + (ideas.side === "A" ? ideas.html : "") + `<section class="card tmid" id="tscore"></section>` + side("B") + (ideas.side === "B" ? ideas.html : "") + cap + `<div id="result"></div><div id="tlog"></div>${noLeague ? bringTeam() : ""}${credits()}`;
+  if (noLeague) bindBringTeam(el);
   $$("[data-idea]", el).forEach(it => it.onclick = e => {
     if (e.target.closest(".plink")) return;                  // the name opens the card; the row adds him
     const m = E.find_asset(it.dataset.idea, S.values, S.cfg);
@@ -1354,7 +1523,21 @@ function dynastyEdge(a) {
     return { kind: "buy", score: a.omkt * ratio, why: `Ours ${Math.round((ratio - 1) * 100)}% over the market` };
   return null;
 }
+/* Players (2026-10-26, the user's ask: Rankings becomes Players, the home page, with Most added and dropped and the
+   watchlist in it, and Rankings first whenever the tab opens). The league wire moved in from the old News tab. */
+const PVIEWS = [["rank", "Rankings"], ["trend", "Trending"], ["watch", "Watchlist"], ["wire", "Wire"]];
 function renderRank(el) {
+  if (!S.cfg) return quickStart(el);
+  const v = S.pview || "rank";
+  el.innerHTML = BRAND + `<div class="seg pv-seg" id="pvSeg">${PVIEWS.map(([k, l]) => `<button data-pv="${k}" class="${v === k ? "on" : ""}">${l}</button>`).join("")}</div><div id="pvBody"></div>`;
+  $$("#pvSeg button", el).forEach(b => b.onclick = () => { S.pview = b.dataset.pv; renderRank(el); });
+  const body = $("#pvBody", el);
+  if (v === "rank") return rankList(body);
+  if (v === "wire") { body.innerHTML = wireCard() || `<section class="card"><p class="note muted" style="margin:0">${teams().length ? "Nothing new for players on this league's rosters in the last week." : "The wire follows the players on your league's rosters: add your league to see it."}</p></section>`; return; }
+  if ((v === "watch") !== (S.home.kind === "watch")) S.home.kind = v === "watch" ? "watch" : "adds";
+  renderHome(body);
+}
+function rankList(el) {
   if (!S.cfg) return needLeague(el);
   if (!S.values) return needValues(el);
   const R = S.rank, hasLg = teams().length > 0;
@@ -1372,7 +1555,12 @@ function renderRank(el) {
   // the order (2026-10-16): our own ranking first, then this season's points, then this week's projection
   R.order = R.order || "ours";
   const listPos = ["ALL", "QB", "RB", "WR", "TE"].includes(R.pos), oursOn = hasOurs && !locked();
-  const ORDERS = [["ours", oursOn ? "Our rank" : "Rank"], ["points", "Points"], ["proj", "Projected"]];
+  // the weekly view says so (2026-10-26, the user: "This needs to let you know that it's a weekly projection"): the button
+  // names the week, and a line under the buttons says what the numbers are and which teams are on a bye
+  const wkN = S.W && S.W.week, ORDERS = [["ours", oursOn ? "Our Rank" : "Rank"], ["points", "Season Totals"], ["proj", "Weekly Projection"]];   // the user's names (2026-10-26)
+  const byes = R.order === "proj" && S.W && Object.keys(S.W.ctx || {}).length ? Week.NFL_TEAMS.filter(t => !(S.W.ctx || {})[t]) : [];
+  const projNote = R.order === "points" ? `<p class="note proj-note"><b>Total fantasy points this season (${S.cfg.season})</b>, in your league's scoring, with points a game under each name.</p>`
+    : R.order === "proj" ? `<p class="note proj-note"><b>Projected points for week ${wkN || "this"}'s games only</b>, in your league's scoring.${byes.length ? ` On a bye this week: ${byes.join(", ")}; their players are at the end of the list.` : ""}</p>` : "";
   el.innerHTML = `<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <input type="search" id="rq" placeholder="Search players" value="${esc(R.q)}"></div>
     <div class="chips-row">${tabs.map(([p, l]) => `<button class="fchip ${R.pos === p ? "on" : ""}${p === "EDGE" ? " edge-chip" : ""}" data-pos="${p}" ${p === "EDGE" && locked() ? 'data-lock="ourgrade"' : ""}>${l}${p === "EDGE" ? " " + proTag() : ""}</button>`).join("")}
@@ -1387,14 +1575,14 @@ function renderRank(el) {
           : "The market grades these players higher than we do. Their price is ahead of what they'll likely score this season. In redraft most players can be replaced, so sell the name, keep the points.")
         : (R.edge === "buy" ? "We grade these players higher than the market does. Their age curve and production say they're worth more than they trade for: good ones to trade for."
           : "The market grades these players higher than we do. Their age curve says their value is near its top: good ones to trade away while they still bring a lot.")}</p>` : ""}
-    ${listPos ? `<div class="seg rk-seg" id="oseg">${ORDERS.map(([k, l]) => `<button data-o="${k}" class="${R.order === k ? "on" : ""}">${l}</button>`).join("")}</div>
+    ${listPos ? `<div class="seg rk-seg" id="oseg">${ORDERS.map(([k, l]) => `<button data-o="${k}" class="${R.order === k ? "on" : ""}">${l}</button>`).join("")}</div>${projNote}
       <details class="tip"><summary>How this list is ordered</summary><p class="note muted">${R.order === "points" ? `Fantasy points scored this season${S.W ? "" : " (loading this week's data…)"}.`
         : R.order === "proj" ? `This week's projected points, with the matchup${S.W ? "" : " (loading this week's data…)"}. No game this week sorts last.`
         : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his Our rank score, high to low; his trade value is on his card.`
         : "Ranked by the market's value."}</p></details>` : ""}
     ${R.pos === "ROOK" ? `<div class="seg" id="rseg">${[["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].map(([p, l]) => `<button data-rp="${p}" class="${R.rpos === p ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (production for his team this season and last, the age it came at, receptions for backs, size, recruiting pedigree, efficiency), weighted by what has worked for past classes in the NFL. Until the NFL draft, "Projected draft" is where players with profiles like his have been drafted; it counts a fifth of a running back's or receiver's grade and a tenth of a tight end's. Once the draft happens, the pick's round takes its place.</p>` : ""}
-    ${more("What do the grades mean?", `<p class="note">${E.is_redraft(S.cfg) ? "Two grades on every player. The big letter is the <b>season</b> grade: the rest of this season." : "Three grades on every player. The big letter is the <b>dynasty</b> grade: his next seasons, in Our rank's order (A+ is about the best player on each team, A the next one, on down to F). The small <b>season</b> letter is this season only: the points we expect him to score the rest of this year, ranked at his position."} <span class="grade ga">A</span> star · <span class="grade gb">B</span> starter · <span class="grade gc">C</span> depth · <span class="grade gd">D</span> long shot · <span class="grade gf">F</span> nothing going: no team, buried on the depth chart, or old and unproductive.
+    ${more("What do the grades mean?", `<p class="note">${E.is_redraft(S.cfg) ? "Two grades on every player. The big letter is the <b>season</b> grade: the rest of this season." : "Three grades on every player. The big letter is the <b>dynasty</b> grade: his next seasons, in Our Rank's order (A+ is about the best player on each team, A the next one, on down to F). The small <b>season</b> letter is this season only: the points we expect him to score the rest of this year, ranked at his position."} <span class="grade ga">A</span> star · <span class="grade gb">B</span> starter · <span class="grade gc">C</span> depth · <span class="grade gd">D</span> long shot · <span class="grade gf">F</span> nothing going: no team, buried on the depth chart, or old and unproductive.
       The small <b>Week</b> letter is <b>this week</b>: his matchup-adjusted projection ranked at his position, A+ must start, F sit, a dash for no game. ${locked() ? "On the Basic plan the grade is the market's."
         : E.is_redraft(S.cfg) ? "The grade is ours: the points he'll score this season (production, role and health). Age doesn't count in redraft. The value and rank are the market's."
         : "The grade is ours: what his future holds (production, the prime years he has left, role and health). The value and rank are the market's."}
@@ -1471,11 +1659,11 @@ function renderRank(el) {
     const m = $("#more");
     if (m) m.onclick = () => { R.limit += 150; draw(); };
   };
-  $$("[data-pos]", el).forEach(b => b.onclick = () => { R.pos = b.dataset.pos; R.limit = 100; renderRank(el); });
-  $$("[data-e]", el).forEach(b => b.onclick = () => { R.edge = b.dataset.e; R.limit = 100; renderRank(el); });
-  $$("[data-o]", el).forEach(b => b.onclick = () => { R.order = b.dataset.o; R.limit = 100; renderRank(el); });
-  $$("[data-rp]", el).forEach(b => b.onclick = () => { R.rpos = b.dataset.rp; R.limit = 100; renderRank(el); });
-  $$("[data-who]", el).forEach(b => b.onclick = () => { R.who = R.who === b.dataset.who ? "all" : b.dataset.who; R.limit = 100; renderRank(el); });
+  $$("[data-pos]", el).forEach(b => b.onclick = () => { R.pos = b.dataset.pos; R.limit = 100; rankList(el); });
+  $$("[data-e]", el).forEach(b => b.onclick = () => { R.edge = b.dataset.e; R.limit = 100; rankList(el); });
+  $$("[data-o]", el).forEach(b => b.onclick = () => { R.order = b.dataset.o; R.limit = 100; rankList(el); });
+  $$("[data-rp]", el).forEach(b => b.onclick = () => { R.rpos = b.dataset.rp; R.limit = 100; rankList(el); });
+  $$("[data-who]", el).forEach(b => b.onclick = () => { R.who = R.who === b.dataset.who ? "all" : b.dataset.who; R.limit = 100; rankList(el); });
   $("#rq").oninput = e => { R.q = e.target.value; R.limit = 100; draw(); };
   draw();
 }
@@ -1975,8 +2163,9 @@ async function loadNews(a) {
   }
   h += injuryDetails(p, a);
   // our news wire: his status changes over the last three weeks (2026-10-20)
-  const mine = E.load_wire().filter(e => e.sid === String(a.sleeper_id || "")).slice(0, 4);
-  if (mine.length) h += `<div class="sub-h">Recent moves</div>` + mine.map(e => `<div class="kv"><span>${esc(e.text)}</span><b class="muted">${esc(ago(e.t))}</b></div>`).join("");
+  // only the newest one (2026-10-26, the user's ask)
+  const mine = E.load_wire().filter(e => e.sid === String(a.sleeper_id || "")).sort((x, y) => new Date(y.t) - new Date(x.t)).slice(0, 1);
+  if (mine.length) h += `<div class="sub-h">Latest move</div>` + mine.map(e => `<div class="kv"><span>${esc(e.text)}</span><b class="muted">${esc(ago(e.t))}</b></div>`).join("");
   // reporters and fantasy outlets on Bluesky
   const posts = await E.bsky_posts(a.name).catch(() => []);
   if (posts.length) h += `<div class="sub-h">From reporters</div>` + posts.map(b => `<a class="news" data-link="${esc(b.url)}"><b>${esc(b.text.length > 280 ? b.text.slice(0, 277) + "…" : b.text)}</b>
@@ -2150,6 +2339,9 @@ function card(a, opts = {}) {
       let statsTbl = "";
       if (C.seasons && C.seasons.length) {
         const ss = C.seasons, lines = ss[0].lines.map(([l]) => l);
+        const ppgRow = lines.indexOf("Points per game");
+        if (ppgRow >= 0 && ss.length >= 2) statsTbl += colChart("Points per game by season", ss.slice().sort((x, y) => x.season - y.season)
+          .map(s => { const v = parseFloat(s.lines[ppgRow][1]); return { x: String(s.season), y: isNaN(v) ? null : v, tip: isNaN(v) ? `${s.season}: no games` : `${s.season}: ${v.toFixed(1)} points a game` }; }), {});
         statsTbl += `<div class="sub-h">Season stats</div><div class="tscroll"><table class="t"><tr><th></th>${ss.map(s => `<th class="r">${s.season}</th>`).join("")}</tr>
           ${lines.map((l, i) => `<tr><td>${esc(l)}</td>${ss.map(s => `<td class="r">${esc(s.lines[i][1])}</td>`).join("")}</tr>`).join("")}</table></div>`;
       }
@@ -2334,7 +2526,10 @@ function drawBuilder(body, t, B) {
     if (bench.length) h += `<div class="grp">Bench <span class="grp-note">${bench.filter(r => r.a).length} of ${bench.length}</span></div><div class="list">${bench.map(r => line(r, rows.indexOf(r))).join("")}</div>`;
     if (extra.length) h += `<div class="grp">Also on the team</div><div class="list">${extra.map(a => assetRow(a, { x: true, trend: false })).join("")}</div>`;
     const shot = typeof GM !== "undefined" && GM.available && GM.available();
-    h += `${shot ? `<div class="btns" style="margin-top:12px"><button class="btn soft block" id="rbShot">Import from a screenshot</button></div><input type="file" id="rbShotFile" accept="image/*" style="display:none">` : ""}
+    const first = shot && S.shotFirst && !rows.some(r => r.a);          // came from "Upload your team from a screenshot" (2026-10-26)
+    const shotBtn = `<div class="btns" style="margin-${first ? "bottom" : "top"}:12px"><button class="btn ${first ? "primary" : "soft"} block" id="rbShot">${first ? "Choose your roster screenshot" : "Import from a screenshot"}</button></div><input type="file" id="rbShotFile" accept="image/*" style="display:none">`;
+    if (first) h = `<p class="note" style="margin-top:0">Take a screenshot of your roster in your league's app or site, then choose it here. We'll read the players and add them.</p>${shotBtn}` + h;
+    h += `${shot && !first ? shotBtn : ""}
       <p class="note muted" style="margin-top:10px">Players sit in the slots by value; the lineup help on My team picks the week's starters. Tap a name for his card, × to take him off the team.${shot ? " Import from a screenshot reads a roster picture from Sleeper, ESPN, Yahoo or any league site and adds the players it finds; long rosters take two pictures." : ""}</p>`;
     box.innerHTML = h;
     if (shot) { $("#rbShot", box).onclick = () => $("#rbShotFile", box).click(); $("#rbShotFile", box).onchange = e => { const f = e.target.files && e.target.files[0]; if (f) importScreenshot(f, lg, t, B, poolPos, free, redraw); }; }
@@ -2548,7 +2743,7 @@ function renderLeague(el) {
       ${src("Stats, schedules, injuries, rosters", "nflverse (CC BY 4.0)", "https://github.com/nflverse/nflverse-data")}
       ${src("Expected points", "ffopportunity (CC BY-SA 4.0)", "https://github.com/ffverse/ffopportunity")}
       ${src("Leagues, rosters, trending", "Sleeper", "https://sleeper.com")}
-      ${anchors.length ? `<div class="kv"><span>Our rank starts from</span><span>${anchors.map(n => `<a data-link="${esc(E.SOURCES[n].url)}" class="lnk">${esc(E.SOURCES[n].label.replace(" ADP", ""))}</a>`).join(" and ")}</span></div>` : ""}
+      ${anchors.length ? `<div class="kv"><span>Our Rank starts from</span><span>${anchors.map(n => `<a data-link="${esc(E.SOURCES[n].url)}" class="lnk">${esc(E.SOURCES[n].label.replace(" ADP", ""))}</a>`).join(" and ")}</span></div>` : ""}
       ${anchors.includes("mfl") ? "" : src("Draft ADP", "MyFantasyLeague", "https://www.myfantasyleague.com")}
       ${src("Rookie class", "CollegeFootballData.com", "https://collegefootballdata.com")}
       ${src("Reporters' posts", "Bluesky", "https://bsky.app")}
@@ -2724,7 +2919,7 @@ async function liveCard(body, t, W) {
    Tap a column head to sort by it, a row to open that team on My team. */
 const PR_COLS = [["overall", "OVR"], ["starters", "STR"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["picks", "PK"]];
 // the three views (2026-10-16): our power rating first, then points scored, then the projected finish
-const PR_MODES = [["power", "Our rank", "PWR"], ["points", "Points", "PTS"], ["proj", "Projected", "PROJ"]];
+const PR_MODES = [["power", "Our Rank", "PWR"], ["points", "Points", "PTS"], ["proj", "Projected", "PROJ"]];
 function powerSheet() {
   if (!S.values || !teams().length) return;
   S.pr = S.pr && S.pr.mode ? S.pr : { mode: "power", sort: "power" };
@@ -2742,7 +2937,7 @@ function powerSheet() {
       : `<div class="pr-val">${r.power}</div>${P.games ? `<div class="pr-sub">${Math.round(r.allplay * 100)}% all-play</div>` : ""}`;
     const why = mode === "points" ? "Points scored this season, and per week."
       : mode === "proj" ? `The projected final record and the chance of making the playoffs, from 3,000 run-throughs of the ${P.weeksLeft ? `${P.weeksLeft} weeks left on the real schedule` : "season"}.`
-      : `Our rank, 0 to 100: points per week, the all-play record (each week's score against every team, so schedule luck doesn't count), the record and the best lineup now${P.redraft ? "" : ", plus the whole roster with picks"}. ${P.games > 4 ? "Results now count more than the lineup." : "Early on, the lineup counts most."}`;
+      : `Our Rank, 0 to 100: points per week, the all-play record (each week's score against every team, so schedule luck doesn't count), the record and the best lineup now${P.redraft ? "" : ", plus the whole roster with picks"}. ${P.games > 4 ? "Results now count more than the lineup." : "Early on, the lineup counts most."}`;
     const chip = r => `<span class="pr-chip ${r <= third ? "pr-hi" : r > P.n - third ? "pr-lo" : "pr-mid"}">${r}</span>`;   // not "top": the header's class
     const tierCls = m => (m === "contending" ? "pr-hi" : m === "rebuilding" || m === "long shot" ? "pr-lo" : "pr-mid");
     // fits a phone with no sideways scroll (a pinned column broke in the app's web view, 2026-10-15): record and tier
@@ -2904,7 +3099,7 @@ async function findLeagues() {
   } catch (e) { box.innerHTML = `<div class="empty">Couldn't find "${esc(user)}" on Sleeper. Check the spelling.</div>`; }
 }
 
-async function switchTo(pid, tab = "home") {
+async function switchTo(pid, tab = "rank") {
   await idle();
   if (locked() && pid !== E.load_profiles().active) return Pro.lock("leagues"); E.set_profile(pid); loadActive(); header(); go(tab); toast(`Opened ${(E.load_profiles().profiles[pid] || {}).name}`); setTimeout(autoRefresh, 300); }   // the opened league's values may be stale or from an older formula
 
@@ -2974,7 +3169,7 @@ async function runImport(leagueId, opts = {}) {
     P.done(true, opts.refreshOnly ? "Rosters are up to date." : `${r.league.name} is ready.${me ? ` Your team: ${me.team_name}.` : " Pick your team on the My team tab."}`);
   } catch (e) { P.done(false, "Couldn't reach Sleeper. Check the connection and try again."); P.log(e.message); }
   S.busy = false;
-  header(); go(opts.refreshOnly ? S.tab : "home");
+  header(); go(opts.refreshOnly ? S.tab : "rank");
 }
 
 async function nextSeason() {
@@ -3129,13 +3324,15 @@ window.addEventListener("online", () => window.onAppResume());
 // Navigation and start-up
 // ---------------------------------------------------------------------------
 function go(tab) {
+  if (tab === "rank" && S.tab !== "rank") S.pview = "rank";       // Players opens on Rankings (2026-10-26)
+  if (tab === "home") { tab = "rank"; S.pview = "trend"; }         // the old Home tab is Players' Adds & drops now
   S.tab = tab;
   $$("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   const gb = $("#gmBtn"); if (gb) gb.classList.toggle("on", tab === "gm");
   const el = $("#view");
   document.body.classList.toggle("gm-on", tab === "gm");
   document.body.classList.toggle("on-league", tab === "league");
-  ({ home: renderHome, trade: renderTrade, rank: renderRank, team: renderTeam, league: renderLeague, gm: el => GM.render(el) })[tab](el);
+  ({ trade: renderTrade, rank: renderRank, team: renderTeam, league: renderLeague, gm: el => GM.render(el) })[tab](el);
   window.scrollTo(0, 0);
 }
 // the tabs stay on screen under an open sheet (2026-10-20, the user's ask): a tap closes the sheet and goes there
@@ -3145,11 +3342,11 @@ applyTheme();
 loadActive();
 header();
 if (Pro.ON) Pro.start();                                   // Pro edition: sign-in, trial or paywall first (pro.js)
-else { go("home"); setTimeout(autoRefresh, 800); }
+else { go("rank"); setTimeout(autoRefresh, 800); }
 if (typeof Update !== "undefined") setTimeout(() => Update.check().then(() => Update.banner()).catch(() => {}), 2500);   // the beta updater (store/BETA.md)
 setTimeout(() => {                                          // the stats behind points-by-week and the starting-QB grade floor
   if (!S.cfg || !navigator.onLine) return;
   const season = parseInt(S.cfg.season, 10), had = !!Store.get(`nflv_wk_${season}.json`);
   Promise.all([E.nflv_stats(season, true, 12), E.nflv_stats(season - 1, false, 24 * 30)])
-    .then(() => { qbPace = null; if (!had && !sheetOpen() && !(Pro.ON && Pro.gated())) go(S.tab || "home"); }, () => {});
+    .then(() => { qbPace = null; if (!had && !sheetOpen() && !(Pro.ON && Pro.gated())) go(S.tab || "rank"); }, () => {});
 }, 2500);

@@ -181,8 +181,9 @@ function adjust_projection(base, pos, team, ctx, trends, aggressiveness) {
   const reasons = [];
   const apply = (fct, text) => { if (Math.abs(fct - 1) >= 0.015) reasons.push(`${text} ${fct >= 1 ? "+" : ""}${Math.round((fct - 1) * 100)}%`); mult *= fct; };
   const c = (ctx || {})[team] || null;
-  // tight ends get no Vegas or home/away adjustment (2026-10-20): over six weeks it made their projections worse (71% -> 67% within 5)
-  const vegas = pos !== "TE";
+  // tight ends got no Vegas or home/away adjustment from 2026-10-20 (six weeks of 2026 said it hurt them); back on
+  // 2026-10-27, the user's call ("Put vegas in on weekly") after the stat-line model's 2024-25 test showed Vegas helps TEs
+  const vegas = true;
   if (c) {
     if (vegas) apply(c.home ? 1.02 : 0.98, c.home ? "home" : "away");
     if (!c.indoor) {
@@ -312,7 +313,8 @@ async function week_context_nflv(cfg, week, refresh = false, weather = true) {
     if (!indoor && weather) { try { wx = ABROAD.test(g.sid) ? await met_weather(g.sid, kickoff) : await nws_weather(g.home, kickoff); } catch (e) { wx = null; } }
     for (const [ab, opp, is_home] of [[g.home, g.away, true], [g.away, g.home, false]]) {
       const own = g.spread == null ? null : (is_home ? -g.spread : g.spread);   // nflverse: positive = home favored
-      teams[ab] = { opp, home: is_home, indoor, venue: g.stadium, weather: wx ? wx.weather : null, temp: wx ? wx.temp : null, gust: wx ? wx.gust : null, precip: wx ? wx.precip : null,
+      // wind: the sustained wind (NWS only), which the stat-line model learned on (2026-10-26); gust stays for the hand rules
+      teams[ab] = { opp, home: is_home, indoor, venue: g.stadium, weather: wx ? wx.weather : null, temp: wx ? wx.temp : null, gust: wx ? wx.gust : null, wind: wx ? wx.wind ?? null : null, precip: wx ? wx.precip : null,
         spread: own, total: g.total, implied: (g.total == null || own == null) ? null : g.total / 2 - own / 2, kickoff, status: null, source: "nflverse" };
     }
   }));
@@ -1408,8 +1410,24 @@ function stats_for(asset, seasons, weekly) {
 function stat_lines(pos) {
   const common = [["gp", "Games"], ["PTS", "Fantasy points"], ["PPG", "Points per game"]];
   if (pos === "QB") return common.concat([["pass_yd", "Pass yards"], ["pass_td", "Pass TD"], ["pass_int", "Interceptions"], ["rush_yd", "Rush yards"], ["rush_td", "Rush TD"]]);
-  if (pos === "RB") return common.concat([["rush_att", "Carries"], ["rush_yd", "Rush yards"], ["rush_td", "Rush TD"], ["rec_tgt", "Targets"], ["rec", "Catches"], ["rec_yd", "Receiving yards"], ["rec_td", "Receiving TD"], ["fum_lost", "Fumbles lost"]]);
+  if (pos === "RB") return common.concat([["rush_att", "Carries"], ["rush_yd", "Rush yards"], ["rush_td", "Rush TD"], ["rec_tgt", "Targets"], ["rec", "Catches"], ["rec_yd", "Receiving yards"], ["rec_td", "Receiving TD"]]);   // no fumbles: no source the app uses carries them
   return common.concat([["rec_tgt", "Targets"], ["rec", "Catches"], ["rec_yd", "Receiving yards"], ["rec_td", "Receiving TD"], ["rush_att", "Carries"], ["rush_yd", "Rush yards"], ["rush_td", "Rush TD"]]);
+}
+/* The season table's stat lines (2026-10-26, the user: the card's Season stats were blank in most spots). The season rows
+   carry games and points only, since the stats come from nflverse; yards, touchdowns, targets and carries come from the
+   season totals kept for the career view (nflv_car_<year>) and, for this season, the sum of the game log (nflv_log_<year>). */
+const LINE_IX = { pass_yd: 5, pass_td: 6, pass_int: 7, rush_att: 8, rush_yd: 9, rush_td: 10, rec: 11, rec_tgt: 12, rec_yd: 13, rec_td: 14 };   // the game log's order
+function season_detail(a, y, season) {
+  const k = E.player_key(a.name, a.pos), out = {};
+  if (y === season) {
+    const L = ((Store.get(`nflv_log_${y}.json`) || {}).players || {})[k];
+    if (!L) return out;
+    for (const [key, i] of Object.entries(LINE_IX)) out[key] = Math.round(Object.values(L).reduce((t, g) => t + (parseFloat(g[i]) || 0), 0));
+    return out;
+  }
+  const C = ((Store.get(`nflv_car_${y}.json`) || {}).players || {})[k];   // [team, games, std, ppr, then the game log's stat line]
+  if (C) for (const [key, i] of Object.entries(LINE_IX)) out[key] = Math.round(parseFloat(C[i + 1]) || 0);
+  return out;
 }
 function stat_value(row, key, pk) {
   if (!row) return "";
@@ -1417,6 +1435,109 @@ function stat_value(row, key, pk) {
   if (key === "PTS") return fmt(row[pk] || 0);
   if (key === "PPG") return gp ? ((row[pk] || 0) / gp).toFixed(1) : "";
   return row[key] == null ? "" : fmt(row[key]);
+}
+
+/* Next week's stat line from his own numbers (2026-10-26, the user's ask: a formula from the stats on every player card,
+   with weather). The game: this week's if he hasn't played it yet, else next week's (its weather is too far out to know).
+     usage       his targets, carries or pass attempts a game, recent games counting more (each game back 0.75 of the one
+                 after it); under 3 games this season, last season fills in; nudged by his snap share lately (0.9-1.1)
+     efficiency  catches, yards and touchdowns per chance from his season; touchdowns half-way to his position's usual
+                 rate, since they swing the most
+     the game    the opponent's points allowed to his position (half the gap to average, 0.88-1.12); the Vegas implied
+                 total (not for tight ends, the user's rule); the weather at kickoff (wind, rain or snow, cold; domes neutral)
+   Points: nflverse's standard scoring (the game log's) plus the league's points a catch and tight end bonus. */
+const NW_PRIOR = {                                     // a typical starter's rates, for thin samples and the touchdown pull
+  QB: { cmp: 0.64, ypa: 6.9, ptd: 0.045, int: 0.024, ypc: 4.8, rtd: 0.05 },
+  RB: { ypc: 4.2, rtd: 0.03, catch: 0.78, ypt: 6.0, rectd: 0.025 },
+  WR: { catch: 0.63, ypt: 8.3, rectd: 0.045, ypc: 6.5, rtd: 0.03 },
+  TE: { catch: 0.70, ypt: 7.4, rectd: 0.05, ypc: 4.0, rtd: 0.03 } };
+const NW_IX = { cmp: 3, att: 4, pyd: 5, ptd: 6, int: 7, car: 8, ryd: 9, rtd: 10, rec: 11, tgt: 12, recyd: 13, rectd: 14 };   // the game log's order
+const nwClip = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+/* A game from the season schedule, for a week whose weather isn't out yet: opponent, home, dome and the Vegas numbers. */
+function schedule_ctx(team, week, season) {
+  const g = ((Store.get(`nflv_games_${season}.json`) || {}).games || []).find(x => x.week === week && (x.home === team || x.away === team));
+  if (!g) return null;
+  const home = g.home === team, sp = g.spread, tot = g.total;            // nflverse's spread is the home side's margin
+  const implied = tot != null && sp != null ? tot / 2 + (home ? sp : -sp) / 2 : null;
+  return { opp: home ? g.away : g.home, home, indoor: /dome|closed/i.test(g.roof || ""), implied, total: tot, weather: null, temp: null, gust: null, precip: null, later: true };
+}
+function next_week_line(a, cfg, W, rows) {
+  if (!W || !W.week || !POSITIONS.includes(a.pos)) return null;
+  const season = parseInt(cfg.season, 10), out = { factors: [] };
+  if (!a.team || a.team === "FA") return Object.assign(out, { none: "He isn't on an NFL team." });
+  const playedNow = (rows || []).some(r => r.week === W.week && r.game);
+  let week = playedNow ? W.week + 1 : W.week;
+  let c = playedNow ? schedule_ctx(a.team, week, season) : ((W.ctx || {})[a.team] || (Object.keys(W.ctx || {}).length ? null : schedule_ctx(a.team, week, season)));
+  if (!c) { const nxt = schedule_ctx(a.team, week + 1, season); if (nxt) { out.afterBye = week; week += 1; c = nxt; } }   // a bye: his next game (Josh Allen, week 7)
+  out.week = week;
+  if (!c) return Object.assign(out, { none: `No game in week ${week}.` });
+  Object.assign(out, { opp: c.opp, home: c.home });
+  const games = (rows || []).filter(r => r.game).map(r => r.game);
+  const prev = ((Store.get(`nflv_car_${season - 1}.json`) || {}).players || {})[E.player_key(a.name, a.pos)];
+  const prevG = prev ? parseFloat(prev[1]) || 0 : 0;
+  if (games.length + prevG < 2) return Object.assign(out, { none: "Not enough games to go on yet." });
+  const lean = prevG ? Math.max(0, (3 - games.length) / 3) : 0;        // under 3 games this season: lean on last season
+  const prevPer = f => (prevG ? (parseFloat(prev[NW_IX[f] + 1]) || 0) / prevG : 0);
+  const wavg = f => { let s = 0, w = 0; games.slice().reverse().forEach((g, k) => { const x = Math.pow(0.75, k); s += x * (g[f] || 0); w += x; }); return w ? s / w : 0; };
+  const per = f => (1 - lean) * (games.length ? wavg(f) : 0) + lean * prevPer(f);
+  const tot = f => games.reduce((t, g) => t + (g[f] || 0), 0) + (lean ? lean * prevG * prevPer(f) : 0);
+  const P = NW_PRIOR[a.pos], rate = (n, d, prior, min) => { const D = tot(d); return D >= min ? tot(n) / D : prior; };
+  // usage, nudged by his snap share lately (not quarterbacks: they play every snap)
+  let snap = 1;
+  if (a.pos !== "QB") {
+    const sn = ((Store.get(`snaps_${season}.json`) || {}).players || {})[E.player_key(a.name, a.pos)];
+    if (sn && sn.length >= 4) {
+      const r = sn.slice(-2).reduce((t, x) => t + x[1], 0) / 2, all = sn.reduce((t, x) => t + x[1], 0) / sn.length;
+      snap = all > 0 ? nwClip(r / all, 0.9, 1.1) : 1;
+      if (Math.abs(snap - 1) >= 0.03) out.factors.push({ k: "Snaps", t: `${Math.round(r * 100)}% of snaps his last 2 games`, f: snap });
+    }
+  }
+  const att = per("att"), car = per("car") * snap, tgt = per("tgt") * snap;
+  // the game: matchup, Vegas, weather
+  let pass = 1, rush = 1, score = 1;
+  const T = team_context(cfg, W), opp = String(c.opp || "").replace(/^@/, ""), d = T && T.def[opp] && T.def[opp][a.pos];
+  if (d) {
+    const vals = Object.values(T.def).map(x => x[a.pos] && x[a.pos].ppg).filter(v => v > 0), avg = vals.reduce((t, v) => t + v, 0) / (vals.length || 1);
+    const m = avg > 0 ? nwClip(1 + 0.5 * (d.ppg / avg - 1), 0.88, 1.12) : 1;
+    score *= m;
+    out.factors.push({ k: "Matchup", t: `${opp} gives up the ${E.ordinal(d.rank)} most points to ${a.pos}s`, f: m });
+  }
+  if (c.implied > 0) {                                     // tight ends too since 2026-10-27 (the user's call)
+    const v = nwClip(Math.sqrt(c.implied / 22.5), 0.9, 1.1);
+    score *= v;
+    out.factors.push({ k: "Vegas", t: `${a.team} expected to score ${c.implied.toFixed(1)}`, f: v });
+  }
+  if (c.indoor) out.factors.push({ k: "Weather", t: "Indoors: no weather effect", f: 1 });
+  else if (c.later || c.weather == null && c.gust == null && c.temp == null) out.factors.push({ k: "Weather", t: "Forecast not out yet", f: 1 });
+  else {
+    const wx = String(c.weather || "").toLowerCase(), wet = /rain|snow|shower|sleet|storm|drizzle/.test(wx) || c.precip >= 50, why = [];
+    if (c.gust >= 20) { pass *= 0.90; rush *= 1.04; why.push(`wind ${Math.round(c.gust)} mph`); }
+    else if (c.gust >= 15) { pass *= 0.96; why.push(`wind ${Math.round(c.gust)} mph`); }
+    if (wet) { pass *= 0.93; rush *= 1.04; why.push(c.weather ? String(c.weather).toLowerCase() : `${Math.round(c.precip)}% chance of rain`); }
+    if (c.temp != null && c.temp <= 25) { pass *= 0.96; why.push(`${Math.round(c.temp)}°F`); }
+    const f = a.pos === "RB" ? rush : pass;
+    out.factors.push({ k: "Weather", t: why.length ? `${why.join(", ")}: ${a.pos === "RB" ? "more running" : "passing down"}` : `${c.weather ? String(c.weather).toLowerCase() + ", " : ""}${c.temp != null ? Math.round(c.temp) + "°F" : "no weather effect"}`, f });
+  }
+  // the stat line
+  const L = {};
+  const tdPull = (n, d, prior, min) => 0.5 * rate(n, d, prior, min) + 0.5 * prior;
+  if (a.pos === "QB") {
+    L.att = att; L.cmp = att * rate("cmp", "att", P.cmp, 40);
+    L.pyd = att * rate("pyd", "att", P.ypa, 40) * score * pass; L.ptd = att * tdPull("ptd", "att", P.ptd, 40) * score * pass;
+    L.int = att * tdPull("int", "att", P.int, 40); L.car = car * rush;
+    L.ryd = L.car * rate("ryd", "car", P.ypc, 15) * score; L.rtd = L.car * tdPull("rtd", "car", P.rtd, 15) * score;
+  } else {
+    const recPass = pass, carF = a.pos === "RB" ? rush : 1;
+    L.car = car * carF; L.ryd = L.car * rate("ryd", "car", P.ypc, 15) * score; L.rtd = L.car * tdPull("rtd", "car", P.rtd, 15) * score;
+    L.tgt = tgt; L.rec = tgt * rate("rec", "tgt", P.catch, 12);
+    L.recyd = tgt * rate("recyd", "tgt", P.ypt, 12) * score * recPass; L.rectd = tgt * tdPull("rectd", "tgt", P.rectd, 12) * score * recPass;
+  }
+  const ppr = parseFloat(cfg.league.ppr || 0), teb = a.pos === "TE" ? (parseFloat(cfg.league.te_premium_bonus_pct || 0) / 20) : 0;
+  out.pts = 0.04 * (L.pyd || 0) + 4 * (L.ptd || 0) - 2 * (L.int || 0) + 0.1 * ((L.ryd || 0) + (L.recyd || 0)) + 6 * ((L.rtd || 0) + (L.rectd || 0)) + (ppr + teb) * (L.rec || 0);
+  out.line = L;
+  out.factors.unshift({ k: "Usage", t: a.pos === "QB" ? `${att.toFixed(0)} pass attempts a game lately` : a.pos === "RB" ? `${(car + tgt).toFixed(1)} carries + targets a game lately` : `${tgt.toFixed(1)} targets a game lately`, f: 1 });
+  out.thin = games.length < 3;
+  return out;
 }
 
 /* Rankings by list, 1 = best: the player's overall place and position place on every list he appears on. */
@@ -1586,7 +1707,8 @@ function player_card(values, cfg, a, W) {
       if (T) out.week.ctx = { def: opp && T.def[opp] ? T.def[opp][a.pos] : null, off: T.off[a.team] || null, rest: T.rest[a.team] || null };
     }
     const [bs, bw] = stats_for(a, W.seasons, W.weekly);
-    out.seasons = Object.keys(bs).map(Number).sort((x, y) => y - x).map(y => ({ season: y, lines: stat_lines(a.pos).map(([k, l]) => [l, stat_value(bs[y], k, pk)]) }));
+    out.seasons = Object.keys(bs).map(Number).sort((x, y) => y - x).map(y => { const row = Object.assign({}, season_detail(a, y, parseInt(cfg.season, 10)), bs[y]);
+      return { season: y, lines: stat_lines(a.pos).map(([k, l]) => [l, stat_value(row, k, pk)]) }; });
     out.weekly = Object.keys(bw).map(Number).sort((x, y) => x - y).map(w => ({ week: w, pts: parseFloat(bw[w][pk] || 0), opp: bw[w].opp }));
     const cur = bs[parseInt(cfg.season)];
     out.ppg = cur && cur.gp ? (cur[pk] || 0) / cur.gp : null;
@@ -1970,6 +2092,6 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
   return { band: band[1], tone: band[2], score, pct, lens, lensTxt, reasons, sweeteners, need, message, summary, owner, mode: B.mode, thin: B.thin, deep: B.deep, trades: T };
 }
 
-return { met_weather, team_context, kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, matchup_preview, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
+return { met_weather, team_context, kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, matchup_preview, next_week_line, schedule_ctx, schedule_ctx, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
   waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades, season_grades, season_points, past_week_grades };
 })();
