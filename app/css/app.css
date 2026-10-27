@@ -1067,3 +1067,8 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .nw-t{flex:1;min-width:0}
 .nw-f b{flex:none;font-variant-numeric:tabular-nums}.nw-f b.good{color:var(--good)}.nw-f b.bad{color:var(--bad)}
 .nw-pts .nw-band{font-size:11.5px;color:var(--ink2);margin-top:2px;white-space:nowrap}
+/* Chart week markers (2026-10-27): red didn't play, yellow played but 0, gray bye */
+.mc-dnp{fill:var(--bad)}.mc-zero{fill:var(--warn)}.mc-bye{fill:var(--muted);fill-opacity:.45}
+.mc-key{display:flex;gap:12px;justify-content:flex-end;font-size:11px;color:var(--muted);margin-top:2px}
+.mc-key i{display:inline-block;width:10px;height:6px;border-radius:2px;margin-right:4px;vertical-align:1px}
+.mc-key i.mc-dnp{background:var(--bad)}.mc-key i.mc-zero{background:var(--warn)}.mc-key i.mc-bye{background:var(--muted);opacity:.45}
