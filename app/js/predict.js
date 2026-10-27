@@ -145,7 +145,10 @@ const Predict = (() => {
      floor, ceiling, p20, effects: [{k, t, f}], thin }, all half-PPR (the caller scores the line its league's
      way; other = fumbles and two-point plays a game, which the line leaves out); floor and ceiling are the 20th and 80th
      percentile of what players with that projection scored in 2024-2025, p20 the share who scored 20+. Null when there
-     is too little to go on (no game this season, or one and no last season): no bad advice. */
+     is too little to go on (no game this season, or one and no last season): no bad advice.
+     opts.asOf (2026-10-27, the projection record): predict game.week itself even when he has played it, from the games
+     before it only, and without today's injury tag (the record has no week-by-week status). The season's target share,
+     WOPR and team pace are still the season so far: the caches keep no week-by-week copy of those. */
   const LINE_ALL = ["att", "cmp", "pyd", "ptd", "int", "car", "ryd", "rtd", "tgt", "rec", "recyd", "rectd"];
   const LOG_IX = { cmp: 3, att: 4, pyd: 5, ptd: 6, int: 7, car: 8, ryd: 9, rtd: 10, rec: 11, tgt: 12, recyd: 13, rectd: 14 };   // the game log's order
   const Y1_IX = { att: 9, car: 11, tgt: 10, rec: 16, recyd: 12, ryd: 4, rtd: 5 };              // the season stats cache's row, when the career table is missing
@@ -199,7 +202,8 @@ const Predict = (() => {
     }
     return F;
   }
-  function week_line(a, W, cfg, game) {
+  function week_line(a, W, cfg, game, opts) {
+    const asOf = !!(opts && opts.asOf);
     const p = P(), c = p && p.line;
     if (!c || !a || !c[a.pos] || !W || !W.week || !a.team || a.team === "FA") return null;
     const season = parseInt(cfg.season, 10), k = E.player_key(a.name, a.pos), blk = c[a.pos], stats = blk.stats;
@@ -213,7 +217,7 @@ const Predict = (() => {
     if (!game) return null;                                                                  // no game on the schedule: nothing to predict
     const played = Object.keys(log).map(Number).filter(w => log[w]).sort((x, y) => x - y);
     let week = parseInt(game.week || W.week, 10);
-    if (played.length && played[played.length - 1] >= week) week = played[played.length - 1] + 1;   // he has played that week: this is his next game
+    if (!asOf && played.length && played[played.length - 1] >= week) week = played[played.length - 1] + 1;   // he has played that week: this is his next game
     const games = played.filter(w => w < week).map(w => log[w]), g = games.length;
     const cur = ((Store.get(`nflv_wk_${season}.json`) || {}).players || {})[k], y1 = ((Store.get(`nflv_reg_${season - 1}.json`) || {}).players || {})[k];
     const prev = ((Store.get(`nflv_car_${season - 1}.json`) || {}).players || {})[k];        // [team, games, std, ppr, then the game log's line]
@@ -222,7 +226,7 @@ const Predict = (() => {
     const ep = ((Store.get(`ep_${season}.json`) || {}).players || {})[k];
     const snaps = ((((Store.get(`snaps_${season}.json`) || {}).players || {})[k]) || []).filter(x => x[0] < week);
     const st = (W.status || E.load_player_status())[a.sleeper_id || ""] || {};
-    const r = { pos: a.pos, age: a.age, exp: null, pick: a.pick ?? null, depth: st.depth ?? null, inj: st.inj || null, cur, y1, ep, snaps };
+    const r = { pos: a.pos, age: a.age, exp: null, pick: a.pick ?? null, depth: st.depth ?? null, inj: asOf ? null : st.inj || null, cur, y1, ep, snaps };
     const F = weekFeatures(r, week, game, null);
     if (r.pick == null) delete F.log_pick;                                                   // unknown draft slot: the training mean
     F.games_td = g; F.has_prev = hasPrev ? 1 : 0;

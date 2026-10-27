@@ -606,10 +606,21 @@ async function accuracy(cfg, W) {
   const pk = pts_key(cfg), name = `acc.${W.season}.${W.week}.${pk}.${W.ours ? "ours" : "sl"}.json`, c = Store.get(name);
   // rebuilt when the injury history changes (it decides which games are left out)
   const hsig = Object.entries((Store.get(`nfl_injury_hist_${W.season}.json`) || {}).weeks || {}).map(([w, o]) => `${w}:${Object.keys(o).length}`).join(",");
-  if (c && c.v === 5 && c.hsig === hsig) return c;
+  if (c && c.v === 6 && c.hsig === hsig) return c;
   const weeks = Object.keys(W.weekly || {}).map(Number).filter(w => w >= 1 && w < W.week).sort((a, b) => a - b);
-  const pairs = [], per = {}, hurt = await hurt_in_game(W, weeks);
+  const pairs = [], per = {}, hurt = await hurt_in_game(W, weeks), by = (E.P.values && E.P.values.by_sleeper) || {};
   let skipped = 0;
+  /* What the screens showed (2026-10-27, the user's ask to grade the prediction now shown everywhere): the player card's
+     stat-line model for that week's game, from the games before it only (predict.js week_line asOf), scored the league's
+     way; null when the model can't say, and the older number stands in, as it does on the screens. */
+  const modelSaid = (sid, team, w, ctx) => {
+    const a = by[sid], game = (ctx || {})[team];
+    if (!a || !game || typeof Predict === "undefined" || !Predict.week_line) return null;
+    try {
+      const M = Predict.week_line(Object.assign({}, a, { team }), W, cfg, Object.assign({}, game, { week: w }), { asOf: true });
+      return M && M.line && M.pts_half > 0 && M.week === w ? Math.max(0, line_league_pts(M, a, cfg)) : null;
+    } catch (e) { return null; }
+  };
   for (const w of weeks) {
     const proj = await past_projections(cfg, W, w), act = W.weekly[w] || {};
     // the record grades the numbers the screens show (2026-10-20): each projection with that week's matchup (the Vegas
@@ -620,26 +631,28 @@ async function accuracy(cfg, W) {
       if (!POSITIONS.includes(r.pos) || !(r.pts > 0)) continue;
       const a = act[sid]; if (!a) continue;                              // he didn't play: a bye or an injury, not a projection miss
       const team = r.team || ((E.P.values && E.P.values.by_sleeper[sid]) || {}).team || "FA";
-      const said = adjust_projection(+r.pts, r.pos, team, ctx, null, 0.6)[0];
-      const y = +a[pk] || 0, cut = hurt(sid, w, said, y);
-      if (r.pts >= ACC_MIN_PTS && !cut) pairs.push({ w, pos: r.pos, p: said, praw: +r.pts, y });   // the error stats skip tiny projections; the player's record keeps them (2026-10-19)
+      const said = adjust_projection(+r.pts, r.pos, team, ctx, null, 0.6)[0], m = modelSaid(sid, team, w, ctx), shown = m != null ? m : said;
+      const y = +a[pk] || 0, cut = hurt(sid, w, shown, y);
+      if (r.pts >= ACC_MIN_PTS && !cut) pairs.push({ w, pos: r.pos, p: said, praw: +r.pts, ps: shown, y });   // the error stats skip tiny projections; the player's record keeps them (2026-10-19)
       if (r.pts >= ACC_MIN_PTS && cut) skipped++;
-      (per[sid] = per[sid] || {})[w] = cut ? [Math.round(said * 10) / 10, Math.round(y * 10) / 10, 1] : [Math.round(said * 10) / 10, Math.round(y * 10) / 10];
+      (per[sid] = per[sid] || {})[w] = cut ? [Math.round(shown * 10) / 10, Math.round(y * 10) / 10, 1] : [Math.round(shown * 10) / 10, Math.round(y * 10) / 10];
     }
   }
-  // the correction is fitted on the raw projections, where the app applies it (before the matchup)
+  // the correction is fitted on the raw projections, where the app applies it (before the matchup), and tested on the
+  // older numbers it adjusts (maeOld); the table, the totals and each player's weeks grade what the screens showed (ps)
   const rawOf = L => L.map(x => ({ w: x.w, pos: x.pos, p: x.praw, y: x.y }));
+  const shownOf = L => L.map(x => ({ p: x.ps, y: x.y }));
   const rows = weeks.map(w => {
-    const P = pairs.filter(x => x.w === w), raw = acc_stats(P);
+    const P = pairs.filter(x => x.w === w), raw = acc_stats(P), shown = acc_stats(shownOf(P));
     const before = pairs.filter(x => x.w < w && x.w >= 2), C = w >= 3 && before.length >= 4 * CALIB_MIN_N ? fit_calib(rawOf(before), w) : null;   // the correction as it stood that week
     const cal = C ? acc_stats(P.map(x => ({ p: apply_calib(C, x.pos, x.praw) * (x.praw > 0 ? x.p / x.praw : 1), y: x.y }))) : null;
-    return raw ? { w, n: raw.n, mae: raw.mae, close: raw.close, bias: raw.bias, maeCal: cal ? cal.mae : null } : null;
+    return raw ? { w, n: shown.n, mae: shown.mae, close: shown.close, bias: shown.bias, maeOld: raw.mae, maeCal: cal ? cal.mae : null } : null;
   }).filter(Boolean);
-  const byPos = Object.fromEntries(POSITIONS.map(pos => [pos, acc_stats(pairs.filter(x => x.pos === pos))]).filter(([, v]) => v));
+  const byPos = Object.fromEntries(POSITIONS.map(pos => [pos, acc_stats(shownOf(pairs.filter(x => x.pos === pos)))]).filter(([, v]) => v));
   const calRows = rows.filter(r => r.maeCal != null);
-  const gain = calRows.length ? { raw: calRows.reduce((s, r) => s + r.mae * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), cal: calRows.reduce((s, r) => s + r.maeCal * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), from: calRows[0].w } : null;
+  const gain = calRows.length ? { raw: calRows.reduce((s, r) => s + r.maeOld * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), cal: calRows.reduce((s, r) => s + r.maeCal * r.n, 0) / calRows.reduce((s, r) => s + r.n, 0), from: calRows[0].w } : null;
   // the correction is used only while it beats the plain numbers on the past weeks it was tested on (no advice beats bad advice)
-  const out = { v: 5, hsig, skipped, at: now_iso(), source: W.ours ? "ours" : "sleeper", weeks: rows, all: acc_stats(pairs), byPos, calib: fit_calib(rawOf(pairs), W.week), per,
+  const out = { v: 6, hsig, skipped, at: now_iso(), source: W.ours ? "ours" : "sleeper", weeks: rows, all: acc_stats(shownOf(pairs)), allOld: acc_stats(pairs), byPos, calib: fit_calib(rawOf(pairs), W.week), per,
     gain, use: !!(gain && gain.cal < gain.raw - 0.01) };
   Store.set(name, out);
   return out;
@@ -824,6 +837,24 @@ async function matchup_preview(values, cfg, W, team) {
   for (const r of rows) edge[r.slot] = (edge[r.slot] || 0) + ((r.me && r.me.pts) || 0) - ((r.them && r.them.pts) || 0);
   return { week: W.week, opponent: them.team_name, me: A.rec_total, them: B.rec_total, set_now: A.has_current ? A.cur_total : null, gain: A.gain, p, rows, edge, started };
 }
+/* The player card's prediction as the projection everywhere (2026-10-27, the user's ask: "make that prediction
+   everywhere for projections"): the trained stat-line model (predict.js week_line) for this week's game, scored the
+   league's way (nflverse standard plus the league's points a catch and tight end bonus). Null when the model can't say
+   (too few games, no game, no params): the older blend (Sleeper's adjusted projection with the points model) stands in.
+   Cached on W, so the rankings, the grades, the lineup and the card all read the same number. */
+function line_league_pts(M, a, cfg) {
+  const L = M.line, g = k => L[k] || 0, ppr = parseFloat(cfg.league.ppr || 0), teb = a.pos === "TE" ? parseFloat(cfg.league.te_premium_bonus_pct || 0) / 20 : 0;
+  return 0.04 * g("pyd") + 4 * g("ptd") - 2 * g("int") + 0.1 * (g("ryd") + g("recyd")) + 6 * (g("rtd") + g("rectd")) + (ppr + teb) * g("rec") + (M.other || 0);
+}
+function model_week_pts(a, cfg, W) {
+  if (!a || !W || W.valuesOnly || typeof Predict === "undefined" || !Predict.week_line || !POSITIONS.includes(a.pos)) return null;
+  const sid = String(a.sleeper_id || a.id), memo = W._mwp || (W._mwp = {});
+  if (sid in memo) return memo[sid];
+  const game = (W.ctx || {})[a.team];
+  let v = null;
+  if (game) { try { const M = Predict.week_line(a, W, cfg, game); if (M && M.line && M.pts_half > 0) v = Math.max(0, line_league_pts(M, a, cfg)); } catch (e) { v = null; } }
+  return (memo[sid] = v);
+}
 // ---------------------------------------------------------------------------
 // Lineup helper
 // ---------------------------------------------------------------------------
@@ -847,8 +878,9 @@ function lineup_helper(values, cfg, team, W, aggressiveness = 0.6) {
     const base = idle ? 0 : parseFloat(p.pts || 0), out = INJURY_OUT.has(inj), bye = idle ? !noTeam : (!p.opp && base === 0);
     const [adj, reasons] = base > 0 ? adjust_projection(base, a.pos, a.team || "FA", ctx, trends, aggressiveness) : [0.0, []];
     const ours0 = base > 0 && typeof Predict !== "undefined" ? Predict.week_points(a, W, cfg) : null, oursL = ours0 != null ? Predict.to_league(ours0, a, cfg) : null;
-    if (oursL != null) reasons.push(`our model ${oursL.toFixed(1)}`);
-    const blended = oursL != null ? 0.5 * adj + 0.5 * oursL : adj;
+    const mw = base > 0 ? model_week_pts(a, cfg, W) : null;          // the card's prediction first (2026-10-27)
+    if (mw != null) reasons.push(`our model ${mw.toFixed(1)}`); else if (oursL != null) reasons.push(`our model ${oursL.toFixed(1)}`);
+    const blended = mw != null ? mw : oursL != null ? 0.5 * adj + 0.5 * oursL : adj;
     rows[a.id] = { asset: a, base: out ? 0 : base, pts: out ? 0 : blended, opp: p.opp || (game ? game.opp : undefined), injury: inj, out, bye, noTeam, reasons };
   }
   const R = Object.values(rows);
@@ -1627,8 +1659,9 @@ function week_grades(values, cfg, W) {
     const p = W.proj[a.sleeper_id]; if (!p) continue;
     const base = parseFloat(p.pts || 0); if (!(base > 0)) continue;
     const [adj] = adjust_projection(base, a.pos, a.team || "FA", W.ctx, W.trends, 0.6);
-    const ours = typeof Predict !== "undefined" ? Predict.week_points(a, W, cfg) : null;       // our model: half the say when it has data
-    (rows[a.pos] = rows[a.pos] || []).push([a.sleeper_id, ours != null ? 0.5 * adj + 0.5 * Predict.to_league(ours, a, cfg) : adj]);
+    const mw = model_week_pts(a, cfg, W);                                                      // the card's prediction (2026-10-27)
+    const ours = mw == null && typeof Predict !== "undefined" ? Predict.week_points(a, W, cfg) : null;       // else the older blend
+    (rows[a.pos] = rows[a.pos] || []).push([a.sleeper_id, mw != null ? mw : ours != null ? 0.5 * adj + 0.5 * Predict.to_league(ours, a, cfg) : adj]);
   }
   // kickers and defenses (2026-10-19): one a team, every one in the NFL ranked; kickers on our projection, defenses on
   // the streamer's matchup number
@@ -1732,8 +1765,9 @@ function player_card(values, cfg, a, W) {
       const base = parseFloat(p.pts || 0);
       const [adj, reasons] = base > 0 ? adjust_projection(base, a.pos, a.team || "FA", W.ctx, W.trends, 0.6) : [0, []];
       const ours0 = typeof Predict !== "undefined" ? Predict.week_points(a, W, cfg) : null, ours = ours0 != null ? Predict.to_league(ours0, a, cfg) : null;
-      if (ours != null) reasons.push(`our model ${ours.toFixed(1)} pts`);
-      out.week = { week: W.week, base, adj: ours != null && adj > 0 ? 0.5 * adj + 0.5 * ours : adj, model: ours, reasons, injury: p.injury, opp: cx ? cx.opp : p.opp, home: cx ? cx.home : null, spread: cx ? cx.spread : null,
+      const mw = base > 0 ? model_week_pts(a, cfg, W) : null;                                    // the card's prediction (2026-10-27)
+      if (mw == null && ours != null) reasons.push(`our model ${ours.toFixed(1)} pts`);
+      out.week = { week: W.week, base, adj: mw != null ? mw : ours != null && adj > 0 ? 0.5 * adj + 0.5 * ours : adj, model: mw != null ? mw : ours, reasons, injury: p.injury, opp: cx ? cx.opp : p.opp, home: cx ? cx.home : null, spread: cx ? cx.spread : null,
         total: cx ? cx.total : null, weather: cx ? (cx.indoor ? "dome" : cx.weather) : null, grade: week_grades(values, cfg, W)[a.sleeper_id || ""] || null };
       const T = POSITIONS.includes(a.pos) ? team_context(cfg, W) : null, opp = out.week.opp ? String(out.week.opp).replace(/^@/, "") : null;
       if (T) out.week.ctx = { def: opp && T.def[opp] ? T.def[opp][a.pos] : null, off: T.off[a.team] || null, rest: T.rest[a.team] || null };
@@ -2124,6 +2158,6 @@ function negotiate(values, cfg, team_a, team_b, a_gives, b_gives, mode_b = "neut
   return { band: band[1], tone: band[2], score, pct, lens, lensTxt, reasons, sweeteners, need, message, summary, owner, mode: B.mode, thin: B.thin, deep: B.deep, trades: T };
 }
 
-return { met_weather, team_context, kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, matchup_preview, next_week_line, schedule_ctx, weekly_eligible, not_playing, schedule_ctx, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
+return { met_weather, team_context, kdef_season_grades, kdef_ready, NFL_TEAMS, INJURY_OUT, WAIVER_GROUPS, STAR_RANK, is_star, live_matchup, matchup_preview, model_week_pts, line_league_pts, next_week_line, schedule_ctx, weekly_eligible, not_playing, schedule_ctx, power_rankings, accuracy, pts_key, current_nfl_week, prepare, refresh_stats, load_stats, lineup_helper, free_agents, team_profiles, negotiate,
   waiver_metric, defense_streamers, lineup_by_value, roster_moves, free_agent_board, player_card, rankings_by_list, adjust_projection, team_trends, trade_targets, faab_bid, pickup_guard, pickup_hype, waiver_check, week_context_nflv, nflv_league_stats, our_projections, nws_weather, week_grades, season_grades, season_points, past_week_grades };
 })();

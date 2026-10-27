@@ -20,8 +20,9 @@ function snapshot(cfg, values, W) {
   for (const a of values.players) {
     const sid = String(a.sleeper_id || "");
     if (!sid || !rostered.has(sid)) continue;
-    const p = W.proj[sid];
-    if (p && p.pts > 0) proj[sid] = Math.round(p.pts * 10) / 10;
+    const p = W.proj[sid], m = typeof Week !== "undefined" && Week.model_week_pts ? Week.model_week_pts(a, cfg, W) : null;   // the number the screens show (2026-10-27)
+    if (m != null && m > 0) proj[sid] = Math.round(m * 10) / 10;
+    else if (p && p.pts > 0) proj[sid] = Math.round(p.pts * 10) / 10;
     const g = letter(a); if (g) grade[sid] = g;
   }
   c.weeks[w] = Object.assign(c.weeks[w] || {}, { at: new Date().toISOString(), proj, grade, lineup: (c.weeks[w] || {}).lineup || {} });
