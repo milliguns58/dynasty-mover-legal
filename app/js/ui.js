@@ -387,6 +387,9 @@ function lineChart(title, pts, o = {}) {
 /* Next week's predicted stat line (week.js next_week_line), after the snap share chart (2026-10-26, the user's ask). */
 function nextWeekHtml(a, r) {
   if (!S.W || S.W.valuesOnly) return "";
+  // out, on IR, doubtful, suspended: no prediction (2026-10-27, the user: "remove the IR from projections if they are not playing")
+  const why = Week.not_playing(a, S.cfg);
+  if (why && why !== "a backup") return `<div class="nw"><div class="mc-head"><b>Next week</b></div><p class="note muted" style="margin:4px 0 0">Not expected to play: ${esc(why)}.</p></div>`;
   const M = modelWeekHtml(a);                                    // the trained stat-line model first (2026-10-27)
   if (M) return M;
   const N = Week.next_week_line(a, S.cfg, S.W, r.rows);
