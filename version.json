@@ -1,7 +1,7 @@
 {
- "versionCode": 41,
- "versionName": "3.2.23",
- "notes": "Projections leave off players on IR, out, suspended or inactive, and backups who aren't playing; their cards say they're not expected to play.",
+ "versionCode": 42,
+ "versionName": "3.2.24",
+ "notes": "Projections everywhere now use the same next-week prediction you see on the player card: the Weekly Projection list, your lineup and the week grades all match. How right we've been now grades that prediction too.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
