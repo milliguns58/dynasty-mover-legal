@@ -75,6 +75,8 @@ window.onNativeBack = () => {
 const retro = () => (app().look || "classic") === "retro" && !locked();
 /* Pro edition on the free Basic plan: Pro features show a PRO tag and open the upgrade sheet (pro.js). */
 function locked() { return typeof Pro !== "undefined" && Pro.ON && Pro.locked(); }
+/* No player values on the Basic plan (2026-10-27, the user's ask): grades and verdicts stay, the numbers behind them go. */
+const noVals = () => locked();
 const proTag = () => (locked() ? Pro.tag() : "");
 /* Basic plan: a trade can hold up to BASIC_TRADE_MAX players and picks in all (both sides together). */
 const BASIC_TRADE_MAX = 4;
@@ -478,7 +480,7 @@ function gameLogHtml(r, a, yr) {
     { avg: games.reduce((t, x) => t + f(x.game), 0) / games.length, int: true });
   const noGame = x => (yr === season && teamBye(a.team, x.week, season) ? "bye" : "dnp");
   const missTip = x => `Week ${x.week}: ${noGame(x) === "bye" ? "bye" : "didn't play"}`;
-  const charts = colChart("Points by week", r.rows.map(x => ({ x: String(x.week), y: x.game ? x.game.pts : null, mark: x.game ? (x.game.pts === 0 ? "zero" : null) : noGame(x),
+  const charts = locked() ? `<button class="btn soft block" data-lock="stats" style="margin-bottom:12px">Charts and the next-week prediction ${Pro.tag()}</button>` : colChart("Points by week", r.rows.map(x => ({ x: String(x.week), y: x.game ? x.game.pts : null, mark: x.game ? (x.game.pts === 0 ? "zero" : null) : noGame(x),
       tip: x.game ? `Week ${x.week} vs ${x.game.opp}: ${x.game.pts.toFixed(1)} pts` : missTip(x) })), { avg })
     + uses.map(useChart).join("")
     + (yr === season ? snapChart(a) + nextWeekHtml(a, r) : "");
@@ -626,7 +628,7 @@ function gradeChip(a, withArrow = true) {
    only, 2026-10-16) and then "Dynasty" (the big grade, with the value under it; "Season" in redraft), a thin divider
    after the week so they read as different things. */
 // o.wk / o.val: a number under the week grade / in place of the value (the Rankings tab's Points and Projected orders)
-const gradeRight = (a, o = {}) => { const sc = seasonCell(a); if (isKdef(a) && o.val == null) { const k = kdefGrade(a); o = Object.assign({}, o, { val: k ? `${k.ppg.toFixed(1)}/g` : "–" }); } return `<div class="gcells${sc ? " g3" : ""}">${weekCell(a, o.wk)}${sc}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</small><div class="gv">${gradeChip(a, !sc)}</div><div class="d muted${o.val != null ? " rk-num" : ""}">${o.val != null ? o.val : fmt(a.value)}</div></div></div>`; };
+const gradeRight = (a, o = {}) => { const sc = seasonCell(a); if (isKdef(a) && o.val == null) { const k = kdefGrade(a); o = Object.assign({}, o, { val: k ? `${k.ppg.toFixed(1)}/g` : "–" }); } return `<div class="gcells${sc ? " g3" : ""}">${weekCell(a, o.wk)}${sc}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</small><div class="gv">${gradeChip(a, !sc)}</div>${o.val == null && noVals() ? "" : `<div class="d muted${o.val != null ? " rk-num" : ""}">${o.val != null ? o.val : fmt(a.value)}${o.vlab ? `<small class="vlab">${o.vlab}</small>` : ""}</div>`}</div></div>`; };
 /* A status flag by the name, from Sleeper's injury status: IR, PUP, OUT (this week), DOUB (doubtful), SUS, Q. */
 function statusFlag(a) {
   if (!a || a.is_pick || !a.sleeper_id) return "";
@@ -824,7 +826,7 @@ function watchCard(tab) {
     const rk = a.pos_rank ? `${esc(a.pos)}${a.pos_rank}${r0 && r0 !== a.pos_rank ? ` <span class="${a.pos_rank < r0 ? "good" : "bad"}">(was ${esc(a.pos)}${r0})</span>` : ""}` : esc(a.pos);
     return { free, v: a.value || 0, html: `<div class="item watch-row" data-pcard="${esc(a.id)}">${avatar(a)}<div class="nm"><div class="n"><span class="nt">${esc(a.name)}</span>${statusFlag(a)}${where}</div>
       <div class="s">${rk} · ${esc(a.team || "FA")}${news ? ` · ${esc(news.text)}, ${esc(ago(news.t))}` : ""}</div></div>
-      <div class="v"><b>${a.value ? fmt(a.value) : "–"}</b>${Math.abs(dv) >= 1 ? `<small class="${dv > 0 ? "good" : "bad"}">${dv > 0 ? "▲ +" : "▼ −"}${fmt(Math.abs(dv))}</small>` : ""}</div></div>` };
+      <div class="v">${noVals() ? "" : `<b>${a.value ? fmt(a.value) : "–"}</b>`}${!noVals() && Math.abs(dv) >= 1 ? `<small class="${dv > 0 ? "good" : "bad"}">${dv > 0 ? "▲ +" : "▼ −"}${fmt(Math.abs(dv))}</small>` : ""}</div></div>` };
   }).filter(Boolean);
   if (fill) saveApp({ watch: L });
   if (!rows.length) return hint("None of your watched players have a value in this league's lists yet.");
@@ -939,6 +941,7 @@ function renderTrade(el) {
   const lens = !redraft && !locked() && S.sides.A.mode !== "neutral" ? S.sides.A.mode : null;   // your strategy prices both sides
   const priced = a => E.adjusted_value(a, lens || "neutral", S.cfg);
   const lensRight = a => { const v = priced(a), d = v - a.value;
+    if (noVals()) return `<div class="gv">${gradeChip(a)}</div>`;
     return `<div class="gv">${gradeChip(a)}</div><div class="d ${d > 0 ? "good" : d < 0 ? "bad" : "muted"}">${fmt(v)}${Math.abs(d) >= 1 ? ` <s class="was">${fmt(a.value)}</s>` : ""}</div>`; };
   const qbBump = parseFloat(S.cfg.league.qb_trade_bump_pct ?? 15), hasQB = k => S.sides[k].items.some(a => a.pos === "QB" && E.qb_trade_mult(a, S.cfg) > 1);
   const side = k => {
@@ -948,7 +951,7 @@ function renderTrade(el) {
       `<option value="${t.roster_id}" ${String(s.team) === String(t.roster_id) ? "selected" : ""}>${esc(t.team_name)}${t.roster_id === S.cfg.my_roster_id ? " (you)" : ""}</option>`)).join("");
     const pills = (teams().length ? `<select class="pill" data-team="${k}" aria-label="Team">${opts}</select>` : "") + (redraft ? "" : modeSel(k, s));
     return `<section class="card tside">
-      <div class="tside-head"><span class="tside-title">${k === "A" ? "You give" : "You get"}</span>${s.items.length ? `<span class="tside-tot">${fmt(tot)}</span>` : ""}</div>
+      <div class="tside-head"><span class="tside-title">${k === "A" ? "You give" : "You get"}</span>${s.items.length && !noVals() ? `<span class="tside-tot">${fmt(tot)}</span>` : ""}</div>
       ${pills ? `<div class="tside-pills">${pills}</div>` : ""}
       ${lens && s.items.length ? `<div class="lens-note">${k === "A" ? (lens === "contend" ? "Valued to win now: production up, picks and youth down." : "Valued for a rebuild: picks and youth up, older players down.")
         : `Priced through your ${MODE_LABEL[lens].toLowerCase()} lens${s.mode !== "neutral" ? `; ${MODE_LABEL[s.mode]} is how they see it` : ""}.`}</div>` : ""}
@@ -1048,8 +1051,8 @@ function scoreboard(r, v, m, animate) {
     const share = x => Math.max(28, Math.min(72, x)).toFixed(1);       // keep both names readable
     sb.className = `card tmid tone-${cA}`;
     sb.innerHTML = `<div class="tm-top"><div class="tm-title c-${cA}-text">${esc(v.title)}</div>${swap}${clear}</div>
-      <div class="tm-bar" role="img" aria-label="${esc(A)} ${fmt(m.aGets)}, ${esc(B)} ${fmt(m.bGets)}">
-        <span class="tm-seg c-${cA}" data-w="${share(+m.aPct)}" style="flex-basis:${animate ? 0 : share(+m.aPct)}%">${fmt(m.aGets)}</span><span class="tm-seg b c-${cB}" data-w="${share(+m.bPct)}" style="flex-basis:${animate ? 0 : share(+m.bPct)}%">${fmt(m.bGets)}</span></div>${check}`;
+      <div class="tm-bar" role="img" aria-label="${noVals() ? `${esc(A)} ${m.aPct}%, ${esc(B)} ${m.bPct}%` : `${esc(A)} ${fmt(m.aGets)}, ${esc(B)} ${fmt(m.bGets)}`}">
+        <span class="tm-seg c-${cA}" data-w="${share(+m.aPct)}" style="flex-basis:${animate ? 0 : share(+m.aPct)}%">${noVals() ? "" : fmt(m.aGets)}</span><span class="tm-seg b c-${cB}" data-w="${share(+m.bPct)}" style="flex-basis:${animate ? 0 : share(+m.bPct)}%">${noVals() ? "" : fmt(m.bGets)}</span></div>${check}`;
     if (animate) {                                             // fill the bar from empty
       sb.classList.add("filling");
       void sb.offsetWidth;                                     // lay out the empty bar first, so the change below animates
@@ -1094,7 +1097,7 @@ function plainVerdict(r) {
   const title = a < T.slight ? `Slight edge: ${obj}` : (a < T.lopsided ? `${winner} ${verb(winner, "win")}` : `${winner} ${verb(winner, "win")} big`);
   const m = /^about a (\d{4}) (\d+\w\w)/.exec(r.gap_pick || "");
   const pick = m ? ` That's about the value of a ${m[1]} ${m[2]}-round pick.` : "";
-  return { tone: a < T.slight ? "edge" : (a < T.lopsided ? "win" : "big"), you, title, line: `${winner} ${verb(winner, "get")} ${fmt(Math.abs(V.diff))} more in value.${pick}${lensTxt}` };
+  return { tone: a < T.slight ? "edge" : (a < T.lopsided ? "win" : "big"), you, title, line: `${winner} ${verb(winner, "get")} ${noVals() ? "more" : fmt(Math.abs(V.diff)) + " more"} in value.${pick}${lensTxt}` };
 }
 
 function showResult(r, animate) {
@@ -1599,7 +1602,7 @@ function rankList(el) {
     ${listPos ? `<div class="seg rk-seg" id="oseg">${ORDERS.map(([k, l]) => `<button data-o="${k}" class="${R.order === k ? "on" : ""}">${l}</button>`).join("")}</div>${projNote}
       <details class="tip"><summary>How this list is ordered</summary><p class="note muted">${R.order === "points" ? `Fantasy points scored this season${S.W ? "" : " (loading this week's data…)"}.`
         : R.order === "proj" ? `This week's projected points, with the matchup${S.W ? "" : " (loading this week's data…)"}. No game this week sorts last.`
-        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his Our rank score, high to low; his trade value is on his card.`
+        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his Our score, high to low: our own view of him. His trade value, what the market pays and what trades are judged on, is on his card next to it.`
         : "Ranked by the market's value."}</p></details>` : ""}
     ${R.pos === "ROOK" ? `<div class="seg" id="rseg">${[["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].map(([p, l]) => `<button data-rp="${p}" class="${R.rpos === p ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (production for his team this season and last, the age it came at, receptions for backs, size, recruiting pedigree, efficiency), weighted by what has worked for past classes in the NFL. Until the NFL draft, "Projected draft" is where players with profiles like his have been drafted; it counts a fifth of a running back's or receiver's grade and a tenth of a tight end's. Once the draft happens, the pick's round takes its place.</p>` : ""}
@@ -1669,7 +1672,7 @@ function rankList(el) {
       // Our rank shows its own number, so the numbers run high to low down the list (2026-10-16: McMillan's trade value
       // 6,751 sat under Jonathan Taylor's 5,612)
       const right = SP ? gradeRight(a, { val: spOf(a) ? `${spOf(a).pts.toFixed(1)} pts` : "0 pts" }) : WG ? gradeRight(a, { wk: wgOf(a) ? wgOf(a).pts.toFixed(1) : "bye" })
-        : listPos && oursOn && a.orank != null ? gradeRight(a, { val: fmt(a.orank) }) : undefined;
+        : listPos && oursOn && a.orank != null ? gradeRight(a, { val: fmt(a.orank), vlab: "Our score" }) : undefined;   // labeled (2026-10-27): it isn't the trade value on the card
       const extra = SP && spOf(a) && spOf(a).gp ? ` · ${spOf(a).ppg.toFixed(1)} ppg` : "";
       const rk = listPos && (R.order !== "ours" || oursOn) ? i + 1 : R.q || R.who !== "all" ? i + 1 : (R.pos === "ALL" || R.pos === "PICK" ? a.rank || i + 1 : a.pos_rank || i + 1);
       // rising or falling over the last 30 days, by the name (2026-10-20, the user's ask); redraft shows it by the grade already
@@ -1997,7 +2000,7 @@ function drawTrades(body, t, W) {
       <p class="note">${DIR[1]}</p>${when ? `<p class="note muted">${when}</p>` : ""}</section>`;
   if (!T.ideas.length) h += `<section class="card"><div class="empty">No clear trade ideas right now. Check back after the next games.</div></section>`;
   const KIND = { buy: "Buy", sell: "Sell", fit: "Good fit", buylow: "Buy low", sellhigh: "Sell high", injury: "Injury buy", consolidate: "2-for-1", market: "League market" };
-  const mini = a => `<div class="mini" data-card="${esc(a.id)}">${avatar(a)}<div class="mini-t"><b>${esc(a.name)}</b><span>${gradeChip(a, false)} ${fmt(a.value)}</span></div></div>`;
+  const mini = a => `<div class="mini" data-card="${esc(a.id)}">${avatar(a)}<div class="mini-t"><b>${esc(a.name)}</b><span>${gradeChip(a, false)}${noVals() ? "" : " " + fmt(a.value)}</span></div></div>`;
   T.ideas.forEach((x, i) => {
     h += `<section class="card idea tone-purple">
       <div class="idea-top"><span class="idea-kind k-${x.kind}">${KIND[x.kind]}</span><b class="idea-team">${esc(x.team.team_name)}</b><span class="muted">${esc(x.team.record || "")}</span></div>
@@ -2023,7 +2026,7 @@ function waiverCheckCard(t, fas, W, M) {
   const roster = E.team_assets(S.values, S.cfg, t).filter(a => !a.is_pick);
   const drop = wc.drop && roster.find(a => a.id === wc.drop), add = wc.add && (wcFreePool(fas).find(a => a.id === wc.add) || null);
   const slot = (kind, a) => `<button class="wc-slot" data-wc="${kind}"><span class="wc-lbl">${kind === "drop" ? "Drop" : "Add"}</span>${a
-    ? `<span class="wc-who">${avatar(a)}<span class="wc-name"><b class="plink" data-pcard="${esc(a.id)}">${esc(a.name)}</b><span>${gradeChip(a, false)} ${fmt(a.value)}</span></span></span>` : `<span class="wc-empty">Choose a player</span>`}</button>`;
+    ? `<span class="wc-who">${avatar(a)}<span class="wc-name"><b class="plink" data-pcard="${esc(a.id)}">${esc(a.name)}</b><span>${gradeChip(a, false)}${noVals() ? "" : " " + fmt(a.value)}</span></span></span>` : `<span class="wc-empty">Choose a player</span>`}</button>`;
   let res = "";
   if (drop && add) {
     const unavailable = !suggestable(add) && !avoidList().includes(add.id) ? `${add.name} isn't playing much right now (injury, suspension or deep on the depth chart).` : null;
@@ -2318,8 +2321,8 @@ function card(a, opts = {}) {
           : `<span class="chip">${hdr ? hdr.pos : esc(a.pos) + (a.is_pick ? "" : " · " + esc(a.team || "FA"))}</span>`}${a.age != null ? `<span class="chip">age ${Math.floor(a.age)}</span>` : ""}${hdr ? hdr.health : status}</div>
         <div class="band-grade"><span class="big-grade ${G.cls}">${esc(G.g)}</span>
           <div><div class="bg-label">${gradeLabelHtml(G.label)}</div>
-            <div class="bg-move ${M.dir}">${M.dir === "up" ? "▲ Rising" : (M.dir === "down" ? "▼ Falling" : "– Steady")}${M.amt ? ` <span>${M.amt > 0 ? "+" : "−"}${fmt(Math.abs(M.amt))} in 30 days</span>` : ""}</div>
-            <div class="bg-value">Value ${fmt(a.value)}</div>
+            <div class="bg-move ${M.dir}">${M.dir === "up" ? "▲ Rising" : (M.dir === "down" ? "▼ Falling" : "– Steady")}${M.amt && !noVals() ? ` <span>${M.amt > 0 ? "+" : "−"}${fmt(Math.abs(M.amt))} in 30 days</span>` : ""}</div>
+            ${noVals() ? "" : `<div class="bg-value">${a.is_pick || a.orank == null ? `Value ${fmt(a.value)}` : `Trade value ${fmt(a.value)} · Our score ${fmt(a.orank)}`}</div>`}
             ${!a.is_pick && a.pred ? `<div class="bg-scope">Forecast: ${E.is_redraft(S.cfg) ? `${a.pred.ros.toFixed(1)} pts a game the rest of this season` : `${a.pred.next.toFixed(1)} pts a game next season · ${Math.round(a.pred.play * 100)}% to play 4+ games`}</div>` : ""}
             ${a.is_pick ? "" : `<div class="bg-scope">${E.is_redraft(S.cfg) ? "Grade: rest of this season" : "Grade: dynasty outlook"}${C.week && !C.week.none && C.week.grade ? ` · This week <span class="grade sm ${C.week.grade.cls}">${esc(C.week.grade.letter)}</span> ${esc(C.week.grade.label.toLowerCase())}` : C.week && C.week.bye ? " · Bye this week" : ""}</div>`}</div></div>${edgeLine(a, G)}${epLine(a)}${lastCallHtml(a)}</div>
       <div class="tiles">
@@ -2336,7 +2339,7 @@ function card(a, opts = {}) {
         if (C.week && !C.week.none) {
           const w = C.week;
           h += `<div class="sec"><h3>Week ${w.week}${w.grade ? ` <span class="grade sm ${w.grade.cls}">${esc(w.grade.letter)}</span> <span class="muted" style="font-weight:400;font-size:13px">${esc(w.grade.label)} · ${esc(a.pos)}${w.grade.posRank} this week</span>` : ""}</h3><div class="kv"><span>${w.opp ? (w.home === false ? "at " : "vs ") + esc(w.opp) : ""}${w.weather && w.weather !== "dome" ? " · " + esc(w.weather) : ""}</span><b>${w.adj.toFixed(1)} pts</b></div>
-            ${reasonTags(w.reasons)}${matchupLines(a, w)}
+            ${reasonTags(w.reasons)}${locked() ? "" : matchupLines(a, w)}
             ${C.ppg != null ? `<div class="kv"><span>This season</span><b>${C.ppg.toFixed(1)} per game</b></div>` : ""}</div>`;
         } else if (C.week) h += `<div class="sec"><h3>Week ${C.week.week}</h3><p class="note muted">${C.week.bye ? "Bye week" : "Not expected to play"}</p></div>`;
         else if (!W) h += `<div class="sec"><h3>This week</h3><p class="note muted">Loading…</p></div>`;
@@ -2355,14 +2358,14 @@ function card(a, opts = {}) {
       if (a.mfl || a.mflr) extra += `<div class="sub-h">Draft market</div>` + [a.mfl, a.mflr].filter(Boolean).map(m => `<div class="kv"><span>${esc(m.label[0].toUpperCase() + m.label.slice(1))}</span><b>${m.adp.toFixed(1)} <span class="muted">(${esc(m.pos)})</span></b></div>`).join("")
         + `<p class="note muted">Average pick in ${fmt((a.mfl || a.mflr).drafts)}+ drafts this year, from MyFantasyLeague.</p>`;
       if (extra) h += `<div class="sec">${more(E.PLAY ? "Rank on each list" : "Rankings, stats and trades", extra)}</div>`;
-      if (C.like.length) h += `<div class="sec"><h3>Similar value</h3><div class="list">${C.like.slice(0, 5).map(p => assetRow(p, { trend: false })).join("")}</div></div>`;
+      if (C.like.length) h += `<div class="sec"><h3>${noVals() ? "Similar players" : "Similar value"}</h3><div class="list">${C.like.slice(0, 5).map(p => assetRow(p, { trend: false })).join("")}</div></div>`;
     }
     if (tabNow === "stats") {
       let statsTbl = "";
       if (C.seasons && C.seasons.length) {
         const ss = C.seasons, lines = ss[0].lines.map(([l]) => l);
         const ppgRow = lines.indexOf("Points per game");
-        if (ppgRow >= 0 && ss.length >= 2) statsTbl += colChart("Points per game by season", ss.slice().sort((x, y) => x.season - y.season)
+        if (ppgRow >= 0 && ss.length >= 2 && !locked()) statsTbl += colChart("Points per game by season", ss.slice().sort((x, y) => x.season - y.season)
           .map(s => { const v = parseFloat(s.lines[ppgRow][1]); return { x: String(s.season), y: isNaN(v) ? null : v, tip: isNaN(v) ? `${s.season}: no games` : `${s.season}: ${v.toFixed(1)} points a game` }; }), {});
         statsTbl += `<div class="sub-h">Season stats</div><div class="tscroll"><table class="t"><tr><th></th>${ss.map(s => `<th class="r">${s.season}</th>`).join("")}</tr>
           ${lines.map((l, i) => `<tr><td>${esc(l)}</td>${ss.map(s => `<td class="r">${esc(s.lines[i][1])}</td>`).join("")}</tr>`).join("")}</table></div>`;

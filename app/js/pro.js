@@ -163,9 +163,11 @@ const Pro = (() => {
     tradesize: "Trades with more than 4 players or picks", ourgrade: "Our grades, our take on trades and the team read",
     impact: "Trade impact: playoff odds and your roster's future", gm: "Your GM, the chat that knows your league",
     negotiator: "The Negotiator: how the other manager sees your trade",
+    stats: "Advanced stats: charts, snap shares, matchup details and the full next-week prediction",
   };
   const PRO_PERKS = ["Our own dynasty grades: a second verdict on every trade, Buy and Sell calls, and a read on your team", "Win now and Rebuilding views of every trade", "\"Make it fair\" suggestions", "Your own scoring: TE premium, QB bonuses and more",
-    "Bigger trades: no limit on players and picks", "All your leagues in one app", "Best lineup and pickups for your team", "Value history charts and trade history", "The 8-bit retro look"];
+    "Bigger trades: no limit on players and picks", "All your leagues in one app", "Best lineup and pickups for your team", "Value history charts and trade history", "Player values and Our score on every player",
+    "Advanced stats: usage and snap charts, matchup details and the full next-week prediction", "The 8-bit retro look"];
 
   /** The upgrade sheet. reason: a REASONS key (a locked feature was tapped), "ended" (trial just ended), or nothing. */
   function paywallSheet(reason) {
