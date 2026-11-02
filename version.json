@@ -1,10 +1,10 @@
 {
- "versionCode": 44,
- "versionName": "3.2.26",
- "notes": "The Our Rank list shows each player's trade value, the same number as on his card. The card shows his trade value and our score side by side.",
+ "versionCode": 45,
+ "versionName": "3.2.27",
+ "notes": "New Trade screen: You give and You get face off side by side, with a dial that shows who comes out ahead.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
  },
- "published": "2026-10-27"
+ "published": "2026-11-02"
 }
