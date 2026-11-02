@@ -385,19 +385,12 @@ body.gated main{padding-top:20px;padding-bottom:28px}
 /* trade screen: pinned scoreboard, compact sides */
 
 .ts-why .verdict-line{margin-top:0}
-.tside{padding-bottom:6px}
-.tside-head{display:flex;justify-content:space-between;align-items:baseline}
-.tside-title{font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
-.tside-tot{font-size:15px;font-weight:750;color:var(--ink2);font-variant-numeric:tabular-nums}
-.tside-pills{display:flex;gap:8px;flex-wrap:nowrap;margin:10px 0 4px}
 select.pill{width:auto;max-width:100%;min-height:36px;padding:6px 32px 6px 14px;border-radius:999px;font-size:14px;font-weight:600;background-color:var(--raise);background-position:right 9px center;background-size:16px;text-overflow:ellipsis}
 .pill.lock-btn{min-height:36px;padding:6px 12px;border-radius:999px}
 .add-row{display:flex;align-items:center;gap:12px;width:100%;border:0;background:transparent;color:var(--accent);font-weight:650;font-size:15px;padding:12px 0;cursor:pointer;text-align:left}
 .list:not(:empty)+.add-row{border-top:1px solid var(--line)}
 .add-row .plus{width:32px;height:32px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex:none;margin-left:6px}
 
-.tside-pills select[data-team]{flex:1 1 auto;min-width:0}
-.tside-pills [data-mode],.tside-pills .lock-btn{flex:none}
 
 /* ---- Classic look: a little flavour (scoped so the 8-bit look keeps its own style) ---- */
 [data-look="classic"]{--brand:linear-gradient(135deg,#2563eb,#7c3aed);--hl:rgba(255,255,255,.05);--edge:rgba(0,0,0,.06)}
@@ -442,7 +435,7 @@ select.pill{width:auto;max-width:100%;min-height:36px;padding:6px 32px 6px 14px;
 [data-look="classic"] .move{transition:background .15s}
 [data-look="classic"] .move-main .badge{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 30%,transparent)}
 
-/* trade: the verdict bar between the two sides */
+/* trade: the verdict card under the two sides */
 .tmid{padding:14px 16px;margin:-4px 0}
 .tm-top{display:flex;align-items:center;gap:8px}
 .tm-title{flex:1;min-width:0;font-size:18px;font-weight:750;letter-spacing:-.01em;line-height:1.2}
@@ -450,9 +443,6 @@ select.pill{width:auto;max-width:100%;min-height:36px;padding:6px 32px 6px 14px;
 .tm-btn{flex:none;height:34px;min-width:34px;border:0;border-radius:999px;background:var(--raise);color:var(--ink2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:650;padding:0 10px}
 .tm-btn svg{width:18px;height:18px}
 .tm-btn:active{transform:scale(.95)}
-.tm-bar{display:flex;gap:3px;height:28px;margin-top:12px;border-radius:12px;overflow:hidden}
-.tm-seg{display:flex;align-items:center;min-width:0;padding:0 12px;font-size:13px;font-weight:800;color:#10151f;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:flex-basis .35s ease}
-.tm-seg.b{justify-content:flex-end;text-align:right}
 .c-green{background:linear-gradient(90deg,#22c55e,#16a34a)}
 .c-yellow{background:linear-gradient(90deg,#fde047,#facc15)}
 .c-orange{background:linear-gradient(90deg,#fdba74,#f97316)}
@@ -524,10 +514,8 @@ select.pill{width:auto;max-width:100%;min-height:36px;padding:6px 32px 6px 14px;
 .plink{color:inherit;font-weight:inherit;text-decoration:underline;text-decoration-style:dotted;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px;cursor:pointer}
 .plink:active{opacity:.6}
 
-/* trade: the Check button, and the bar filling from empty */
+/* trade: the Check button */
 .tm-go{margin-top:12px}
-.tmid .tm-seg{transition:flex-basis .8s cubic-bezier(.2,.8,.2,1)}
-.tmid.filling .tm-seg{min-width:0;padding:0;color:transparent}
 
 /* player card: where our grade and the market disagree */
 .edge{margin-top:12px;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.35;background:rgba(0,0,0,.22);color:#fff}
@@ -574,9 +562,6 @@ button.edge.lockd{display:block;width:100%;text-align:left;border:0;cursor:point
 
 /* trade: a strategy lens on the values */
 .lens-note{font-size:12px;color:var(--muted);margin:-2px 0 8px}
-.tside .d .was{margin-left:4px;opacity:.6;font-weight:400}
-.tside .d.good{color:#1fae6b}
-.tside .d.bad{color:#e0673a}
 .meter-note.theirs{margin-top:8px;font-weight:600}
 
 /* trade ideas under a side */
@@ -1072,3 +1057,46 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .mc-key{display:flex;gap:12px;justify-content:flex-end;font-size:11px;color:var(--muted);margin-top:2px}
 .mc-key i{display:inline-block;width:10px;height:6px;border-radius:2px;margin-right:4px;vertical-align:1px}
 .mc-key i.mc-dnp{background:var(--bad)}.mc-key i.mc-zero{background:var(--warn)}.mc-key i.mc-bye{background:var(--muted);opacity:.45}
+
+/* trade: head to head (2026-10-30, the user's ask: a more modern trade screen). The two sides face off in one card
+   with a VS badge between them; each player is a small centred tile. The verdict card under them has a dial. */
+.h2h{padding:12px 10px 8px}
+.h2h-cols{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:start}
+.h2h-side{min-width:0;border-radius:14px;padding:10px 8px 2px;text-align:center;background:color-mix(in srgb,var(--accent) 9%,var(--surface))}
+.h2h-side.get{background:color-mix(in srgb,var(--pick) 11%,var(--surface))}
+.h2h-label{font-size:12.5px;font-weight:750;color:var(--accent)}
+.h2h-side.get .h2h-label{color:var(--pick)}
+.h2h-tot{font-size:21px;font-weight:800;letter-spacing:-.02em;line-height:1.25;font-variant-numeric:tabular-nums}
+.h2h-tot.muted{color:var(--muted)}
+.h2h-vs{position:absolute;left:50%;top:20px;transform:translateX(-50%);z-index:1;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:850;letter-spacing:.02em;color:var(--ink);background:var(--surface);box-shadow:0 0 0 3px var(--surface),0 2px 10px rgba(0,0,0,.25)}
+.h2h-pills{display:flex;flex-direction:column;gap:6px;margin:8px 0 4px}
+.h2h-pills select.pill,.h2h-pills .pill.lock-btn{width:100%;max-width:none;min-height:32px;padding:4px 26px 4px 10px;font-size:12.5px;background-size:14px;background-position:right 7px center;
+  background-color:color-mix(in srgb,var(--surface) 70%,transparent);justify-content:center}
+.h2h .item.hp{position:relative;flex-direction:column;gap:5px;padding:12px 2px 10px;min-height:0;border-bottom:0;border-top:1px solid color-mix(in srgb,var(--ink) 9%,transparent);text-align:center}
+.h2h .hp .nm{width:100%}
+.h2h .hp .nm .n{justify-content:center;font-size:14px;line-height:1.2}
+.h2h .hp .nm .s{font-size:12px}
+.h2h .hp .v{text-align:center}
+.h2h .hp .gv{justify-content:center}
+.h2h .hp .v .d{font-size:12px;font-weight:650;font-variant-numeric:tabular-nums}
+.h2h .hp .d .was{margin-left:4px;opacity:.6;font-weight:400}
+.h2h .hp .d.good{color:#1fae6b}
+.h2h .hp .d.bad{color:#e0673a}
+.h2h .hp .x{position:absolute;top:8px;right:0;width:26px;height:26px;font-size:16px;background:color-mix(in srgb,var(--surface) 70%,transparent)}
+.h2h .h2h-add,.h2h .list:not(:empty)+.h2h-add{justify-content:center;gap:6px;font-size:13.5px;padding:10px 0;border-top:1px solid color-mix(in srgb,var(--ink) 9%,transparent)}
+.h2h .h2h-add .plus{width:24px;height:24px;font-size:15px;margin:0}
+.h2h-notes{margin-top:10px;padding:0 4px}
+.h2h-notes .lens-note{margin:0 0 4px}
+.dial{display:block;width:100%;max-width:230px;height:auto;margin:8px auto 0;overflow:visible}
+.dial .z{fill:none;stroke-width:15}
+.dial .z-none{stroke:var(--raise)}
+.dial .z-red{stroke:#dc2626}.dial .z-orange{stroke:#f97316}.dial .z-yellow{stroke:#facc15}
+.dial .z-green{stroke:#22c55e}.dial .z-green2{stroke:#16a34a}.dial .z-green3{stroke:#15803d}
+.dial-needle{transform-box:view-box;transform-origin:100px 100px;transition:transform 1s cubic-bezier(.3,1.35,.5,1)}
+.dial-needle line{stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.dial-needle circle{fill:var(--ink);stroke:var(--surface);stroke-width:3}
+.dial.idle .dial-needle{opacity:.3}
+.dial-vals{display:flex;justify-content:space-between;max-width:250px;margin:2px auto 0;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.dial-vals b{color:var(--ink2);font-weight:750}
+@media (prefers-reduced-motion:reduce){.dial-needle{transition:none}}
