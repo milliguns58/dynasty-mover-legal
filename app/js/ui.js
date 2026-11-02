@@ -881,9 +881,10 @@ function renderHome(el) {
 // ---------------------------------------------------------------------------
 // Trade tab
 // ---------------------------------------------------------------------------
-/* The trade screen: "You give", then the verdict bar, then "You get". The bar updates as soon as both sides have
-   something (there is no "check" button). Each side is a compact card: team and strategy as pills, then the players,
-   then a slim "Add" row. The bar's card also holds the swap and start-over buttons. */
+/* The trade screen, head to head (2026-10-30, the user's ask: a more modern look): "You give" and "You get" face off
+   side by side in one card with a VS badge, each with its team and strategy, its players as small tiles and an "Add"
+   button. Under them the verdict card: a dial that leans toward the side getting more, the swap and start-over
+   buttons and Check this trade. Trade ideas and the full result follow. */
 /* The Dynasty Mover banner, at the top of Players, the page the app opens on (2026-10-26, the user's ask). */
 const BRAND = `<section class="brand"><img src="icon.png" alt="" class="brand-logo"><div class="brand-txt"><b>Dynasty Mover</b><span>Trade analyzer for dynasty and redraft</span></div></section>`;
 /* No league yet (2026-10-26, the user's ask: the default trade screen lets you add players from the NFL, with options to
@@ -944,26 +945,35 @@ function renderTrade(el) {
     if (noVals()) return `<div class="gv">${gradeChip(a)}</div>`;
     return `<div class="gv">${gradeChip(a)}</div><div class="d ${d > 0 ? "good" : d < 0 ? "bad" : "muted"}">${fmt(v)}${Math.abs(d) >= 1 ? ` <s class="was">${fmt(a.value)}</s>` : ""}</div>`; };
   const qbBump = parseFloat(S.cfg.league.qb_trade_bump_pct ?? 15), hasQB = k => S.sides[k].items.some(a => a.pos === "QB" && E.qb_trade_mult(a, S.cfg) > 1);
+  // a player on one side: a small centred tile (picture, name, grade and value), so the two sides fit next to each other
+  const tile = a => `<div class="item hp" data-id="${esc(a.id)}" data-act="card">${avatar(a)}
+    <div class="nm"><div class="n"><span class="nt">${esc(a.is_pick ? a.name.replace(/\s*\(via [^)]*\)\s*$/, "") : a.name)}</span>${statusFlag(a)}</div><div class="s">${esc(sub(a))}</div></div>
+    <div class="v">${lensRight(a)}</div><button class="x" data-x="${esc(a.id)}" aria-label="Remove">×</button></div>`;
   const side = k => {
     const s = S.sides[k], tot = s.items.reduce((x, a) => x + priced(a), 0);
     const other = S.sides[k === "A" ? "B" : "A"].team;
     const opts = [`<option value="">${k === "A" ? "Any team" : "Pick a team"}</option>`].concat(teams().filter(t => String(t.roster_id) !== String(other)).map(t =>
       `<option value="${t.roster_id}" ${String(s.team) === String(t.roster_id) ? "selected" : ""}>${esc(t.team_name)}${t.roster_id === S.cfg.my_roster_id ? " (you)" : ""}</option>`)).join("");
     const pills = (teams().length ? `<select class="pill" data-team="${k}" aria-label="Team">${opts}</select>` : "") + (redraft ? "" : modeSel(k, s));
-    return `<section class="card tside">
-      <div class="tside-head"><span class="tside-title">${k === "A" ? "You give" : "You get"}</span>${s.items.length && !noVals() ? `<span class="tside-tot">${fmt(tot)}</span>` : ""}</div>
-      ${pills ? `<div class="tside-pills">${pills}</div>` : ""}
-      ${lens && s.items.length ? `<div class="lens-note">${k === "A" ? (lens === "contend" ? "Valued to win now: production up, picks and youth down." : "Valued for a rebuild: picks and youth up, older players down.")
-        : `Priced through your ${MODE_LABEL[lens].toLowerCase()} lens${s.mode !== "neutral" ? `; ${MODE_LABEL[s.mode]} is how they see it` : ""}.`}</div>` : ""}
-      ${!redraft && qbBump > 0 && hasQB(k) ? `<div class="lens-note">Starting QBs cost +${qbBump}% in trades: you overpay for a QB.</div>` : ""}
-      ${!redraft && k === "A" && s.items.length && S.cfg.league.use_market !== false && Hist.market_cached() && Hist.market_cached().mults ? `<div class="lens-note">${esc(marketText())}</div>` : ""}
-      <div class="list">${s.items.map(a => assetRow(a, { x: true, trend: false, right: lensRight(a) })).join("")}</div>
-      <button class="add-row" data-add="${k}" ${tradeFull() ? 'data-lock="tradesize"' : ""}><span class="plus">+</span>${s.items.length ? "Add another" : (redraft ? "Add a player" : "Add a player or pick")}${tradeFull() ? " " + Pro.tag() : ""}</button></section>`;
+    return `<div class="h2h-side ${k === "A" ? "give" : "get"}">
+      <div class="h2h-label">${k === "A" ? "You give" : "You get"}</div>
+      ${noVals() ? "" : `<div class="h2h-tot${s.items.length ? "" : " muted"}">${s.items.length ? fmt(tot) : "0"}</div>`}
+      ${pills ? `<div class="h2h-pills">${pills}</div>` : ""}
+      <div class="list">${s.items.map(tile).join("")}</div>
+      <button class="add-row h2h-add" data-add="${k}" ${tradeFull() ? 'data-lock="tradesize"' : ""}><span class="plus">+</span>${s.items.length ? "Add" : (redraft ? "Add a player" : "Add player or pick")}${tradeFull() ? " " + Pro.tag() : ""}</button></div>`;
   };
+  // the notes that used to sit inside each side, once each, under the two columns
+  const A = S.sides.A, B = S.sides.B, notes = [];
+  if (lens && A.items.length) notes.push(lens === "contend" ? "Valued to win now: production up, picks and youth down." : "Valued for a rebuild: picks and youth up, older players down.");
+  if (lens && B.items.length) notes.push(`What you get is priced through your ${MODE_LABEL[lens].toLowerCase()} lens${B.mode !== "neutral" ? `; ${MODE_LABEL[B.mode]} is how they see it` : ""}.`);
+  if (!redraft && qbBump > 0 && (hasQB("A") || hasQB("B"))) notes.push(`Starting QBs cost +${qbBump}% in trades: you overpay for a QB.`);
+  if (!redraft && A.items.length && S.cfg.league.use_market !== false && Hist.market_cached() && Hist.market_cached().mults) notes.push(esc(marketText()));
+  const matchup = `<section class="card h2h"><div class="h2h-cols">${side("A")}<span class="h2h-vs" aria-hidden="true">VS</span>${side("B")}</div>
+    ${notes.length ? `<div class="h2h-notes">${notes.map(n => `<div class="lens-note">${n}</div>`).join("")}</div>` : ""}</section>`;
   const cap = locked() ? `<p class="foot trade-cap">Basic plan: ${tradeCount()} of ${BASIC_TRADE_MAX} players and picks. <a class="lnk" data-lock="tradesize">Go Pro for bigger trades</a></p>` : "";
   const ideas = tradeIdeas(priced);
   const noLeague = !(S.values.league && (S.values.league.teams || []).length);
-  el.innerHTML = side("A") + (ideas.side === "A" ? ideas.html : "") + `<section class="card tmid" id="tscore"></section>` + side("B") + (ideas.side === "B" ? ideas.html : "") + cap + `<div id="result"></div><div id="tlog"></div>${noLeague ? bringTeam() : ""}${credits()}`;
+  el.innerHTML = matchup + `<section class="card tmid" id="tscore"></section>` + ideas.html + cap + `<div id="result"></div><div id="tlog"></div>${noLeague ? bringTeam() : ""}${credits()}`;
   if (noLeague) bindBringTeam(el);
   $$("[data-idea]", el).forEach(it => it.onclick = e => {
     if (e.target.closest(".plink")) return;                  // the name opens the card; the row adds him
@@ -1026,10 +1036,28 @@ function tradeIdeas(priced) {
     <div class="list">${rows}</div></section>` };
 }
 
-/* The verdict bar between the two sides. Each team's half carries its name and is coloured by how that team does:
-   green = wins or fair, yellow = slight edge to the other side, orange = the other side wins, red = the other side
-   wins big. The width of each half is its share of the value. */
+/* The verdict dial under the two sides (2026-10-30; before, a bar split by each side's share). Green in the middle
+   (fair) and on the right (you win); yellow, orange and red on the left as the other side wins by more: a slight
+   edge, a win, a big win. The zones follow the verdict's own thresholds, so the needle always sits in the colour
+   the verdict names. */
 const TONE_COLOR = { edge: "yellow", win: "orange", big: "red" };
+const DIAL_STOPS = [15, 40, 65, 88];                           // degrees from upright where fair, edge, win and big end
+function dialAngle(a, T) {                                     // a = the verdict's percent, unsigned
+  const cuts = [0, +T.even, +T.slight, +T.lopsided, 2 * T.lopsided], deg = [0].concat(DIAL_STOPS);
+  for (let i = 1; i < cuts.length; i++) if (a < cuts[i]) return deg[i - 1] + (a - cuts[i - 1]) / (cuts[i] - cuts[i - 1]) * (deg[i] - deg[i - 1]);
+  return DIAL_STOPS[3];
+}
+function dial(deg, label, to) {
+  const R = 80, pt = d => `${(100 + R * Math.sin(d * Math.PI / 180)).toFixed(2)} ${(100 - R * Math.cos(d * Math.PI / 180)).toFixed(2)}`;
+  const arc = (d0, d1, cls) => `<path class="z ${cls}" d="M ${pt(d0)} A ${R} ${R} 0 0 1 ${pt(d1)}"/>`;
+  const S0 = DIAL_STOPS, g = 1.2;                              // a hairline gap between the zones
+  const zones = deg == null ? arc(-90, 90, "z-none")
+    : arc(-90, -S0[2] - g, "z-red") + arc(-S0[2] + g, -S0[1] - g, "z-orange") + arc(-S0[1] + g, -S0[0] - g, "z-yellow")
+      + arc(-S0[0] + g, S0[0] - g, "z-green") + arc(S0[0] + g, S0[1] - g, "z-green2") + arc(S0[1] + g, 90, "z-green3");
+  const at = deg == null ? 0 : deg;
+  return `<svg class="dial${deg == null ? " idle" : ""}" viewBox="0 0 200 112" ${label ? `role="img" aria-label="${label}"` : 'aria-hidden="true"'}>${zones}
+    <g class="dial-needle" data-to="${to ?? at}" style="transform:rotate(${at}deg)"><line x1="100" y1="100" x2="100" y2="34"/><circle cx="100" cy="100" r="7"/></g></svg>`;
+}
 function scoreboard(r, v, m, animate) {
   const sb = $("#tscore");
   if (!sb) return;
@@ -1042,21 +1070,24 @@ function scoreboard(r, v, m, animate) {
     sb.className = "card tmid empty-state";
     const hint = !any ? "Add a player to each side to see who wins." : !S.sides.A.items.length ? "Now add what you give."
       : !S.sides.B.items.length ? "Now add what you get." : "Ready. Tap Check this trade.";
-    sb.innerHTML = `<div class="tm-top"><div class="tm-title muted">${hint}</div>${swap}${clear}</div>
-      <div class="tm-bar"><span class="tm-seg c-none" style="flex-basis:50%"></span><span class="tm-seg b c-none" style="flex-basis:50%"></span></div>${check}`;
+    sb.innerHTML = `<div class="tm-top"><div class="tm-title muted">${hint}</div>${swap}${clear}</div>${dial(null)}${check}`;
   } else {
     const aWins = v.you !== undefined ? v.you : (r.verdict && r.verdict.winner === "A");
-    const loser = TONE_COLOR[v.tone] || "green";                      // "fair" leaves both halves green
-    const cA = v.tone === "fair" || aWins ? "green" : loser, cB = v.tone === "fair" || !aWins ? "green" : loser;
-    const share = x => Math.max(28, Math.min(72, x)).toFixed(1);       // keep both names readable
+    const loser = TONE_COLOR[v.tone] || "green";                      // "fair" stays green
+    const cA = v.tone === "fair" || aWins ? "green" : loser;
+    // The needle leans toward the column getting more: right (You get) when you win, left (You give) when they do.
+    // The verdict's own percent places it, so the colour under the needle matches the verdict.
+    const T = S.cfg.adjustments.verdict_pct, pct = (r.view || r.market).pct || 0;
+    const dir = v.tone === "fair" ? Math.sign(pct) : (aWins ? 1 : -1);
+    const deg = v.thin ? 0 : dir * dialAngle(Math.abs(pct), T);
     sb.className = `card tmid tone-${cA}`;
     sb.innerHTML = `<div class="tm-top"><div class="tm-title c-${cA}-text">${esc(v.title)}</div>${swap}${clear}</div>
-      <div class="tm-bar" role="img" aria-label="${noVals() ? `${esc(A)} ${m.aPct}%, ${esc(B)} ${m.bPct}%` : `${esc(A)} ${fmt(m.aGets)}, ${esc(B)} ${fmt(m.bGets)}`}">
-        <span class="tm-seg c-${cA}" data-w="${share(+m.aPct)}" style="flex-basis:${animate ? 0 : share(+m.aPct)}%">${noVals() ? "" : fmt(m.aGets)}</span><span class="tm-seg b c-${cB}" data-w="${share(+m.bPct)}" style="flex-basis:${animate ? 0 : share(+m.bPct)}%">${noVals() ? "" : fmt(m.bGets)}</span></div>${check}`;
-    if (animate) {                                             // fill the bar from empty
-      sb.classList.add("filling");
-      void sb.offsetWidth;                                     // lay out the empty bar first, so the change below animates
-      setTimeout(() => { $$(".tm-seg", sb).forEach(x => { x.style.flexBasis = x.dataset.w + "%"; }); setTimeout(() => sb.classList.remove("filling"), 850); }, 30);
+      ${dial(animate ? -90 : deg, `${esc(A)} ${noVals() ? m.aPct + "%" : fmt(m.aGets)}, ${esc(B)} ${noVals() ? m.bPct + "%" : fmt(m.bGets)}`, deg)}
+      ${noVals() ? "" : `<div class="dial-vals"><span>Give <b>${fmt(m.bGets)}</b></span><span>Get <b>${fmt(m.aGets)}</b></span></div>`}${check}`;
+    if (animate) {                                             // swing the needle in from the left
+      const n = $(".dial-needle", sb);
+      void sb.offsetWidth;                                     // lay out the starting angle first, so the change below animates
+      setTimeout(() => { n.style.transform = `rotate(${n.dataset.to}deg)`; }, 30);
     }
   }
   const go = $("#tmGo", sb);
