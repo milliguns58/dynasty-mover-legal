@@ -1072,7 +1072,7 @@ function scoreboard(r, v, m, animate) {
     const hint = !any ? "Add a player to each side to see who wins." : !S.sides.A.items.length ? "Now add what you give."
       : !S.sides.B.items.length ? "Now add what you get." : "Ready. Tap Check This Trade.";
     sb.innerHTML = `<div class="tm-top"><div class="tm-title muted">${hint}</div>${swap}${clear}</div>${check}`;
-    if (dh) dh.innerHTML = dial(null);
+    if (dh) { dh.innerHTML = dial(null); dh.closest(".h2h").classList.remove("res-get", "res-give", "res-fair"); }
   } else {
     const aWins = v.you !== undefined ? v.you : (r.verdict && r.verdict.winner === "A");
     const loser = TONE_COLOR[v.tone] || "green";                      // "fair" stays green
@@ -1085,6 +1085,8 @@ function scoreboard(r, v, m, animate) {
     sb.className = `card tmid tone-${cA}`;
     sb.innerHTML = `<div class="tm-top"><div class="tm-title c-${cA}-text">${esc(v.title)}</div>${swap}${clear}</div>
       ${noVals() ? "" : `<div class="dial-vals"><span>Give <b>${fmt(m.bGets)}</b></span><span>Get <b>${fmt(m.aGets)}</b></span></div>`}${check}`;
+    // the two sides turn green and red with the verdict (2026-11-03, the user's ask): green on the side the needle leans to
+    if (dh) { const h = dh.closest(".h2h"); h.classList.remove("res-get", "res-give", "res-fair"); h.classList.add(v.tone === "fair" ? "res-fair" : aWins ? "res-get" : "res-give"); }
     if (dh) dh.innerHTML = dial(animate ? -90 : deg, `${esc(A)} ${noVals() ? m.aPct + "%" : fmt(m.aGets)}, ${esc(B)} ${noVals() ? m.bPct + "%" : fmt(m.bGets)}`, deg);
     if (animate && dh) {                                       // swing the needle in from the left
       const n = $(".dial-needle", dh);
@@ -1556,14 +1558,17 @@ function picker(k) {
 // ---------------------------------------------------------------------------
 /* Market vs ours in dynasty (2026-10-16, the user's ask: the old buy/sell lists were saturated and the sells didn't
    follow the dynasty rankings). Three lists, a player in one at most:
-     Sell       at or past his position's decline age (AGE_DECLINE: RB 27, WR 29, TE 35, QB 38), or 25+ with a C+ or
-                lower dynasty grade and our model 25% or more under the market; market value 1,500+
-     Sell high  his value is likely to drop: a year from the decline with a 3,000+ price, or 25+ and not an A/A+ and
-                scoring well over what his usage earns (touchdowns running hot) while our model sees no more in him
-     Buy low    under-producing (2026-11-03, the user's ask; before, our model 30% over the market): 4+ games scoring 15%
-                or more under what his usage earns, or 2+ touchdowns short of expected, while still a B- or better to us
-                (our model not under the market), market value 1,500+, two years or more short of the decline (QBs 30
-                and under), on a team and not on a long injury list
+     Sell       at or past his position's decline age (AGE_DECLINE: RB 27, WR 29, TE 35, QB 38), market value 1,000+;
+                or 25+ with a C+ or lower dynasty grade and our model 25% or more under the market, 1,500+
+     Sell high  his value is likely to drop: a year from the decline with a 2,000+ price, or 24+ (not an A/A+ under 27)
+                scoring 10% or more over what his usage earns or 2+ touchdowns over expected, while our model sees no
+                more than 15% over the market in him; 1,000+
+     Buy low    under-producing (2026-11-03, the user's ask; before, our model 30% over the market): 4+ games scoring 10%
+                or more under what his usage earns, or 1.5+ touchdowns short of expected, while still a C+ or better to
+                us (our model no more than 10% under the market), market value 1,000+, two years or more short of the
+                decline (QBs 30 and under), on a team and not on a long injury list
+   The lists grew from about 12 and 6 to about 20 and 27 on 2026-11-03 (the user's ask: 30 where plausible); looser than
+   that reaches backups and noise.
    The market is FantasyCalc x DynastyProcess (a.omkt) and our view our own model on that scale (a.oview, attach_orank). */
 const EDGE_KINDS = [["buy", "Buy Low"], ["sellhigh", "Sell High"], ["sell", "Sell"]];
 const EDGE_OUT = ["IR", "PUP", "Out", "Sus", "Suspended", "DNR", "NA"];
@@ -1571,16 +1576,17 @@ function dynastyEdge(a) {
   if (!a || a.is_pick || a.unranked || !a.omkt || a.age == null || !E.AGE_DECLINE[a.pos]) return null;            // (QB: his own cliff, 39 or down to 35 for a runner)
   const st = E.load_player_status()[a.sleeper_id] || {}, dec = E.decline_of(a), age = a.age, yrs = Math.floor(age);
   const ratio = a.oview ? a.oview / a.omkt : 1, ep = a.ep;
-  const g = gradeOf(a).g, top = g === "A+" || g === "A", cliff = E.cliff_of(a);
-  if (a.omkt >= 1500 && age >= dec) return { kind: "sell", score: a.omkt, why: age >= cliff ? `${a.pos} at ${yrs}: past the cliff` : `${a.pos} at ${yrs}: decline years` };
+  const g = gradeOf(a).g, star = (g === "A+" || g === "A") && age < 27, cliff = E.cliff_of(a);
+  if (a.omkt >= 1000 && age >= dec) return { kind: "sell", score: a.omkt, why: age >= cliff ? `${a.pos} at ${yrs}: past the cliff` : `${a.pos} at ${yrs}: decline years` };
   if (a.omkt >= 1500 && age >= 25 && ratio <= 0.75 && ["C+", "C", "C-", "D", "F"].includes(g)) return { kind: "sell", score: a.omkt * (1 - ratio), why: "Short on dynasty value" };
-  if (a.omkt >= 3000 && age >= dec - 1) return { kind: "sellhigh", score: a.omkt, why: `${a.pos} at ${yrs}: a year from the decline` };
-  // touchdowns running hot: not for a young star (2026-10-16: Jaxon Smith-Njigba, 24 and A+, is no sell)
-  if (a.omkt >= 1500 && age >= 25 && !top && ep && ep.g >= 4 && ep.exp > 0 && ep.pts / ep.exp >= 1.2 && ep.td - ep.tdx >= 2.5 && ratio <= 1.05)
-    return { kind: "sellhigh", score: a.omkt * ep.pts / ep.exp, why: `${ep.td} TDs on ${ep.tdx.toFixed(1)} expected` };
+  if (a.omkt >= 2000 && age >= dec - 1) return { kind: "sellhigh", score: a.omkt, why: `${a.pos} at ${yrs}: a year from the decline` };
+  // running hot: not for a young star (2026-10-16: Jaxon Smith-Njigba, 24 and A+, is no sell)
+  const played = ep && ep.g >= 4 && ep.exp > 0, hot = played && ep.pts / ep.exp >= 1.1, tdHot = played && ep.td - ep.tdx >= 2;
+  if (a.omkt >= 1000 && age >= 24 && !star && (hot || tdHot) && ratio <= 1.15)
+    return { kind: "sellhigh", score: a.omkt * ep.pts / ep.exp, why: tdHot ? `${ep.td} TDs on ${ep.tdx.toFixed(1)} expected` : `${Math.round(ep.pts)} pts on ${Math.round(ep.exp)} expected` };
   // buy low: the mirror of a hot streak, scoring under what his usage earns while his future still grades well
-  const played = ep && ep.g >= 4 && ep.exp > 0, cold = played && ep.pts / ep.exp <= 0.85, tdShort = played && ep.tdx - ep.td >= 2;
-  if (a.omkt >= 1500 && (cold || tdShort) && ratio >= 0.95 && age <= dec - 2 && !(a.pos === "QB" && age > 30) && gIdx(g) <= gIdx("B-") && !EDGE_OUT.includes(st.inj) && a.team && a.team !== "FA")
+  const cold = played && ep.pts / ep.exp <= 0.9, tdShort = played && ep.tdx - ep.td >= 1.5;
+  if (a.omkt >= 1000 && (cold || tdShort) && ratio >= 0.9 && age <= dec - 2 && !(a.pos === "QB" && age > 30) && gIdx(g) <= gIdx("C+") && !EDGE_OUT.includes(st.inj) && a.team && a.team !== "FA")
     return { kind: "buy", score: a.omkt * ep.exp / Math.max(ep.pts, 1), why: cold ? `${Math.round(ep.pts)} pts on ${Math.round(ep.exp)} expected` : `${ep.td} TDs on ${ep.tdx.toFixed(1)} expected` };
   return null;
 }
@@ -1609,7 +1615,7 @@ function rankList(el) {
   const rookTab = R.pos === "DRAFT" || R.pos === "ROOK";
   // whose players: free agents never make Buy & sell (it needs a real market price), so that list splits by team instead
   const whoOpts = !hasLg || R.pos === "PICK" || rookTab ? null
-    : [["all", "All Players"]].concat(R.pos === "EDGE" ? [["theirs", "Other Teams"]] : [["free", "Available"]], [["mine", "Mine"]]);
+    : [["all", "All Players"]].concat(R.pos === "EDGE" ? [] : [["free", "Available"]], [["mine", "Mine"]]);   // Other Teams dropped (2026-11-03, the user's ask)
   const who = whoOpts && whoOpts.some(([k]) => k === R.who) ? R.who : "all";
   R.rpos = R.rpos || "ALL";
   const hasOurs = S.values.players.some(a => a.ours > 0);
@@ -1633,7 +1639,7 @@ function rankList(el) {
     ${rookTab ? `<div class="seg sub-seg" id="dseg"><button data-pos="DRAFT" class="${R.pos === "DRAFT" ? "on" : ""}">Draft Board</button><button data-pos="ROOK" class="${R.pos === "ROOK" ? "on" : ""}">${draftYear()} Class</button></div>` : ""}
     ${whoOpts ? `<div class="seg sub-seg" id="wseg">${whoOpts.map(([k, l]) => `<button data-who="${k}" class="${who === k ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
     ${R.pos === "EDGE" && dynEdge ? `<div class="seg" id="eseg">${EDGE_KINDS.map(([k, l]) => `<button data-e="${k}" class="${R.edge === k ? "on" : ""}">${l}</button>`).join("")}</div>
-      <p class="note muted" style="margin:8px 2px 10px">${R.edge === "buy" ? "Scoring less than their usage earns: fewer points, or fewer touchdowns, than their targets, carries and snaps should bring. They're young, healthy and still a B- or better to us, so the slump is the discount. Buy before it turns."
+      <p class="note muted" style="margin:8px 2px 10px">${R.edge === "buy" ? "Scoring less than their usage earns: fewer points, or fewer touchdowns, than their targets, carries and snaps should bring. They're young, healthy and still a C+ or better to us, so the slump is the discount. Buy before it turns."
         : R.edge === "sellhigh" ? "Their value is likely to drop: a year from their position's decline age, or scoring well above what their usage earns (touchdowns running hot). Sell while the price is high."
         : "Past their position's decline age (running backs 27, receivers 29, tight ends 35, quarterbacks 38), or short on dynasty value. Worth more to a contender this season than to your future: sell for younger players or picks."}</p>` : ""}
     ${R.pos === "EDGE" && !dynEdge ? `<div class="seg" id="eseg"><button data-e="buy" class="${R.edge === "buy" ? "on" : ""}">Buys</button><button data-e="sell" class="${R.edge === "sell" ? "on" : ""}">Sells</button></div>
