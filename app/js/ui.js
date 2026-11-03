@@ -480,7 +480,7 @@ function gameLogHtml(r, a, yr) {
     { avg: games.reduce((t, x) => t + f(x.game), 0) / games.length, int: true });
   const noGame = x => (yr === season && teamBye(a.team, x.week, season) ? "bye" : "dnp");
   const missTip = x => `Week ${x.week}: ${noGame(x) === "bye" ? "bye" : "didn't play"}`;
-  const charts = locked() ? `<button class="btn soft block" data-lock="stats" style="margin-bottom:12px">Charts and the next-week prediction ${Pro.tag()}</button>` : colChart("Points by week", r.rows.map(x => ({ x: String(x.week), y: x.game ? x.game.pts : null, mark: x.game ? (x.game.pts === 0 ? "zero" : null) : noGame(x),
+  const charts = locked() ? `<button class="btn soft block" data-lock="stats" style="margin-bottom:12px">Charts and the Next-Week Prediction ${Pro.tag()}</button>` : colChart("Points by week", r.rows.map(x => ({ x: String(x.week), y: x.game ? x.game.pts : null, mark: x.game ? (x.game.pts === 0 ? "zero" : null) : noGame(x),
       tip: x.game ? `Week ${x.week} vs ${x.game.opp}: ${x.game.pts.toFixed(1)} pts` : missTip(x) })), { avg })
     + uses.map(useChart).join("")
     + (yr === season ? snapChart(a) + nextWeekHtml(a, r) : "");
@@ -899,7 +899,7 @@ function quickStart(el) {
       ${seg("qtType", [["dynasty", "Dynasty"], ["redraft", "Redraft"]], q.type)}
       ${seg("qtSF", [["false", "1 QB"], ["true", "Superflex"]], q.sf)}
       ${seg("qtPpr", [["1", "Full PPR"], ["0.5", "Half PPR"], ["0", "Standard"]], q.ppr)}
-      <button class="btn primary block big" id="qtGo">Start comparing</button></section>` + bringTeam();
+      <button class="btn primary block big" id="qtGo">Start Comparing</button></section>` + bringTeam();
   const pick = (id, key, conv) => $$(`#${id} button`, el).forEach(b => b.onclick = () => { q[key] = conv(b.dataset.v); quickStart(el); });
   pick("qtType", "type", v => v); pick("qtSF", "sf", v => v === "true"); pick("qtPpr", "ppr", v => v);
   $("#qtGo", el).onclick = async () => {
@@ -1063,7 +1063,7 @@ function scoreboard(r, v, m, animate) {
   if (!sb) return;
   const A = sideName("A"), B = sideName("B"), any = S.sides.A.items.length || S.sides.B.items.length;
   const swap = `<button class="tm-btn" id="swapSides" aria-label="Swap the two sides"><svg viewBox="0 0 24 24"><path d="M7 4v16m0 0l-3-3m3 3l3-3M17 20V4m0 0l-3 3m3-3l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
-  const clear = any ? `<button class="tm-btn text" id="clr">Start over</button>` : "";
+  const clear = any ? `<button class="tm-btn text" id="clr">Start Over</button>` : "";
   const ready = S.sides.A.items.length && S.sides.B.items.length;
   const check = ready ? `<button class="btn primary block tm-go" id="tmGo">${r ? "Check again" : "Check this trade"}</button>` : "";
   if (!r) {
@@ -1222,7 +1222,7 @@ function negotiatorCard(r) {
     <div class="hint">${esc(N.summary)}</div>
     <ul class="nego-why">${N.reasons.map(mark).join("")}</ul>${sweet}${gap}
     <div class="sub-h">The message</div><div class="nego-msg" id="negoMsg">${esc(N.message)}</div>
-    <div class="btns"><button class="btn soft" id="negoCopy">Copy message</button>${gm}</div></section>`;
+    <div class="btns"><button class="btn soft" id="negoCopy">Copy Message</button>${gm}</div></section>`;
 }
 const NEGO_LABEL = score => (score >= 10 ? "Very likely" : score >= 3 ? "Good chance" : score >= -5 ? "Coin flip" : "Long shot");
 function bindNegotiator(box) {
@@ -1324,7 +1324,7 @@ function ourTake(r, barNet) {
 // as sheets, so a player's name still opens his card and the list comes back when the card closes.
 // ---------------------------------------------------------------------------
 const HIST_ICON = `<svg viewBox="0 0 24 24"><path d="M12 8v4l3 2M3.5 12a8.5 8.5 0 1 0 2.5-6M3 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const HIST_SEGS = [["mine", "Yours"], ["all", "League"], ["saved", "Saved checks"]];
+const HIST_SEGS = [["mine", "Yours"], ["all", "League"], ["saved", "Saved Checks"]];
 function renderLog() {
   const box = $("#tlog");
   if (!box) return;
@@ -1464,7 +1464,7 @@ function tradeSheet(t) {
     <section class="card th-verdict ${V.cls}"><div class="th-vtitle">${esc(V.title)}</div><div class="hint">${esc(histLine(t))}</div></section>
     ${t.sides.map(s => `<section class="card"><h2>${esc(sideWho(s))} ${saved ? "would get" : "got"}</h2><div class="list">${s.got.map(pieceRow).join("") || `<div class="empty">Nothing</div>`}</div>${totals(s)}</section>`).join("")}
     ${then}${t.note ? `<p class="note">${esc(t.note)}</p>` : ""}
-    <button class="btn soft block" id="thRecheck">Check it with today's values</button>
+    <button class="btn soft block" id="thRecheck">Check It with Today's Values</button>
     <p class="note muted">${redraft ? "Points: each player's fantasy points in this league's scoring, from the trade week to the end of that season." : "Points: each player's fantasy points in this league's scoring since the trade. Values are today's; a pick that has been used counts as the player it became."}</p>`,
     { full: true, onClose: () => historySheet() });
   $(".close", body).onclick = closeSheet;
@@ -1561,7 +1561,7 @@ function picker(k) {
      Buy        our model 30% or more over the outside market, a B- or better, market value 1,500+, two years or more
                 short of the decline (QBs 30 and under), on a team and not on a long injury list
    The market is FantasyCalc x DynastyProcess (a.omkt) and our view our own model on that scale (a.oview, attach_orank). */
-const EDGE_KINDS = [["buy", "Buy"], ["sellhigh", "Sell high"], ["sell", "Sell"]];
+const EDGE_KINDS = [["buy", "Buy"], ["sellhigh", "Sell High"], ["sell", "Sell"]];
 const EDGE_OUT = ["IR", "PUP", "Out", "Sus", "Suspended", "DNR", "NA"];
 function dynastyEdge(a) {
   if (!a || a.is_pick || a.unranked || !a.omkt || a.age == null || !E.AGE_DECLINE[a.pos]) return null;            // (QB: his own cliff, 39 or down to 35 for a runner)
@@ -1599,15 +1599,15 @@ function rankList(el) {
   ensureWeek("rank");
   const owner = {};
   if (hasLg) for (const t of teams()) for (const pid of t.players) owner[pid] = t;
-  const tabs = [["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].concat(E.is_redraft(S.cfg) ? [] : [["PICK", "Picks"], ["DRAFT", "Draft helper"]]);   // the class lives in the draft helper's tab (2026-11-03, the user's ask)
+  const tabs = [["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].concat(E.is_redraft(S.cfg) ? [] : [["PICK", "Picks"], ["DRAFT", "Draft Helper"]]);   // the class lives in the draft helper's tab (2026-11-03, the user's ask)
   const rookTab = R.pos === "DRAFT" || R.pos === "ROOK";
   // whose players: free agents never make Buy & sell (it needs a real market price), so that list splits by team instead
   const whoOpts = !hasLg || R.pos === "PICK" || rookTab ? null
-    : [["all", "All players"]].concat(R.pos === "EDGE" ? [["theirs", "Other teams"]] : [["free", "Available"]], [["mine", "Mine"]]);
+    : [["all", "All Players"]].concat(R.pos === "EDGE" ? [["theirs", "Other Teams"]] : [["free", "Available"]], [["mine", "Mine"]]);
   const who = whoOpts && whoOpts.some(([k]) => k === R.who) ? R.who : "all";
   R.rpos = R.rpos || "ALL";
   const hasOurs = S.values.players.some(a => a.ours > 0);
-  if (hasOurs) tabs.push(["EDGE", "Buy & sell"]);   // was "Market vs ours" (renamed 2026-11-03, the user's ask)
+  if (hasOurs) tabs.push(["EDGE", "Buy & Sell"]);   // was "Market vs ours" (renamed 2026-11-03, the user's ask)
   if (R.pos === "EDGE" && (locked() || !hasOurs)) R.pos = "ALL";
   R.edge = R.edge || "buy";
   const dynEdge = !E.is_redraft(S.cfg) && S.values.players.some(a => a.omkt);   // the dynasty lists need the outside market (values from 2026-10-16 on)
@@ -1624,7 +1624,7 @@ function rankList(el) {
   el.innerHTML = `<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <input type="search" id="rq" placeholder="Search players" value="${esc(R.q)}"></div>
     <div class="chips-row">${tabs.map(([p, l]) => `<button class="fchip ${R.pos === p || (p === "DRAFT" && rookTab) ? "on" : ""}${p === "EDGE" ? " edge-chip" : ""}" data-pos="${p}" ${p === "EDGE" && locked() ? 'data-lock="ourgrade"' : ""}>${l}${p === "EDGE" ? " " + proTag() : ""}</button>`).join("")}</div>
-    ${rookTab ? `<div class="seg sub-seg" id="dseg"><button data-pos="DRAFT" class="${R.pos === "DRAFT" ? "on" : ""}">Draft board</button><button data-pos="ROOK" class="${R.pos === "ROOK" ? "on" : ""}">${draftYear()} class</button></div>` : ""}
+    ${rookTab ? `<div class="seg sub-seg" id="dseg"><button data-pos="DRAFT" class="${R.pos === "DRAFT" ? "on" : ""}">Draft Board</button><button data-pos="ROOK" class="${R.pos === "ROOK" ? "on" : ""}">${draftYear()} Class</button></div>` : ""}
     ${whoOpts ? `<div class="seg sub-seg" id="wseg">${whoOpts.map(([k, l]) => `<button data-who="${k}" class="${who === k ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
     ${R.pos === "EDGE" && dynEdge ? `<div class="seg" id="eseg">${EDGE_KINDS.map(([k, l]) => `<button data-e="${k}" class="${R.edge === k ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">${R.edge === "buy" ? `Our model rates these players at least 30% above the outside market (${esc([].concat(S.values.meta.anchor || []).map(n => (E.SOURCES[n] || {}).label || n).join(" and "))}), and they're young enough to keep the value. Good ones to trade for.`
@@ -1660,7 +1660,7 @@ function rankList(el) {
       const kl = kitLocked(Y), shown = pool.slice(0, kl ? KIT_TASTE : R.limit);
       list.innerHTML = shown.map((p, i) => prospectRow(p, R.rpos === "ALL" && !R.q ? p.rank : i + 1)).join("")
         + (kl ? Pro.kitCard(Y, `That's the first round. The whole ${Y} class, ${d.players.length} players graded, and the draft helper are in the ${Y} draft kit.`) : "")
-        + (!kl && pool.length > shown.length ? `<button class="add-btn" id="more">Show more</button>` : "") + (!pool.length ? `<div class="empty">Nobody matches.</div>` : "")
+        + (!kl && pool.length > shown.length ? `<button class="add-btn" id="more">Show More</button>` : "") + (!pool.length ? `<div class="empty">Nobody matches.</div>` : "")
         + (d.sample ? `<p class="note muted" style="padding:10px 16px">Placeholder data: run tools\draft\build_prospects.py with a CollegeFootballData key for the real class.</p>` : "");
       $$("[data-prospect]", list).forEach(it => it.onclick = () => { const p = d.players.find(x => x.id === it.dataset.prospect); if (p) prospectCard(p, d); });
       const m = $("#more"); if (m) m.onclick = () => { R.limit += 150; drawClass(); };
@@ -1715,7 +1715,7 @@ function rankList(el) {
       const mv = !E.is_redraft(S.cfg) ? rankMove(a) : null;
       const arrow = mv ? `<span class="rk-mv ${mv.dir}" title="${mv.dir === "up" ? "Up" : "Down"} ${mv.spots} spots in ${mv.days} days" aria-label="${mv.dir === "up" ? "Rising" : "Falling"} ${mv.spots} spots">${ARROW[mv.dir]}<small>${mv.spots}</small></span>` : "";
       return assetRow(a, { rank: rk, rkSub: arrow, tag: free ? `<span class="tag-free">Available</span>` : "", sub: extra ? `${esc(a.team || "FA")}${extra}` : undefined, right });
-    }).join("") + (pool.length > shown.length ? `<button class="add-btn" id="more">Show more</button>` : "") + (!pool.length ? `<div class="empty">${R.pos === "EDGE" ? "No players here: we agree with the market on everyone who matches." : "Nobody matches."}</div>` : "");
+    }).join("") + (pool.length > shown.length ? `<button class="add-btn" id="more">Show More</button>` : "") + (!pool.length ? `<div class="empty">${R.pos === "EDGE" ? "No players here: we agree with the market on everyone who matches." : "Nobody matches."}</div>` : "");
     bindCards($("#rlist"));
     const m = $("#more");
     if (m) m.onclick = () => { R.limit += 150; draw(); };
@@ -1816,7 +1816,7 @@ function renderTeam(el) {
   const t = teamById(S.team.id), segs = [["lineup", "Lineup"], ["waivers", "Pickups"], ["trades", "Trades"], ["roster", "Roster"]].filter(([k]) => !(bestball && k === "lineup"));
   el.innerHTML = `<div class="team-bar"><select id="tsel" aria-label="Team">${teams().map(x => `<option value="${x.roster_id}" ${x.roster_id === t.roster_id ? "selected" : ""}>${esc(x.team_name)}${x.roster_id === S.cfg.my_roster_id ? " (you)" : ""}</option>`).join("")}</select>
       <span class="record">${esc(t.record)}</span>${manual ? `<button class="btn ghost sm" id="editRoster">Edit</button>` : ""}</div>
-    ${S.cfg.my_roster_id == null ? `<button class="btn soft block" id="setMine">This is my team</button>` : ""}
+    ${S.cfg.my_roster_id == null ? `<button class="btn soft block" id="setMine">This Is My Team</button>` : ""}
     <div class="seg" id="tseg">${segs.map(([k, l]) => `<button data-v="${k}" class="${S.team.seg === k ? "on" : ""}" ${locked() && k !== "roster" ? 'data-lock="team"' : ""}>${l}${k !== "roster" ? " " + proTag() : ""}</button>`).join("")}</div>
     <div id="tbody"></div>${credits()}`;
   $("#tsel").onchange = e => { S.team.id = +e.target.value; saveUi(); renderTeam(el); };
@@ -1868,7 +1868,7 @@ function drawRoster(body, t) {
     const g = roster.filter(a => a.pos === pos);
     if (pos !== "PICK") g.sort((a, b) => b.value - a.value);                        // picks keep Sleeper's order: season, then round
     if (!g.length) continue;
-    h += `<div class="grp pos-${pos}">${label}${pos === "PICK" ? `<a class="grp-note lnk" id="toDraft">Draft helper</a>` : S.W && S.W.acc && pos !== "K" && pos !== "DEF" ? PW_LEGEND : ""}</div>` + g.map(a => assetRow(a, { tag: st.has(a.id) ? `<span class="tag-start">Starter</span>` : "", extra: pastWeeks(a) })).join("");
+    h += `<div class="grp pos-${pos}">${label}${pos === "PICK" ? `<a class="grp-note lnk" id="toDraft">Draft Helper</a>` : S.W && S.W.acc && pos !== "K" && pos !== "DEF" ? PW_LEGEND : ""}</div>` + g.map(a => assetRow(a, { tag: st.has(a.id) ? `<span class="tag-start">Starter</span>` : "", extra: pastWeeks(a) })).join("");
   }
   body.innerHTML = h + `</section>`;
   bindCards(body);
@@ -1941,7 +1941,7 @@ function drawLineup(body, t, W) {
       : W.ours ? `<p class="note muted">Points are Dynasty Mover's own projections: each player's scoring this season and last, adjusted for home or away, the Vegas line, the weather at kickoff and his team's recent form. Schedule and lines from nflverse (CC BY 4.0); weather from the National Weather Service, and from MET Norway for games abroad.${W.kdef ? " Kicker and defense points from nflverse stats on Sleeper's default scoring; a defense is also rated on its opponent's offense and the Vegas line." : ""}</p>`
       : `<p class="note muted">Points are Sleeper's projections, adjusted for the matchup, weather, betting lines and recent form.</p>`);
   const lgi = S.values.league && S.values.league.imported ? ago(S.values.league.imported) : null;
-  h += `<section class="card">${more("How this works", extra)}${W.valuesOnly ? "" : `<button class="btn ghost block" id="wref" style="margin-top:12px">Refresh rosters and projections</button>${lgi ? `<div class="hint" style="text-align:center;margin-top:6px">Rosters from Sleeper ${esc(lgi)}</div>` : ""}`}</section>`;
+  h += `<section class="card">${more("How this works", extra)}${W.valuesOnly ? "" : `<button class="btn ghost block" id="wref" style="margin-top:12px">Refresh Rosters and Projections</button>${lgi ? `<div class="hint" style="text-align:center;margin-top:6px">Rosters from Sleeper ${esc(lgi)}</div>` : ""}`}</section>`;
   body.innerHTML = h;
   liveCard(body, t, W);
   matchupCard(body, t, W);
@@ -2042,7 +2042,7 @@ function drawTrades(body, t, W) {
       <div class="idea-top"><span class="idea-kind k-${x.kind}">${KIND[x.kind]}</span><b class="idea-team">${esc(x.team.team_name)}</b><span class="muted">${esc(x.team.record || "")}</span></div>
       <div class="idea-cols"><div><div class="sub-h">You get</div>${x.get.map(mini).join("")}</div><div><div class="sub-h">You give</div>${x.give.map(mini).join("")}</div></div>
       <ul class="idea-why">${x.why.map(w => `<li>${linkify(w, x.get.concat(x.give))}</li>`).join("")}</ul>
-      <button class="btn soft block" data-idea="${i}">Open in trade</button></section>`;
+      <button class="btn soft block" data-idea="${i}">Open in Trade</button></section>`;
   });
   body.innerHTML = h;                                        // the My team screen adds the credits below
   $$("[data-idea]", body).forEach(b => b.onclick = () => {
@@ -2381,11 +2381,11 @@ function card(a, opts = {}) {
         else if (!W) h += `<div class="sec"><h3>This week</h3><p class="note muted">Loading…</p></div>`;
       }
         h += `${a.is_pick ? "" : draftHtml(draftInfo)}
-        <div class="card-acts">${!a.is_pick && S.values.league && S.cfg.my_roster_id != null ? (C.owner === "free agent" ? `<button class="btn ghost block" id="wcFromCard">Check adding him</button>`
-          : C.owner_id === S.cfg.my_roster_id ? `<button class="btn ghost block" id="wcFromCard">Check dropping him</button>` : "") : ""}
+        <div class="card-acts">${!a.is_pick && S.values.league && S.cfg.my_roster_id != null ? (C.owner === "free agent" ? `<button class="btn ghost block" id="wcFromCard">Check Adding Him</button>`
+          : C.owner_id === S.cfg.my_roster_id ? `<button class="btn ghost block" id="wcFromCard">Check Dropping Him</button>` : "") : ""}
         ${!a.is_pick && typeof GM !== "undefined" && GM.available() ? `<button class="btn ghost block" id="gmFromCard">Ask the GM</button>` : ""}</div>
         ${a.is_pick ? "" : `<button class="link-btn" id="avoidBtn" style="display:block;margin:10px auto 0">${avoidList().includes(a.id) ? "Suggest this player again" : "Don't suggest this player"}</button>`}`;
-      h += locked() ? `<div class="sec"><h3>Value over time ${Pro.tag()}</h3><button class="btn soft block" data-lock="chart">See how this value has moved</button></div>`
+      h += locked() ? `<div class="sec"><h3>Value over time ${Pro.tag()}</h3><button class="btn soft block" data-lock="chart">See How This Value Has Moved</button></div>`
         : `<div class="sec"><h3>Value over time</h3>${sparkline(C.series)}</div>`;
       let extra = `<div class="sub-h">What the grade means</div><p class="note">${GRADES.map(([, g, l]) => `<b>${g}</b> ${l.toLowerCase()}`).join(" · ")}.
         Grades compare a player's value with the best player in your league's format. ▲ rising, ▼ falling, – steady over 30 days.</p>`;
@@ -2533,7 +2533,7 @@ function drawBuilder(body, t, B) {
         <div class="list">${RV.items.map((it, i) => it.match ? `<label class="rv-row"><input type="checkbox" data-rv="${i}" ${it.on ? "checked" : ""}>${assetRow(it.match, { trend: false, right: `<span class="hint">${esc(it.name)}${it.pos ? " · " + esc(it.pos) : ""}</span>` })}</label>`
           : `<div class="rv-row miss"><div class="nm"><div class="n">${esc(it.name)}${it.pos ? ` <span class="muted">${esc(it.pos)}</span>` : ""}</div><div class="s">Not found. Add him from the lineup board.</div></div></div>`).join("")}</div>
         ${RV.raw ? `<p class="note muted">What the model saw: ${esc(RV.raw)}</p>` : ""}
-        <button class="btn primary block big" id="rvAdd" style="margin-top:14px" ${RV.items.some(it => it.match && it.on) ? "" : "disabled"}>Add the ticked players</button>`;
+        <button class="btn primary block big" id="rvAdd" style="margin-top:14px" ${RV.items.some(it => it.match && it.on) ? "" : "disabled"}>Add the Ticked Players</button>`;
       $("#rvBack", box).onclick = () => { B.review = null; redraw(); };
       $$("[data-rv]", box).forEach(cb => cb.onchange = () => { RV.items[+cb.dataset.rv].on = cb.checked; $("#rvAdd", box).disabled = !RV.items.some(it => it.match && it.on); });
       $$(".rv-row .item", box).forEach(it => { it.onclick = e => { e.preventDefault(); const cb = it.closest("label").querySelector("input"); cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); }; });
@@ -2679,7 +2679,7 @@ function drawDraft() {
           : `Sleeper has the draft set up (${sy.type}, ${sy.rounds} rounds); it hasn't started.`)
         : (lg && lg.league_id ? "Tap Sync to follow the draft on Sleeper." : "Mark players as they go; the board keeps up.");
       let h = `<div class="dr-head"><div class="dr-title">${Y} rookie draft</div><div class="hint">${N} teams · ${rounds} rounds${sy ? ` · ${esc(sy.type)}` : ""} · ${takenN} taken${mineN ? `, ${mineN} yours` : ""}</div><p class="note">${status}</p>
-        <div class="btns">${lg && lg.league_id ? `<button class="btn soft sm" id="drSync" ${D.busy ? "disabled" : ""}>${D.busy ? "Syncing…" : "Sync with Sleeper"}</button>` : ""}<button class="btn ghost sm" id="drReset">Clear my marks</button></div></div>`;
+        <div class="btns">${lg && lg.league_id ? `<button class="btn soft sm" id="drSync" ${D.busy ? "disabled" : ""}>${D.busy ? "Syncing…" : "Sync with Sleeper"}</button>` : ""}<button class="btn ghost sm" id="drReset">Clear My Marks</button></div></div>`;
       if (picks.length) h += `<div class="dr-sec"><div class="sub-h">Your picks</div><div class="chips">${picks.map(a => `<span class="chip dr-pick">${esc(pickTxt(a))} <small>${fmt(a.value)}</small></span>`).join("")}</div></div>`;
       else if (me) h += `<div class="dr-sec"><p class="note muted">You hold no ${Y} picks${lg && lg.platform === "manual" ? ". Add them on My team > Edit > Picks" : ""}.</p></div>`;
       if (needs.length) h += `<div class="dr-sec"><div class="sub-h">Your roster</div><p class="note">${thin.length ? `Thin at <b>${thin.join(", ")}</b>` : "No position is thin"}${help.length ? `; could use help at ${help.join(", ")}` : ""}.${old.length ? ` Your ${old.length > 1 ? old.slice(0, -1).join(", ") + " and " + old[old.length - 1] : old[0]} starters are getting old.` : ""}</p></div>`;
@@ -2689,7 +2689,7 @@ function drawDraft() {
       const shown = rows.filter(r => (D.pos === "ALL" || r.p.pos === D.pos) && (!D.avail || !st.taken[r.p.id]));
       h += `<div class="dr-sec"><div class="sub-h">The board</div><div class="seg" id="drPos">${DRAFT_POS.map(([p, l]) => `<button data-dp="${p}" class="${D.pos === p ? "on" : ""}">${l}</button>`).join("")}</div>
         <label class="switch" style="margin-top:8px"><span class="txt">Hide taken players</span><input type="checkbox" id="drAvail" ${D.avail ? "checked" : ""}><span class="track"></span></label>
-        <div class="list">${shown.slice(0, D.limit).map(r => draftRow(r, st)).join("") || `<div class="empty">Nobody left here.</div>`}</div>${shown.length > D.limit ? `<button class="add-btn" id="drMore">Show more</button>` : ""}
+        <div class="list">${shown.slice(0, D.limit).map(r => draftRow(r, st)).join("") || `<div class="empty">Nobody left here.</div>`}</div>${shown.length > D.limit ? `<button class="add-btn" id="drMore">Show More</button>` : ""}
         <p class="note muted">Scores are the class grades adjusted to this league: ${parseInt(S.cfg.league.num_qbs, 10) >= 2 ? "superflex lifts quarterbacks" : "a 1-QB league drops rookie quarterbacks"}${parseFloat(S.cfg.league.te_premium_bonus_pct || 0) > 0 ? ", TE premium lifts tight ends" : ""}. Tap a name for the full profile.</p></div>`;
       list.innerHTML = h;
       const again = () => { const y = window.scrollY; draw(); window.scrollTo(0, y); };
@@ -2736,7 +2736,7 @@ function renderLeague(el) {
       ${id === p.active ? '<span class="tag-start">Open</span>' : ""}<button class="x" data-del="${esc(id)}" aria-label="Remove ${esc(pr.name)}">×</button></div>`).join("")}</details></section>`;
   }
   if (locked() && have.length) h += `<section class="card"><h2>Add another league ${Pro.tag()}</h2><div class="hint">Basic includes one league. Pro keeps all your leagues in one app.</div>
-      <button class="btn soft block" data-lock="leagues" style="margin-top:12px">Add more leagues with Pro</button></section>`;
+      <button class="btn soft block" data-lock="leagues" style="margin-top:12px">Add More Leagues with Pro</button></section>`;
   else {
     const addForm = `<div class="hint">Enter your Sleeper username to see your leagues.</div>
     <div class="row" style="margin-top:10px"><input type="text" id="sUser" autocapitalize="off" autocomplete="off" value="${esc((a.sleeper || {}).username || "")}" placeholder="Sleeper username"><button class="btn primary" id="findL">Find</button></div>
@@ -2756,13 +2756,13 @@ function renderLeague(el) {
       : `<h2 class="league-title">${esc((p.profiles[E.P.id] || {}).name || S.cfg.league.name)}</h2>`}
       <div class="hint lg-times">Values ${v ? esc(ago(v.meta.fetched)) : "not downloaded"}${lg ? ` · rosters ${esc(ago(lg.imported))}` : ""}</div>
       ${lg && lg.league_id && !E.is_redraft(S.cfg) && marketText() ? `<div class="hint" style="margin-top:8px">${esc(marketText())}</div>` : ""}
-      <div class="lg-acts"><button class="btn primary" id="upd">Update values</button>${lg ? (lg.league_id ? `<button class="btn ghost" id="reimp">Refresh rosters</button>` : `<button class="btn ghost" id="editTeam">Edit rosters</button>`) : ""}
-      ${lg ? `<button class="btn ghost" id="power">Power rankings</button>` : ""}
-      ${lg ? `<button class="btn ghost" id="thist">Trade history${proTag() ? " " + proTag() : ""}</button>` : ""}
-      ${lg && !E.is_redraft(S.cfg) ? `<button class="btn ghost" id="toDraftL">Rookie draft</button>` : ""}</div>
+      <div class="lg-acts"><button class="btn primary" id="upd">Update Values</button>${lg ? (lg.league_id ? `<button class="btn ghost" id="reimp">Refresh Rosters</button>` : `<button class="btn ghost" id="editTeam">Edit Rosters</button>`) : ""}
+      ${lg ? `<button class="btn ghost" id="power">Power Rankings</button>` : ""}
+      ${lg ? `<button class="btn ghost" id="thist">Trade History${proTag() ? " " + proTag() : ""}</button>` : ""}
+      ${lg && !E.is_redraft(S.cfg) ? `<button class="btn ghost" id="toDraftL">Rookie Draft</button>` : ""}</div>
       ${more("Having trouble?", `<p class="note">If this league looks wrong (players missing, odd values, something that won't load), start it over: everything saved for it on this phone is removed and it is downloaded again from Sleeper. Your other leagues aren't touched.</p>
-        ${lg && lg.league_id ? `<button class="btn ghost block" id="redoLeague">Start this league over</button>` : ""}
-        <button class="link-btn danger" id="rmLeague" style="display:block;margin:12px auto 0">Remove this league from this phone</button>`)}</section>`;
+        ${lg && lg.league_id ? `<button class="btn ghost block" id="redoLeague">Start This League Over</button>` : ""}
+        <button class="link-btn danger" id="rmLeague" style="display:block;margin:12px auto 0">Remove This League from This Phone</button>`)}</section>`;
   }
   if (S.cfg && S.values) h += scoreCard();
   if (S.cfg) {
@@ -2783,8 +2783,8 @@ function renderLeague(el) {
     const lists = `<p class="note muted">Values are a blend of these ranking sites. Turn one off to leave it out.</p><div class="divide">${E.SOURCE_ORDER.filter(n => (!E.PLAY || E.SOURCES[n].play) && (!window.OWN_VALUES_ONLY || n === "dmv")).map(n => {
       const s = E.SOURCES[n], [on] = E.source_settings(S.cfg, n), ap = E.source_applies(S.cfg, n);
       return `<label class="switch"><span class="txt">${esc(s.label)}${ap ? "" : " <small>(dynasty only)</small>"}</span><input type="checkbox" data-src="${n}" ${on ? "checked" : ""} ${ap ? "" : "disabled"}><span class="track"></span></label>`; }).join("")}</div>`;
-    const season = lg && lg.league_id ? `<p class="note">When your league renews on Sleeper for next season, tap below. Your history is kept.</p><button class="btn ghost block" id="nextSeason">Start the ${lg.season + 1} season</button>`
-      : `<button class="btn ghost block" id="bumpSeason">Start the ${parseInt(S.cfg.season) + 1} season</button>`;
+    const season = lg && lg.league_id ? `<p class="note">When your league renews on Sleeper for next season, tap below. Your history is kept.</p><button class="btn ghost block" id="nextSeason">Start the ${lg.season + 1} Season</button>`
+      : `<button class="btn ghost block" id="bumpSeason">Start the ${parseInt(S.cfg.season) + 1} Season</button>`;
     const lockNote = (what, reason) => `<p class="note">${what}</p><button class="btn soft block" data-lock="${reason}" style="margin-top:8px">Unlock with Pro</button>`;
     const settingsBox = locked() ? lockNote(`Your league's scoring ${lg ? "comes from Sleeper automatically" : "uses standard settings"}: ${esc(formatText(S.cfg))}. Changing it (league type, PPR, superflex, TE premium, QB bonuses) is part of Pro.`, "settings") : settings;
     const listsBox = locked() ? lockNote("Values blend every ranking site. Choosing which sites count is part of Pro.", "sources") : lists;
@@ -2902,7 +2902,7 @@ function manualSetup(name, el) {
     </div>
     <label class="lbl" style="margin-top:12px">Starting lineup</label><p class="note muted" style="margin-top:0">How many of each slot your league starts, and the bench.</p>
     <div class="divide" id="muSlots">${LINEUP_SLOTS.map(([k, l]) => `<div class="row num-row"><span class="spacer">${l}</span><input type="number" data-slot="${k}" min="0" max="${k === "BN" ? 40 : 6}" value="${st.counts[k]}"></div>`).join("")}</div>
-    <button class="btn primary block big" id="muGo" style="margin-top:16px">Create the league</button>`, { full: true });
+    <button class="btn primary block big" id="muGo" style="margin-top:16px">Create the League</button>`, { full: true });
   $(".close", body).onclick = closeSheet;
   const slot = k => $(`[data-slot="${k}"]`, body);
   $("#muType", body).onchange = e => {
@@ -3293,7 +3293,7 @@ function leaguesSheet() {
   if (!Object.keys(p.profiles).length) { go("league"); return; }
   const body = openSheet(`<div class="sheet-head"><h2>Your leagues</h2><button class="close" aria-label="Close">×</button></div><div class="list">${Object.entries(p.profiles).map(([id, pr]) =>
     `<div class="item" data-sw="${esc(id)}"><div class="nm"><div class="n">${esc(pr.name)}</div></div>${id === p.active ? '<b class="good">✓</b>' : ""}</div>`).join("")}</div>
-    <div class="btns" style="margin-top:12px"><button class="btn ghost" id="swSettings">League settings</button><button class="btn ghost" id="swAdd">+ Add a league</button></div>`);
+    <div class="btns" style="margin-top:12px"><button class="btn ghost" id="swSettings">League Settings</button><button class="btn ghost" id="swAdd">+ Add a league</button></div>`);
   $(".close", body).onclick = closeSheet;
   $$("[data-sw]", body).forEach(it => it.onclick = () => { closeSheet(); switchTo(it.dataset.sw); });
   $("#swAdd").onclick = () => { closeSheet(); go("league"); };

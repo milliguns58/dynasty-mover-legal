@@ -79,7 +79,7 @@ const Pro = (() => {
         <button class="btn primary block big" id="gGo" style="margin-top:14px">${up ? "Start free trial" : "Sign in"}</button>
         <div class="gate-links">
           <button class="link-btn" id="gSwap">${up ? "Already have an account? <b>Sign in</b>" : "New here? <b>Start a free trial</b>"}</button>
-          ${up ? "" : `<button class="link-btn" id="gForgot">Forgot password?</button>`}
+          ${up ? "" : `<button class="link-btn" id="gForgot">Forgot Password?</button>`}
         </div>
       </section>${legal()}`, up ? "signup" : "signin");
     const err = m => { const e = $("#gErr"); e.textContent = m; e.classList.toggle("hidden", !m); };
@@ -137,14 +137,14 @@ const Pro = (() => {
         <div class="plans">${planList()}</div>
         <p class="note" style="margin-top:12px">Pro bought in the Android app on Google Play carries over to this account here: sign in with the same email.</p>
         ${otherWays(plan.fallback.replace(/ a (month|year)$/, "") + (plan.id === "yearly" ? " for a year" : " for a month"), "Dynasty Mover Pro")}
-        <button class="link-btn" id="pwRestore" style="display:block;margin:10px auto 0">I've paid: check my account</button>
+        <button class="link-btn" id="pwRestore" style="display:block;margin:10px auto 0">I've Paid: Check My Account</button>
       </section>`;
     }
     return `<section class="card">
         <div class="plans">${planList()}</div>
         <button class="btn primary block big" id="pwBuy" style="margin-top:14px">Subscribe</button>
         <div class="hint" style="margin-top:10px;text-align:center">${pending ? "Your payment is being processed by Google Play." : "Renews automatically. Cancel anytime in Google Play."}</div>
-        <button class="link-btn" id="pwRestore" style="display:block;margin:10px auto 0">Restore purchase</button>
+        <button class="link-btn" id="pwRestore" style="display:block;margin:10px auto 0">Restore Purchase</button>
       </section>`;
   }
   function bindPaywall(root) {
@@ -178,7 +178,7 @@ const Pro = (() => {
       : s.kind === "trial" ? `<p class="hint">Your free trial has ${esc(s.daysLeft)} ${s.daysLeft === 1 ? "day" : "days"} left. Subscribe now and nothing changes when it ends.</p>` : "";
     const body = openSheet(`<div class="sheet-head"><h2>Dynasty Mover Pro</h2><button class="close" onclick="closeSheet()" aria-label="Close">×</button></div>
       ${intro}<ul class="perks">${PRO_PERKS.map(t => `<li>${esc(t)}</li>`).join("")}</ul>
-      ${paywallBody(s)}${reason === "ended" ? `<button class="btn ghost block" onclick="closeSheet()" style="margin-top:10px">Keep using Basic</button>` : ""}`);
+      ${paywallBody(s)}${reason === "ended" ? `<button class="btn ghost block" onclick="closeSheet()" style="margin-top:10px">Keep Using Basic</button>` : ""}`);
     bindPaywall(body);
   }
   /** Pro edition, not subscribed: a feature is locked. Everywhere else everything is open. */
@@ -197,9 +197,9 @@ const Pro = (() => {
         <li>The draft helper: the board adjusted to your league's format, your picks, where you're thin, who to take next and why, and who is likely to be there when you pick</li>
         <li>Marks for who is gone as the draft goes, and a Sleeper draft followed live</li>
         <li>Who goes around each of your picks, on the pick's card</li></ul>
-      <section class="card">${Store.web ? `<p class="note">Bought in the Android app on Google Play, the kit carries over to this account here.</p>${otherWays(price, `the ${a.label}`)}<button class="link-btn" id="kitBuy" style="display:block;margin:10px auto 0">I've paid: check my account</button>` : `<button class="btn primary block big" id="kitBuy" ${pending ? "disabled" : ""}>${pending ? "Payment pending…" : `Unlock for ${esc(price)}`}</button>`}
+      <section class="card">${Store.web ? `<p class="note">Bought in the Android app on Google Play, the kit carries over to this account here.</p>${otherWays(price, `the ${a.label}`)}<button class="link-btn" id="kitBuy" style="display:block;margin:10px auto 0">I've Paid: Check My Account</button>` : `<button class="btn primary block big" id="kitBuy" ${pending ? "disabled" : ""}>${pending ? "Payment Pending…" : `Unlock for ${esc(price)}`}</button>`}
         <div class="hint" style="margin-top:10px;text-align:center">One payment through Google Play. Not a subscription.</div>
-        <button class="link-btn" id="kitRestore" style="display:block;margin:10px auto 0">Restore purchase</button></section>${legal()}`);
+        <button class="link-btn" id="kitRestore" style="display:block;margin:10px auto 0">Restore Purchase</button></section>${legal()}`);
     $("#kitBuy", body).onclick = () => { if (Store.web) { toast("Checking your account…"); Account.refresh(true); } else Account.buy(a.id); };
     $("#kitRestore", body).onclick = () => { toast("Checking Google Play…"); Account.startBilling(); Account.refresh(true); };
   }
@@ -264,11 +264,11 @@ const Pro = (() => {
     return `<section class="card" id="acct"><div class="kicker">Your account</div><h2 class="league-title acct-email">${esc(s.email)}</h2>
       <div class="kv" style="margin-top:8px"><span>Plan</span><b>${esc(planText(s))}</b></div>
       ${(P.addons || []).map(a => `<div class="kv"><span>${esc(a.label)}</span><b>${Account.hasAddon(a.id) ? "Yours" : Account.addonPending(a.id) ? "Payment pending" : `<a class="lnk" data-kit="${a.year}">Get it, ${esc(Account.addonPrice(a.id) || a.fallback)}</a>`}</b></div>`).join("")}
-      <div class="btns">${s.kind === "paid" ? `<button class="btn ghost" id="acManage">Manage subscription</button>` : s.kind === "owner" ? "" : `<button class="btn primary" id="acBuy">Subscribe</button>`}
-        <button class="btn ghost" id="acOut">Sign out</button></div>
+      <div class="btns">${s.kind === "paid" ? `<button class="btn ghost" id="acManage">Manage Subscription</button>` : s.kind === "owner" ? "" : `<button class="btn primary" id="acBuy">Subscribe</button>`}
+        <button class="btn ghost" id="acOut">Sign Out</button></div>
       ${Account.isAdmin() ? `<label class="switch" style="margin-top:6px"><span class="txt">Preview Basic plan<small><br>Owner only. Shows the app the way free users see it, on this phone.</small></span>
         <input type="checkbox" id="acPreview" ${app().previewBasic ? "checked" : ""}><span class="track"></span></label>` : ""}
-      <button class="link-btn danger" id="acDel" style="display:block;margin:12px auto 0">Delete my account</button></section>`;
+      <button class="link-btn danger" id="acDel" style="display:block;margin:12px auto 0">Delete My Account</button></section>`;
   }
   function bindAccount() {
     const on = (id, fn) => { const x = $("#" + id); if (x) x.onclick = fn; };
@@ -285,7 +285,7 @@ const Pro = (() => {
       ${Account.billing.active ? "<b>Also cancel your subscription in Google Play</b>, or it keeps renewing." : ""}</p>
       <label class="lbl">Enter your password to confirm</label><input type="password" id="dPw" autocomplete="current-password">
       <div class="gate-err hidden" id="dErr"></div>
-      <div class="btns">${Account.billing.active ? `<button class="btn ghost" id="dSub">Open Google Play</button>` : ""}<button class="btn danger" id="dGo">Delete account</button></div>`, { focus: "#dPw" });
+      <div class="btns">${Account.billing.active ? `<button class="btn ghost" id="dSub">Open Google Play</button>` : ""}<button class="btn danger" id="dGo">Delete Account</button></div>`, { focus: "#dPw" });
     if ($("#dSub", body)) $("#dSub", body).onclick = () => Account.manage();
     $("#dGo", body).onclick = async () => {
       const b = $("#dGo", body), e = $("#dErr", body);

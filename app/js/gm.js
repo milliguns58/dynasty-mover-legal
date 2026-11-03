@@ -55,7 +55,7 @@ const GM = (() => {
   };
   const line = a => a.is_pick ? a.name.replace(" · ", ", ") : `${a.name} (${a.pos} ${a.age != null ? Math.floor(a.age) : "?"} ${a.team || "FA"}) ${Math.round(a.value)} ${gradeOf(a).g}${tagOf(a)}${epTag(a)}${fcTag(a)}${appTags(a)}`;
   // ---- the manager's plan: win now, balanced or rebuild, asked first and kept with the league ----
-  const PLANS = [["contend", "Win now"], ["neutral", "Balanced"], ["rebuild", "Rebuild"]];
+  const PLANS = [["contend", "Win Now"], ["neutral", "Balanced"], ["rebuild", "Rebuild"]];
   const plan = () => (S.cfg && S.cfg.plan) || null;
   const planLabel = p => (PLANS.find(x => x[0] === p) || [])[1] || "";
   function setPlan(p) {
@@ -278,7 +278,7 @@ const GM = (() => {
     const week = S.W && S.W.week;
     if (locked()) return `<section class="card gm-home"><div class="gm-title">${ICON} Your GM report ${Pro.tag()}</div><div class="hint">Every week: what happened, where you stand, who to buy and sell, your lineup call, the pickup worth a bid, and one trade to send.</div><button class="btn soft block" data-lock="gm" style="margin-top:10px">Show me with Pro</button></section>`;
     const r = week ? reportFor(week) : null;
-    if (r) return `<section class="card gm-home" id="gmHome" data-week="${week}"><div class="gm-title">${ICON} Week ${week} GM report</div><div class="hint gm-preview">${esc(r.content.split("\n").find(l => l.trim()) || "").slice(0, 160)}</div><button class="btn soft block" id="gmHomeRead" style="margin-top:10px">Read it</button></section>`;
+    if (r) return `<section class="card gm-home" id="gmHome" data-week="${week}"><div class="gm-title">${ICON} Week ${week} GM report</div><div class="hint gm-preview">${esc(r.content.split("\n").find(l => l.trim()) || "").slice(0, 160)}</div><button class="btn soft block" id="gmHomeRead" style="margin-top:10px">Read It</button></section>`;
     return `<section class="card gm-home" id="gmHome"><div class="gm-title">${ICON} Your GM report${week ? ` for week ${week}` : ""}</div><div class="hint">What happened, where you stand, who to buy and sell, your lineup call, the pickup worth a bid, and one trade to send.</div><button class="btn primary block" id="gmHomeGet" style="margin-top:10px">${week ? "Get this week's report" : "Get my report"}</button></section>`;
   }
   function bindHome(root) {
@@ -364,7 +364,7 @@ const GM = (() => {
     if (!teams().length) { root.innerHTML = emptyState("Sleeper leagues only", "Your GM needs a league imported from Sleeper so it knows the rosters.", null); return; }
     const c = load(), used = usedToday(), cap = CAP();
     const left = Math.max(0, cap - used);
-    root.innerHTML = `<section class="card gm-head"><div class="gm-title">${ICON} Your GM${c.messages.length ? `<button class="btn sm ghost gm-new" id="gmClear" title="Start a new chat">New chat</button>` : ""}</div>
+    root.innerHTML = `<section class="card gm-head"><div class="gm-title">${ICON} Your GM${c.messages.length ? `<button class="btn sm ghost gm-new" id="gmClear" title="Start a new chat">New Chat</button>` : ""}</div>
         <div class="hint">Knows your league: rosters, values, grades, odds, this week. Ask anything.</div>
         <div class="gm-meta">${used ? `${used} ${used === 1 ? "question" : "questions"} today · ${left} left` : `${cap} questions a day`}${c.messages.length ? ` · ${c.messages.filter(m => m.role === "user").length} in this chat` : ""}</div>
         <div class="gm-plan"><span class="gm-plan-l">${plan() ? "This season's plan" : "First, what's the plan this season?"}</span><div class="seg gm-plan-seg" id="gmPlan">${PLANS.map(([k, l]) => `<button data-plan="${k}" class="${plan() === k ? "on" : ""}">${l}</button>`).join("")}</div>
@@ -372,7 +372,7 @@ const GM = (() => {
       <div class="gm-chat" id="gmChat">${c.messages.map(m => bubble(m)).join("")}</div>
       ${(() => { const w = S.W && S.W.week; return w && !reportFor(w) ? `<div class="gm-chips"><button id="gmReportChip" class="accent">${ICON} Get my week ${w} GM report</button></div>` : ""; })()}
       ${c.messages.length ? "" : `<div class="gm-chips">${SUGGEST[E.is_redraft(S.cfg) ? "redraft" : "dynasty"].map(q => `<button data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`}
-      <div class="gm-input"><button class="btn ghost gm-newbtn${c.messages.length ? "" : " hidden"}" id="gmClear2" title="Start a new chat" aria-label="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>New chat</button><textarea id="gmQ" rows="1" placeholder="Ask your GM…" aria-label="Your question" ${pending ? "disabled" : ""}></textarea><button class="btn primary" id="gmSend" aria-label="Send" ${pending ? "disabled" : ""}>Send</button></div>`;
+      <div class="gm-input"><button class="btn ghost gm-newbtn${c.messages.length ? "" : " hidden"}" id="gmClear2" title="Start a new chat" aria-label="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>New Chat</button><textarea id="gmQ" rows="1" placeholder="Ask your GM…" aria-label="Your question" ${pending ? "disabled" : ""}></textarea><button class="btn primary" id="gmSend" aria-label="Send" ${pending ? "disabled" : ""}>Send</button></div>`;
     $$("#gmPlan button", root).forEach(b => b.onclick = () => { setPlan(b.dataset.plan); toast(`Plan: ${planLabel(b.dataset.plan)}`, 1400); render(root); });
     const ta = $("#gmQ", root);
     const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };
