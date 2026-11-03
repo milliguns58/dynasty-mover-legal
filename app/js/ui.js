@@ -959,8 +959,8 @@ function renderTrade(el) {
       <div class="h2h-label">${k === "A" ? "You Give" : "You Get"}</div>
       ${noVals() ? "" : `<div class="h2h-tot${s.items.length ? "" : " muted"}">${s.items.length ? fmt(tot) : "0"}</div>`}
       ${pills ? `<div class="h2h-pills">${pills}</div>` : ""}
-      <div class="list">${s.items.map(tile).join("")}</div>
-      <button class="add-row h2h-add" data-add="${k}" ${tradeFull() ? 'data-lock="tradesize"' : ""}><span class="plus">+</span>${s.items.length ? "Add" : (redraft ? "Add a Player" : "Add Player or Pick")}${tradeFull() ? " " + Pro.tag() : ""}</button></div>`;
+      <button class="add-row h2h-add" data-add="${k}" ${tradeFull() ? 'data-lock="tradesize"' : ""}><span class="plus">+</span>${s.items.length ? "Add" : (redraft ? "Add a Player" : "Add Player or Pick")}${tradeFull() ? " " + Pro.tag() : ""}</button>
+      <div class="list">${s.items.map(tile).join("")}</div></div>`;   // Add sits right under the strategy, above the players (2026-11-03, the user's ask)
   };
   // the notes that used to sit inside each side, once each, under the two columns
   const A = S.sides.A, B = S.sides.B, notes = [];
@@ -1072,12 +1072,12 @@ function scoreboard(r, v, m, animate) {
     const hint = !any ? "Add a player to each side to see who wins." : !S.sides.A.items.length ? "Now add what you give."
       : !S.sides.B.items.length ? "Now add what you get." : "Ready. Tap Check This Trade.";
     sb.innerHTML = `<div class="tm-top"><div class="tm-title muted">${hint}</div>${swap}${clear}</div>${check}`;
-    if (dh) { dh.innerHTML = dial(null); $$(".h2h-side", dh.closest(".h2h")).forEach(s => s.classList.remove("out-win", "out-lose", "out-fair")); }
+    if (dh) { dh.classList.remove("flip"); dh.innerHTML = dial(null); $$(".h2h-side", dh.closest(".h2h")).forEach(s => s.classList.remove("out-win", "out-lose", "out-fair")); }
   } else {
     const aWins = v.you !== undefined ? v.you : (r.verdict && r.verdict.winner === "A");
     const loser = TONE_COLOR[v.tone] || "green";                      // "fair" stays green
     const cA = v.tone === "fair" || aWins ? "green" : loser;
-    // The needle leans toward the column getting more: right (You get) when you win, left (You give) when they do.
+    // deg leans right when side A wins, left when side B does (turned to the user's seat for the dial below).
     // The verdict's own percent places it, so the colour under the needle matches the verdict.
     const T = S.cfg.adjustments.verdict_pct, pct = (r.view || r.market).pct || 0;
     const dir = v.tone === "fair" ? Math.sign(pct) : (aWins ? 1 : -1);
@@ -1085,18 +1085,22 @@ function scoreboard(r, v, m, animate) {
     sb.className = `card tmid tone-${cA}${ready ? " ready" : ""}`;
     sb.innerHTML = `<div class="tm-top"><div class="tm-title c-${cA}-text">${esc(v.title)}</div>${swap}${clear}</div>
       ${noVals() ? "" : `<div class="dial-vals"><span>Give <b>${fmt(m.bGets)}</b></span><span>Get <b>${fmt(m.aGets)}</b></span></div>`}${check}`;
-    // the sides start clear and take the verdict's colour from the user's team (2026-11-03, the user's ask): his square green
-    // when he wins and red when he loses, the other team's the opposite, both yellow when it's fair. His team is side B
-    // when it's picked there, else side A (You Give).
+    // the sides start clear and take the verdict's colour from the user's team (2026-11-03, the user's ask): their square
+    // green on a win and red on a loss, the other team's the opposite, both yellow when it's fair. The user's team is side
+    // B when it's picked there, else side A (You Give).
+    const meB = S.cfg.my_roster_id != null && String(S.sides.B.team) === String(S.cfg.my_roster_id);
     if (dh) {
-      const meB = S.cfg.my_roster_id != null && String(S.sides.B.team) === String(S.cfg.my_roster_id), meWins = meB ? !aWins : aWins;
+      const meWins = meB ? !aWins : aWins;
       $$(".h2h-side", dh.closest(".h2h")).forEach(s => {
         const mine = s.classList.contains(meB ? "get" : "give");
         s.classList.remove("out-win", "out-lose", "out-fair");
         s.classList.add(v.tone === "fair" ? "out-fair" : mine === meWins ? "out-win" : "out-lose");
       });
     }
-    if (dh) dh.innerHTML = dial(animate ? -90 : deg, `${esc(A)} ${noVals() ? m.aPct + "%" : fmt(m.aGets)}, ${esc(B)} ${noVals() ? m.bPct + "%" : fmt(m.bGets)}`, deg);
+    // behind the sides the dial reads from the user's seat: green zone and needle on the user's square when they win. The
+    // angle above leans right when side A wins, so it turns for a user on side B, and the dial is mirrored for side A.
+    const du = meB ? -deg : deg;
+    if (dh) { dh.classList.toggle("flip", !meB); dh.innerHTML = dial(animate ? -90 : du, `${esc(A)} ${noVals() ? m.aPct + "%" : fmt(m.aGets)}, ${esc(B)} ${noVals() ? m.bPct + "%" : fmt(m.bGets)}`, du); }
     if (animate && dh) {                                       // swing the needle in from the left
       const n = $(".dial-needle", dh);
       void sb.offsetWidth;                                     // lay out the starting angle first, so the change below animates
@@ -1576,7 +1580,7 @@ function picker(k) {
                 or more under what his usage earns, or 1.5+ touchdowns short of expected, while still a C+ or better to
                 us (our model no more than 10% under the market), market value 1,000+, two years or more short of the
                 decline (QBs 30 and under), on a team and not on a long injury list
-   The lists grew from about 12 and 6 to about 20 and 27 on 2026-11-03 (the user's ask: 30 where plausible); looser than
+   Buy low and Sell high grew from about 12 and 6 to about 20 and 23 on 2026-11-03 (the user's ask: 30 where plausible); looser than
    that reaches backups and noise.
    The market is FantasyCalc x DynastyProcess (a.omkt) and our view our own model on that scale (a.oview, attach_orank). */
 const EDGE_KINDS = [["buy", "Buy Low"], ["sellhigh", "Sell High"], ["sell", "Sell"]];
@@ -1621,15 +1625,15 @@ function rankList(el) {
   const owner = {};
   if (hasLg) for (const t of teams()) for (const pid of t.players) owner[pid] = t;
   const tabs = [["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].concat(E.is_redraft(S.cfg) ? [] : [["PICK", "Picks"], ["DRAFT", "Draft Helper"]]);   // the class lives in the draft helper's tab (2026-11-03, the user's ask)
-  const rookTab = R.pos === "DRAFT" || R.pos === "ROOK";
-  // whose players: free agents never make Buy & sell (it needs a real market price), so that list splits by team instead
-  const whoOpts = !hasLg || R.pos === "PICK" || rookTab ? null
-    : [["all", "All Players"]].concat(R.pos === "EDGE" ? [] : [["free", "Available"]], [["mine", "Mine"]]);   // Other Teams dropped (2026-11-03, the user's ask)
-  const who = whoOpts && whoOpts.some(([k]) => k === R.who) ? R.who : "all";
   R.rpos = R.rpos || "ALL";
   const hasOurs = S.values.players.some(a => a.ours > 0);
   if (hasOurs) tabs.push(["EDGE", "Buy & Sell"]);   // was "Market vs ours" (renamed 2026-11-03, the user's ask)
   if (R.pos === "EDGE" && (locked() || !hasOurs)) R.pos = "ALL";
+  const rookTab = R.pos === "DRAFT" || R.pos === "ROOK";
+  // whose players: free agents never make Buy & Sell (it needs a real market price), so that list has no Available
+  const whoOpts = !hasLg || R.pos === "PICK" || rookTab ? null
+    : [["all", "All Players"]].concat(R.pos === "EDGE" ? [] : [["free", "Available"]], [["mine", "Mine"]]);   // Other Teams dropped (2026-11-03, the user's ask)
+  const who = whoOpts && whoOpts.some(([k]) => k === R.who) ? R.who : "all";
   R.edge = R.edge || "buy";
   const dynEdge = !E.is_redraft(S.cfg) && S.values.players.some(a => a.omkt);   // the dynasty lists need the outside market (values from 2026-10-16 on)
   if (!dynEdge && R.edge === "sellhigh") R.edge = "sell";
@@ -1709,7 +1713,7 @@ function rankList(el) {
     if (R.q) pool = E.search_players(R.q, S.values, 60, pool);
     if (who !== "all") {
       const me = teamById(S.cfg.my_roster_id), mine = a => !!me && me.players.includes(a.sleeper_id);
-      pool = pool.filter(a => who === "free" ? !owner[a.sleeper_id] : who === "theirs" ? !!owner[a.sleeper_id] && !mine(a) : mine(a));
+      pool = pool.filter(a => who === "free" ? !owner[a.sleeper_id] : mine(a));
     }
     const shown = pool.slice(0, R.limit);
     $("#rlist").innerHTML = shown.map((a, i) => {
