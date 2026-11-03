@@ -94,7 +94,7 @@ label.lbl{display:block;font-size:14px;color:var(--ink2);margin:6px 0 6px}
 .card .seg{background:var(--raise)}
 .seg button{border:0;background:transparent;color:var(--ink2);border-radius:10px;padding:8px 6px;font-size:15px;font-weight:600;cursor:pointer;min-height:40px}
 .seg button.on{background:var(--accent);color:var(--accent-ink)}
-.chips-row{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
+.chips-row{display:flex;flex-wrap:wrap;gap:8px;margin:0}
 .chips-row::-webkit-scrollbar{display:none}
 .chip-gap{flex:none;width:1px;background:var(--line);margin:6px 2px}
 .fchip{flex:none;border:0;background:var(--surface);border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink2)}
