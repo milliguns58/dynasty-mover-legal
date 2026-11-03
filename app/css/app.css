@@ -1072,6 +1072,7 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .h2h-cols:has(.h2h-dial){align-items:stretch}
 .h2h-dial{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92%,330px);z-index:0;pointer-events:none}
 .h2h-dial .dial{max-width:none;margin:0}
+.h2h-dial.flip .dial{transform:scaleX(-1)}           /* the user on the left: the winning side of the dial on the left too */
 .h2h-dial .dial .z{opacity:.6;stroke-width:18}
 .h2h-dial .dial .z-none{opacity:1}
 .h2h-dial .dial-needle{opacity:.9}
