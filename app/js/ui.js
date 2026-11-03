@@ -1599,7 +1599,12 @@ function rankList(el) {
   ensureWeek("rank");
   const owner = {};
   if (hasLg) for (const t of teams()) for (const pid of t.players) owner[pid] = t;
-  const tabs = [["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].concat(E.is_redraft(S.cfg) ? [] : [["PICK", "Picks"], ["ROOK", `${draftYear()} class`], ["DRAFT", "Draft helper"]]);
+  const tabs = [["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].concat(E.is_redraft(S.cfg) ? [] : [["PICK", "Picks"], ["DRAFT", "Draft helper"]]);   // the class lives in the draft helper's tab (2026-11-03, the user's ask)
+  const rookTab = R.pos === "DRAFT" || R.pos === "ROOK";
+  // whose players: free agents never make Market vs ours (it needs a real market price), so that list splits by team instead
+  const whoOpts = !hasLg || R.pos === "PICK" || rookTab ? null
+    : [["all", "All players"]].concat(R.pos === "EDGE" ? [["theirs", "Other teams"]] : [["free", "Available"]], [["mine", "Mine"]]);
+  const who = whoOpts && whoOpts.some(([k]) => k === R.who) ? R.who : "all";
   R.rpos = R.rpos || "ALL";
   const hasOurs = S.values.players.some(a => a.ours > 0);
   if (hasOurs) tabs.push(["EDGE", "Market vs ours"]);
@@ -1618,8 +1623,9 @@ function rankList(el) {
     : R.order === "proj" ? `<p class="note proj-note"><b>Projected points for week ${wkN || "this"}'s games only</b>, in your league's scoring.${byes.length ? ` On a bye this week: ${byes.join(", ")}; their players are at the end of the list.` : ""} Players who are out, on IR or doubtful, and backups who aren't starting, are left off.</p>` : "";
   el.innerHTML = `<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <input type="search" id="rq" placeholder="Search players" value="${esc(R.q)}"></div>
-    <div class="chips-row">${tabs.map(([p, l]) => `<button class="fchip ${R.pos === p ? "on" : ""}${p === "EDGE" ? " edge-chip" : ""}" data-pos="${p}" ${p === "EDGE" && locked() ? 'data-lock="ourgrade"' : ""}>${l}${p === "EDGE" ? " " + proTag() : ""}</button>`).join("")}</div>
-    ${hasLg ? `<div class="who-row"><span class="who-lbl">Show</span><button class="fchip ${R.who === "free" ? "on" : ""}" data-who="free">Available</button><button class="fchip ${R.who === "mine" ? "on" : ""}" data-who="mine">Mine</button></div>` : ""}
+    <div class="chips-row">${tabs.map(([p, l]) => `<button class="fchip ${R.pos === p || (p === "DRAFT" && rookTab) ? "on" : ""}${p === "EDGE" ? " edge-chip" : ""}" data-pos="${p}" ${p === "EDGE" && locked() ? 'data-lock="ourgrade"' : ""}>${l}${p === "EDGE" ? " " + proTag() : ""}</button>`).join("")}</div>
+    ${rookTab ? `<div class="seg sub-seg" id="dseg"><button data-pos="DRAFT" class="${R.pos === "DRAFT" ? "on" : ""}">Draft board</button><button data-pos="ROOK" class="${R.pos === "ROOK" ? "on" : ""}">${draftYear()} class</button></div>` : ""}
+    ${whoOpts ? `<div class="seg sub-seg" id="wseg">${whoOpts.map(([k, l]) => `<button data-who="${k}" class="${who === k ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
     ${R.pos === "EDGE" && dynEdge ? `<div class="seg" id="eseg">${EDGE_KINDS.map(([k, l]) => `<button data-e="${k}" class="${R.edge === k ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">${R.edge === "buy" ? `Our model rates these players at least 30% above the outside market (${esc([].concat(S.values.meta.anchor || []).map(n => (E.SOURCES[n] || {}).label || n).join(" and "))}), and they're young enough to keep the value. Good ones to trade for.`
         : R.edge === "sellhigh" ? "Their value is likely to drop: a year from their position's decline age, or scoring well above what their usage earns (touchdowns running hot). Sell while the price is high."
@@ -1680,9 +1686,9 @@ function rankList(el) {
       pool = pool.slice().sort((x, y) => key(y) - key(x) || y.value - x.value);
     }
     if (R.q) pool = E.search_players(R.q, S.values, 60, pool);
-    if (hasLg && R.pos !== "PICK" && R.who !== "all") {
-      const me = teamById(S.cfg.my_roster_id);
-      pool = pool.filter(a => R.who === "free" ? !owner[a.sleeper_id] : (me && me.players.includes(a.sleeper_id)));
+    if (who !== "all") {
+      const me = teamById(S.cfg.my_roster_id), mine = a => !!me && me.players.includes(a.sleeper_id);
+      pool = pool.filter(a => who === "free" ? !owner[a.sleeper_id] : who === "theirs" ? !!owner[a.sleeper_id] && !mine(a) : mine(a));
     }
     const shown = pool.slice(0, R.limit);
     $("#rlist").innerHTML = shown.map((a, i) => {
@@ -1704,7 +1710,7 @@ function rankList(el) {
       // 2026-10-16 it had shown its own score so the numbers ran high to low
       const right = SP ? gradeRight(a, { val: spOf(a) ? `${spOf(a).pts.toFixed(1)} pts` : "0 pts" }) : WG ? gradeRight(a, { wk: wgOf(a) ? wgOf(a).pts.toFixed(1) : "bye" }) : undefined;
       const extra = SP && spOf(a) && spOf(a).gp ? ` · ${spOf(a).ppg.toFixed(1)} ppg` : "";
-      const rk = listPos && (R.order !== "ours" || oursOn) ? i + 1 : R.q || R.who !== "all" ? i + 1 : (R.pos === "ALL" || R.pos === "PICK" ? a.rank || i + 1 : a.pos_rank || i + 1);
+      const rk = listPos && (R.order !== "ours" || oursOn) ? i + 1 : R.q || who !== "all" ? i + 1 : (R.pos === "ALL" || R.pos === "PICK" ? a.rank || i + 1 : a.pos_rank || i + 1);
       // rising or falling over the last 30 days, by the name (2026-10-20, the user's ask); redraft shows it by the grade already
       const mv = !E.is_redraft(S.cfg) ? rankMove(a) : null;
       const arrow = mv ? `<span class="rk-mv ${mv.dir}" title="${mv.dir === "up" ? "Up" : "Down"} ${mv.spots} spots in ${mv.days} days" aria-label="${mv.dir === "up" ? "Rising" : "Falling"} ${mv.spots} spots">${ARROW[mv.dir]}<small>${mv.spots}</small></span>` : "";
@@ -1718,7 +1724,7 @@ function rankList(el) {
   $$("[data-e]", el).forEach(b => b.onclick = () => { R.edge = b.dataset.e; R.limit = 100; rankList(el); });
   $$("[data-o]", el).forEach(b => b.onclick = () => { R.order = b.dataset.o; R.limit = 100; rankList(el); });
   $$("[data-rp]", el).forEach(b => b.onclick = () => { R.rpos = b.dataset.rp; R.limit = 100; rankList(el); });
-  $$("[data-who]", el).forEach(b => b.onclick = () => { R.who = R.who === b.dataset.who ? "all" : b.dataset.who; R.limit = 100; rankList(el); });
+  $$("[data-who]", el).forEach(b => b.onclick = () => { R.who = b.dataset.who; R.limit = 100; rankList(el); });
   $("#rq").oninput = e => { R.q = e.target.value; R.limit = 100; draw(); };
   draw();
 }
