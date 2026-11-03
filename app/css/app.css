@@ -1064,8 +1064,15 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
    with a VS badge between them; each player is a small centred tile. The verdict card under them has a dial. */
 .h2h{padding:12px 10px 8px}
 .h2h-cols{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:start}
-.h2h-side{min-width:0;border-radius:14px;padding:10px 8px 2px;text-align:center;background:color-mix(in srgb,var(--accent) 9%,var(--surface))}
-.h2h-side.get{background:color-mix(in srgb,var(--pick) 11%,var(--surface))}
+.h2h-side{position:relative;z-index:1;min-width:0;border-radius:14px;padding:10px 8px 2px;text-align:center;background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.h2h-side.get{background:color-mix(in srgb,var(--pick) 11%,transparent)}
+/* the dial behind the two sides: the sides' tints are see-through, so it shows between and under them */
+.h2h-cols:has(.h2h-dial){align-items:stretch}
+.h2h-dial{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(82%,290px);z-index:0;pointer-events:none}
+.h2h-dial .dial{max-width:none;margin:0}
+.h2h-dial .dial .z{opacity:.26}
+.h2h-dial .dial-needle{opacity:.45}
+.h2h-dial .dial.idle .dial-needle{opacity:.2}
 .h2h-label{font-size:12.5px;font-weight:750;color:var(--accent)}
 .h2h-side.get .h2h-label{color:var(--pick)}
 .h2h-tot{font-size:21px;font-weight:800;letter-spacing:-.02em;line-height:1.25;font-variant-numeric:tabular-nums}
