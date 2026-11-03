@@ -19,7 +19,7 @@ const S = {
 /* Hosted privacy policy (Play requires a public URL). Set these before publishing; see android\store\RELEASE.md. */
 const PRIVACY_URL = "https://milliguns58.github.io/dynasty-mover-legal/privacy.html";
 const CONTACT_EMAIL = "dynastymover.app@gmail.com";
-const MODE_LABEL = { neutral: "Balanced", contend: "Win now", rebuild: "Rebuilding" };
+const MODE_LABEL = { neutral: "Balanced", contend: "Win Now", rebuild: "Rebuilding" };
 const SLOT_LABEL = s => ({ SUPER_FLEX: "SF", SUPERFLEX: "SF", WRRB_FLEX: "FLEX", REC_FLEX: "FLEX" }[s] || s);
 const app = () => Store.get("app.json") || {};
 const saveApp = patch => Store.set("app.json", Object.assign(app(), patch));
@@ -956,11 +956,11 @@ function renderTrade(el) {
       `<option value="${t.roster_id}" ${String(s.team) === String(t.roster_id) ? "selected" : ""}>${esc(t.team_name)}${t.roster_id === S.cfg.my_roster_id ? " (you)" : ""}</option>`)).join("");
     const pills = (teams().length ? `<select class="pill" data-team="${k}" aria-label="Team">${opts}</select>` : "") + (redraft ? "" : modeSel(k, s));
     return `<div class="h2h-side ${k === "A" ? "give" : "get"}">
-      <div class="h2h-label">${k === "A" ? "You give" : "You get"}</div>
+      <div class="h2h-label">${k === "A" ? "You Give" : "You Get"}</div>
       ${noVals() ? "" : `<div class="h2h-tot${s.items.length ? "" : " muted"}">${s.items.length ? fmt(tot) : "0"}</div>`}
       ${pills ? `<div class="h2h-pills">${pills}</div>` : ""}
       <div class="list">${s.items.map(tile).join("")}</div>
-      <button class="add-row h2h-add" data-add="${k}" ${tradeFull() ? 'data-lock="tradesize"' : ""}><span class="plus">+</span>${s.items.length ? "Add" : (redraft ? "Add a player" : "Add player or pick")}${tradeFull() ? " " + Pro.tag() : ""}</button></div>`;
+      <button class="add-row h2h-add" data-add="${k}" ${tradeFull() ? 'data-lock="tradesize"' : ""}><span class="plus">+</span>${s.items.length ? "Add" : (redraft ? "Add a Player" : "Add Player or Pick")}${tradeFull() ? " " + Pro.tag() : ""}</button></div>`;
   };
   // the notes that used to sit inside each side, once each, under the two columns
   const A = S.sides.A, B = S.sides.B, notes = [];
@@ -968,7 +968,8 @@ function renderTrade(el) {
   if (lens && B.items.length) notes.push(`What you get is priced through your ${MODE_LABEL[lens].toLowerCase()} lens${B.mode !== "neutral" ? `; ${MODE_LABEL[B.mode]} is how they see it` : ""}.`);
   if (!redraft && qbBump > 0 && (hasQB("A") || hasQB("B"))) notes.push(`Starting QBs cost +${qbBump}% in trades: you overpay for a QB.`);
   if (!redraft && A.items.length && S.cfg.league.use_market !== false && Hist.market_cached() && Hist.market_cached().mults) notes.push(esc(marketText()));
-  const matchup = `<section class="card h2h"><div class="h2h-cols">${side("A")}<span class="h2h-vs" aria-hidden="true">VS</span>${side("B")}</div>
+  // the dial sits behind the two columns, its needle leaning into the side that gets more (2026-11-03, the user's ask)
+  const matchup = `<section class="card h2h"><div class="h2h-cols"><div class="h2h-dial" id="h2hDial"></div>${side("A")}<span class="h2h-vs" aria-hidden="true">VS</span>${side("B")}</div>
     ${notes.length ? `<div class="h2h-notes">${notes.map(n => `<div class="lens-note">${n}</div>`).join("")}</div>` : ""}</section>`;
   const cap = locked() ? `<p class="foot trade-cap">Basic plan: ${tradeCount()} of ${BASIC_TRADE_MAX} players and picks. <a class="lnk" data-lock="tradesize">Go Pro for bigger trades</a></p>` : "";
   const ideas = tradeIdeas(priced);
@@ -1059,18 +1060,19 @@ function dial(deg, label, to) {
     <g class="dial-needle" data-to="${to ?? at}" style="transform:rotate(${at}deg)"><line x1="100" y1="100" x2="100" y2="34"/><circle cx="100" cy="100" r="7"/></g></svg>`;
 }
 function scoreboard(r, v, m, animate) {
-  const sb = $("#tscore");
+  const sb = $("#tscore"), dh = $("#h2hDial");
   if (!sb) return;
   const A = sideName("A"), B = sideName("B"), any = S.sides.A.items.length || S.sides.B.items.length;
   const swap = `<button class="tm-btn" id="swapSides" aria-label="Swap the two sides"><svg viewBox="0 0 24 24"><path d="M7 4v16m0 0l-3-3m3 3l3-3M17 20V4m0 0l-3 3m3-3l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   const clear = any ? `<button class="tm-btn text" id="clr">Start Over</button>` : "";
   const ready = S.sides.A.items.length && S.sides.B.items.length;
-  const check = ready ? `<button class="btn primary block tm-go" id="tmGo">${r ? "Check again" : "Check this trade"}</button>` : "";
+  const check = ready ? `<button class="btn primary block tm-go" id="tmGo">${r ? "Check Again" : "Check This Trade"}</button>` : "";
   if (!r) {
     sb.className = "card tmid empty-state";
     const hint = !any ? "Add a player to each side to see who wins." : !S.sides.A.items.length ? "Now add what you give."
-      : !S.sides.B.items.length ? "Now add what you get." : "Ready. Tap Check this trade.";
-    sb.innerHTML = `<div class="tm-top"><div class="tm-title muted">${hint}</div>${swap}${clear}</div>${dial(null)}${check}`;
+      : !S.sides.B.items.length ? "Now add what you get." : "Ready. Tap Check This Trade.";
+    sb.innerHTML = `<div class="tm-top"><div class="tm-title muted">${hint}</div>${swap}${clear}</div>${check}`;
+    if (dh) dh.innerHTML = dial(null);
   } else {
     const aWins = v.you !== undefined ? v.you : (r.verdict && r.verdict.winner === "A");
     const loser = TONE_COLOR[v.tone] || "green";                      // "fair" stays green
@@ -1082,10 +1084,10 @@ function scoreboard(r, v, m, animate) {
     const deg = v.thin ? 0 : dir * dialAngle(Math.abs(pct), T);
     sb.className = `card tmid tone-${cA}`;
     sb.innerHTML = `<div class="tm-top"><div class="tm-title c-${cA}-text">${esc(v.title)}</div>${swap}${clear}</div>
-      ${dial(animate ? -90 : deg, `${esc(A)} ${noVals() ? m.aPct + "%" : fmt(m.aGets)}, ${esc(B)} ${noVals() ? m.bPct + "%" : fmt(m.bGets)}`, deg)}
       ${noVals() ? "" : `<div class="dial-vals"><span>Give <b>${fmt(m.bGets)}</b></span><span>Get <b>${fmt(m.aGets)}</b></span></div>`}${check}`;
-    if (animate) {                                             // swing the needle in from the left
-      const n = $(".dial-needle", sb);
+    if (dh) dh.innerHTML = dial(animate ? -90 : deg, `${esc(A)} ${noVals() ? m.aPct + "%" : fmt(m.aGets)}, ${esc(B)} ${noVals() ? m.bPct + "%" : fmt(m.bGets)}`, deg);
+    if (animate && dh) {                                       // swing the needle in from the left
+      const n = $(".dial-needle", dh);
       void sb.offsetWidth;                                     // lay out the starting angle first, so the change below animates
       setTimeout(() => { n.style.transform = `rotate(${n.dataset.to}deg)`; }, 30);
     }
@@ -1490,7 +1492,7 @@ function recheckTrade(t) {
 function picker(k) {
   const s = S.sides[k], team = teamById(s.team);
   const inSide = new Set(S.sides.A.items.concat(S.sides.B.items).map(a => a.id));
-  const body = openSheet(`<div class="sheet-head"><h2>${k === "A" ? "You give" : "You get"}</h2><button class="close" aria-label="Close">×</button></div>
+  const body = openSheet(`<div class="sheet-head"><h2>${k === "A" ? "You Give" : "You Get"}</h2><button class="close" aria-label="Close">×</button></div>
     <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     <input type="search" id="pq" placeholder="Search players${E.is_redraft(S.cfg) ? "" : ' or type "2027 1st"'}" autocomplete="off"></div>
     <div id="pres" class="list"></div>`, { full: true, focus: team ? null : "#pq" });
@@ -1896,8 +1898,8 @@ function teamRead(roster, st, rank) {
   let title, text;
   if (rd) { title = top ? "Contender" : bottom ? "Long shot" : "In the hunt"; text = `The starters grade ${g} on average for this season. In redraft, most points wins: play the hot hand and use the waiver wire.`; }
   else if (top && strong && !old) { title = "Contender"; text = `The starters grade ${g} on average and are ${ageTxt} years old on average. Built to win now and later. Don't pay for picks; use them to buy players who help this year.`; }
-  else if (top && old) { title = "Win now"; text = `Built to win this year, but the core is ${ageTxt} years old on average. Cash in the older names before the cliff, while they still bring a lot.`; }
-  else if (top) { title = "Win now"; text = `Near the top by value, but our grades (${g} on average) say the starters won't hold it long. Sell high where you can.`; }
+  else if (top && old) { title = "Win Now"; text = `Built to win this year, but the core is ${ageTxt} years old on average. Cash in the older names before the cliff, while they still bring a lot.`; }
+  else if (top) { title = "Win Now"; text = `Near the top by value, but our grades (${g} on average) say the starters won't hold it long. Sell high where you can.`; }
   else if (bottom && young) { title = "Rising"; text = `The starters are young (${ageTxt} on average) and grade ${g}. A year or two away: keep the young talent, buy more of it, and don't chase this season.`; }
   else if (bottom) { title = "Rebuilding"; text = `Low on value, with starters ${ageTxt} years old on average. Trade the veterans for picks and players under 25.`; }
   else if (strong) { title = "Rising"; text = `Middle of the pack by value, but our grades (${g} on average) like where the starters are going.`; }
@@ -2040,7 +2042,7 @@ function drawTrades(body, t, W) {
   T.ideas.forEach((x, i) => {
     h += `<section class="card idea tone-purple">
       <div class="idea-top"><span class="idea-kind k-${x.kind}">${KIND[x.kind]}</span><b class="idea-team">${esc(x.team.team_name)}</b><span class="muted">${esc(x.team.record || "")}</span></div>
-      <div class="idea-cols"><div><div class="sub-h">You get</div>${x.get.map(mini).join("")}</div><div><div class="sub-h">You give</div>${x.give.map(mini).join("")}</div></div>
+      <div class="idea-cols"><div><div class="sub-h">You Get</div>${x.get.map(mini).join("")}</div><div><div class="sub-h">You Give</div>${x.give.map(mini).join("")}</div></div>
       <ul class="idea-why">${x.why.map(w => `<li>${linkify(w, x.get.concat(x.give))}</li>`).join("")}</ul>
       <button class="btn soft block" data-idea="${i}">Open in Trade</button></section>`;
   });
@@ -2409,7 +2411,7 @@ function card(a, opts = {}) {
       h += `${a.is_pick ? "" : `<div class="sec"><h3>Game log</h3><div id="wkBody">${weeklyHtml || `<p class="note muted">Loading…</p>`}</div></div>`}` + statsTbl;
     }
     if (tabNow === "news") h += newsHtml === "none" ? `<div class="sec"><p class="note muted">No news right now.</p></div>` : `${`<div class="sec" id="newsSec"><h3>News</h3><div id="newsBody">${newsHtml || `<p class="note muted">Loading…</p>`}</div></div>`}`;
-    return h + credits() + `<div class="card-bar"><div class="btns"><button class="btn soft" data-to="A">Add to "You give"</button><button class="btn soft" data-to="B">Add to "You get"</button></div></div>`;
+    return h + credits() + `<div class="card-bar"><div class="btns"><button class="btn soft" data-to="A">Add to "You Give"</button><button class="btn soft" data-to="B">Add to "You Get"</button></div></div>`;
   };
   let newsHtml = "", hdr = null, weeklyHtml = "", draftInfo = null, cardTab = "overview";
   const body = openSheet(draw(S.W), { full: true, onClose: opts.onClose });

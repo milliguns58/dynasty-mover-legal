@@ -710,7 +710,7 @@ async function prepare_raw(cfg, opts = {}) {
 // League power rankings (2026-10-15): every team ranked by overall value, starting lineup value, each position's total
 // value and the picks it holds, with its record and the app's read of its direction.
 // ---------------------------------------------------------------------------
-const TIER_LABEL = { contending: "Contender", "in between": "In between", rebuilding: "Rebuilding", "in the hunt": "In the hunt", "long shot": "Long shot" };
+const TIER_LABEL = { contending: "Contender", "in between": "In Between", rebuilding: "Rebuilding", "in the hunt": "In the Hunt", "long shot": "Long Shot" };
 /* "Our rank" (2026-10-16): one power score a team from what it has done and what it fields now. Results are points per
    game, the all-play record (each week's score against every other team's, so a lucky schedule counts for nothing) and
    the real record; now is the best lineup's value for this season. Results count more as games are played (g/(g+4),
