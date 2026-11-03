@@ -1068,11 +1068,11 @@ function scoreboard(r, v, m, animate) {
   const ready = S.sides.A.items.length && S.sides.B.items.length;
   const check = ready ? `<button class="btn primary block tm-go" id="tmGo">${r ? "Check Again" : "Check This Trade"}</button>` : "";
   if (!r) {
-    sb.className = "card tmid empty-state";
+    sb.className = `card tmid empty-state${ready ? " ready" : ""}`;
     const hint = !any ? "Add a player to each side to see who wins." : !S.sides.A.items.length ? "Now add what you give."
       : !S.sides.B.items.length ? "Now add what you get." : "Ready. Tap Check This Trade.";
     sb.innerHTML = `<div class="tm-top"><div class="tm-title muted">${hint}</div>${swap}${clear}</div>${check}`;
-    if (dh) { dh.innerHTML = dial(null); dh.closest(".h2h").classList.remove("res-get", "res-give", "res-fair"); }
+    if (dh) { dh.innerHTML = dial(null); $$(".h2h-side", dh.closest(".h2h")).forEach(s => s.classList.remove("out-win", "out-lose", "out-fair")); }
   } else {
     const aWins = v.you !== undefined ? v.you : (r.verdict && r.verdict.winner === "A");
     const loser = TONE_COLOR[v.tone] || "green";                      // "fair" stays green
@@ -1082,11 +1082,20 @@ function scoreboard(r, v, m, animate) {
     const T = S.cfg.adjustments.verdict_pct, pct = (r.view || r.market).pct || 0;
     const dir = v.tone === "fair" ? Math.sign(pct) : (aWins ? 1 : -1);
     const deg = v.thin ? 0 : dir * dialAngle(Math.abs(pct), T);
-    sb.className = `card tmid tone-${cA}`;
+    sb.className = `card tmid tone-${cA}${ready ? " ready" : ""}`;
     sb.innerHTML = `<div class="tm-top"><div class="tm-title c-${cA}-text">${esc(v.title)}</div>${swap}${clear}</div>
       ${noVals() ? "" : `<div class="dial-vals"><span>Give <b>${fmt(m.bGets)}</b></span><span>Get <b>${fmt(m.aGets)}</b></span></div>`}${check}`;
-    // the two sides turn green and red with the verdict (2026-11-03, the user's ask): green on the side the needle leans to
-    if (dh) { const h = dh.closest(".h2h"); h.classList.remove("res-get", "res-give", "res-fair"); h.classList.add(v.tone === "fair" ? "res-fair" : aWins ? "res-get" : "res-give"); }
+    // the sides start clear and take the verdict's colour from the user's team (2026-11-03, the user's ask): his square green
+    // when he wins and red when he loses, the other team's the opposite, both yellow when it's fair. His team is side B
+    // when it's picked there, else side A (You Give).
+    if (dh) {
+      const meB = S.cfg.my_roster_id != null && String(S.sides.B.team) === String(S.cfg.my_roster_id), meWins = meB ? !aWins : aWins;
+      $$(".h2h-side", dh.closest(".h2h")).forEach(s => {
+        const mine = s.classList.contains(meB ? "get" : "give");
+        s.classList.remove("out-win", "out-lose", "out-fair");
+        s.classList.add(v.tone === "fair" ? "out-fair" : mine === meWins ? "out-win" : "out-lose");
+      });
+    }
     if (dh) dh.innerHTML = dial(animate ? -90 : deg, `${esc(A)} ${noVals() ? m.aPct + "%" : fmt(m.aGets)}, ${esc(B)} ${noVals() ? m.bPct + "%" : fmt(m.bGets)}`, deg);
     if (animate && dh) {                                       // swing the needle in from the left
       const n = $(".dial-needle", dh);
