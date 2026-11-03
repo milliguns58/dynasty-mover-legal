@@ -34,7 +34,7 @@ const DEFAULT_CONFIG = {
   season: new Date().getMonth() >= 2 ? new Date().getFullYear() : new Date().getFullYear() - 1,
   league: {
     name: "My Dynasty League", type: "dynasty", teams: 12, num_qbs: 1, ppr: 1, te_premium_bonus_pct: 0,
-    sf_qb_bonus_pct: 15, sf_young_qb_bonus_pct: 10, qb_bonus_pct: 8, qb_trade_bump_pct: 15, hide_k_def: true, roster_size: 25,
+    sf_qb_bonus_pct: 15, sf_young_qb_bonus_pct: 0, qb_bonus_pct: 8, qb_trade_bump_pct: 15, hide_k_def: true, roster_size: 25,
     starters: ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "FLEX"],
   },
   sources: {
@@ -52,7 +52,7 @@ const DEFAULT_CONFIG = {
       contend: { pick: 0.70, young: 0.90, prime: 1.05, aging: 1.20 },   // win now: pay up for production, picks are for later
       rebuild: { pick: 1.30, young: 1.20, prime: 1.0, aging: 0.75 },    // rebuilding: picks and youth are the currency
     },
-    verdict_pct: { even: 5, slight: 12, lopsided: 25 },
+    verdict_pct: { even: 10, slight: 16, lopsided: 25 },   // the fair band widened from 5% (and slight from 12%) on 2026-11-03, the user's ask
     // The user's age model (2026-10-12; QB 39, and 35 for a QB who relies on running, since 2026-10-21): the cliff is RB 29, WR 31, TE 37 (the Travis Kelce curve: slowed
     // at about 35, close to done at 37-38); the decline starts two years before each cliff. AGE_CLIFF below is the table.
     age_curve: {
@@ -185,6 +185,10 @@ function load_config() {
     if (cfg.league.qb_bonus_pct === 12) cfg.league.qb_bonus_pct = 8;
     delete cfg.league.sf_qb_v3; Store.set(f("config.json"), cfg);
   }
+  // 2026-11-03: no extra for young superflex QBs by default (was 10%): trades run off Our Rank, whose model already weighs
+  // age and production, and the market prices youth on top (the user: Lawrence for Williams is about even). Leagues still
+  // on the old default move once; a league set to something else keeps its number.
+  if (cfg.league && cfg.league.sf_young_qb_bonus_pct === 10 && !cfg.league.sf_yqb_v2) { cfg.league.sf_young_qb_bonus_pct = 0; cfg.league.sf_yqb_v2 = true; Store.set(f("config.json"), cfg); }
   if (cfg.league && cfg.league.qb_trade_bump_pct == null) { cfg.league.qb_trade_bump_pct = 15; Store.set(f("config.json"), cfg); }
   // 2026-09-30: Win now / Rebuilding got real teeth (the old numbers barely moved a trade). Leagues still on the old
   // defaults move once; a league with its own numbers keeps them.
@@ -194,6 +198,7 @@ function load_config() {
     cfg.adjustments.modes_v2 = true; Store.set(f("config.json"), cfg);
   }
   if (cfg.adjustments) cfg.adjustments.age_curve = clone(DEFAULT_CONFIG.adjustments.age_curve);   // the age model is the app's, never a saved copy (the user's cliffs, 2026-10-12)
+  if (cfg.adjustments) cfg.adjustments.verdict_pct = clone(DEFAULT_CONFIG.adjustments.verdict_pct);   // so are the verdict's bands (no screen sets them)
   if (cfg.adjustments && cfg.adjustments.consolidation_bonus_pct === 8) cfg.adjustments.consolidation_bonus_pct = DEFAULT_CONFIG.adjustments.consolidation_bonus_pct;   // leagues still on the old default move with it
   return cfg;
 }
@@ -286,15 +291,18 @@ function load_values(cfg) {
   return v;
 }
 /* Trades run off Our Rank (2026-11-03, the user's ask: Trevor Lawrence for Caleb Williams should be about even, leaning to
-   the higher rank). Our Rank's order with the market's prices: the Nth player in Our Rank is worth what the market pays its
-   Nth player (a.tvalue), so players stay on the same scale as picks. The Basic plan keeps the market (set_trade_basis). */
+   the higher rank). The trade value (a.tvalue) is Our Rank's own score brought onto the market's scale (the median ratio
+   over the top 150, so players and picks still compare), times the player's format premium (superflex QB, bench-QB cap:
+   value / base_value). Gaps stay what Our Rank says: two players 7% apart there are 7% apart in a trade. (Mapping rank
+   spots onto the market's price curve was tried first; it stretched gaps near the top, where that curve is steepest.)
+   The Basic plan keeps the market (set_trade_basis). */
 let TRADE_BASIS = "ours";
 function set_trade_basis(b) { TRADE_BASIS = b === "market" ? "market" : "ours"; }
 function attach_trade_values(values) {
-  const pl = values.players.filter(a => !a.is_pick && !a.unranked && a.value > 0);
-  if (!pl.some(a => a.orank > 0)) return;
-  const curve = pl.map(a => a.value).sort((x, y) => y - x);
-  pl.slice().sort((x, y) => (y.orank ?? y.value) - (x.orank ?? x.value) || y.value - x.value).forEach((a, i) => { a.tvalue = curve[i]; });   // the Our Rank list's own order
+  const pl = values.players.filter(a => !a.is_pick && !a.unranked && a.value > 0 && a.orank > 0);
+  if (pl.length < 50) return;
+  const r = pl.slice().sort((x, y) => y.value - x.value).slice(0, 150).map(a => (a.base_value ?? a.value) / a.orank).sort((x, y) => x - y), k = r[r.length >> 1];
+  for (const a of pl) a.tvalue = pyround(a.orank * k * (a.base_value ? a.value / a.base_value : 1));
 }
 const trade_value = a => TRADE_BASIS === "ours" && a && a.tvalue > 0 ? a.tvalue : +a.value;
 
@@ -955,7 +963,7 @@ const DMV = {"w26":0.0858,"w25":0.0407,"w24":0.0163,"k":2.0755,"best":0.0513,"E_
    the values and ranks the Pro app trades on. DMV: our own dynasty view (the research age curves and the breakout bump);
    this gives the grades. Where the two disagree, the user gets a buy or sell hint the market doesn't show. */
 const DMV_MKT = {"w26":1.2308,"w25":0.3516,"w24":0.1384,"best_QB":0.2754,"best_RB":0.0042,"best_WR":0.0,"best_TE":0.0799,"E_QB":2.4573,"E_RB":2.0561,"E_WR":1.9325,"E_TE":1.6575,"S_QB":6.3241,"S_RB":19.8025,"S_WR":37.3424,"S_TE":64.0041,"R_QB":4.2772,"R_RB":-1.632,"R_WR":1.0846,"R_TE":1.3444,"peak_QB":28.7639,"peak_RB":23.0034,"peak_WR":25.0003,"peak_TE":27.4564,"dec_QB":0.1019,"dec_RB":0.142,"dec_WR":0.0921,"dec_TE":0.1034,"young":0.6011,"D_QB":2033.7033,"D_RB":2902.7461,"D_WR":2029.4478,"D_TE":1419.4604,"L":128.1501,"kd":7.4094,"C":82304.0844,"ped":0.2743};
-const DMV_MODEL = 25;                                     // bump when the value formula changes: installed apps rebuild their values on the next open
+const DMV_MODEL = 26;                                   // bump when the value formula changes: installed apps rebuild their values on the next open
 const DMV_TYPICAL = { QB: 14, RB: 9, WR: 8, TE: 6 };          // a typical starter's points a game (half-PPR): the anchor for thin samples
 const DMV_REPLACEMENT = { QB: 12, RB: 6.5, WR: 6, TE: 4 };   // a replacement-level player's points a game (half-PPR): the redraft anchor for thin samples
 const DMV_PRIOR_ADJ = { QB: 0.55 };                      // 1QB leagues: QBs are worth about half of superflex
@@ -1760,8 +1768,10 @@ function attach_ours(assets, ours, redraft) {
    either way: rank value = base x (ours / base)^0.2, the ratio held to 0.6-1.6, after taking out our model's lean at
    each position (it runs QBs about 6% high and TEs 9% low against the market). Players neither list carries keep our
    view, trimmed 15%. Checked against a consensus of FantasyCalc, DynastyProcess and Dynasty Daddy: the average rank
-   miss across its top 50 went from 9.9 (our model alone) and 5.1 (FantasyCalc with a 0.35 say) to 2.5. */
-const ORANK_W = 0.2, ORANK_LO = 0.6, ORANK_HI = 1.6, ORANK_UNLISTED = 0.85;
+   miss across its top 50 went from 9.9 (our model alone) and 5.1 (FantasyCalc with a 0.35 say) to 2.5.
+   QBs get at least a 0.4 say (2026-11-03, the user's ask: Trevor Lawrence for Caleb Williams is about even, a slight edge
+   to Williams; the market prices young QBs well over what their play shows, and our model has the two about level). */
+const ORANK_W = 0.2, ORANK_LO = 0.6, ORANK_HI = 1.6, ORANK_UNLISTED = 0.85, ORANK_W_QB = 0.4;
 /* How far the season has gone, 0 before kickoff to 1 by week 8 (2026-10-21). MFL's draft lists are summer boards (4
    keeper drafts since this season's kickoff), so as games are played our model, which sees them, gets more say in Our
    rank: Pro had Justin Herbert, struggling, ahead of Brock Purdy in week 7 on his August draft spot. Kickoff is the
@@ -1881,7 +1891,8 @@ async function attach_orank(cfg, assets, results, log) {
   for (const a of players) {
     const b = base(a), o = ours(a) != null ? ours(a) / (lean[a.pos] || 1) : null;
     if (!b && !o) continue;
-    a.orank = b ? (o ? pyround(b * Math.pow(Math.min(ohi, Math.max(olo, o / b)), ow)) : pyround(b)) : pyround(o * ORANK_UNLISTED);
+    const w = a.pos === "QB" ? Math.max(ow, ORANK_W_QB) : ow;
+    a.orank = b ? (o ? pyround(b * Math.pow(Math.min(ohi, Math.max(olo, o / b)), w)) : pyround(b)) : pyround(o * ORANK_UNLISTED);
     // for Market vs ours (2026-10-16): the outside market's value and our model's own view, on the same scale
     a.omkt = b ? pyround(b) : null; a.oview = o ? pyround(o) : null;
     n++;
@@ -3054,7 +3065,7 @@ function apply_settings(cfg, s) {
   if (s.hide_k_def !== undefined && s.hide_k_def !== null) lg.hide_k_def = !!s.hide_k_def;
   if (s.use_market !== undefined && s.use_market !== null) lg.use_market = !!s.use_market;
   if (s.qb_premium_pct !== undefined && s.qb_premium_pct !== null) { const v = Math.max(0, Math.min(100, parseInt(s.qb_premium_pct) || 0)); if (parseInt(lg.num_qbs || 1) >= 2) lg.sf_qb_bonus_pct = v; else lg.qb_bonus_pct = v; }
-  if (s.young_qb_premium_pct !== undefined && s.young_qb_premium_pct !== null) lg.sf_young_qb_bonus_pct = Math.max(0, Math.min(100, parseInt(s.young_qb_premium_pct) || 0));
+  if (s.young_qb_premium_pct !== undefined && s.young_qb_premium_pct !== null) { lg.sf_young_qb_bonus_pct = Math.max(0, Math.min(100, parseInt(s.young_qb_premium_pct) || 0)); lg.sf_yqb_v2 = true; }   // the user's own number: the 2026-11-03 move leaves it
   if (s.qb_trade_pct !== undefined && s.qb_trade_pct !== null) lg.qb_trade_bump_pct = Math.max(0, Math.min(100, parseInt(s.qb_trade_pct) || 0));
   if (s.teams) lg.teams = Math.max(4, Math.min(32, parseInt(s.teams)));
   const changes = Object.keys(lg).filter(k => JSON.stringify(before[k]) !== JSON.stringify(lg[k]));

@@ -77,7 +77,7 @@ const retro = () => (app().look || "classic") === "retro" && !locked();
 function locked() { return typeof Pro !== "undefined" && Pro.ON && Pro.locked(); }
 /* No player values on the Basic plan (2026-10-27, the user's ask): grades and verdicts stay, the numbers behind them go. */
 const noVals = () => locked();
-/* The trade value (2026-11-03): Our Rank's order at the market's prices (E.trade_value), the number on the lists, the
+/* The trade value (2026-11-03): Our Rank's score on the market's scale (E.trade_value), the number on the lists, the
    card and the trade screen; the Basic plan keeps the market's, as its grades do. */
 const tradeBasis = () => E.set_trade_basis(locked() ? "market" : "ours");
 const tval = a => { tradeBasis(); return E.trade_value(a); };
@@ -1671,7 +1671,7 @@ function rankList(el) {
     ${listPos ? `<div class="seg rk-seg" id="oseg">${ORDERS.map(([k, l]) => `<button data-o="${k}" class="${R.order === k ? "on" : ""}">${l}</button>`).join("")}</div>${projNote}
       <details class="tip"><summary>How this list is ordered</summary><p class="note muted">${R.order === "points" ? `Fantasy points scored this season${S.W ? "" : " (loading this week's data…)"}.`
         : R.order === "proj" ? `This week's projected points, with the matchup${S.W ? "" : " (loading this week's data…)"}. No game this week sorts last.`
-        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his trade value, the same as on his card and what trades are judged on: the market's price for his spot in Our Rank, so it falls as the list goes down.`
+        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his trade value, the same as on his card and what trades are judged on: our ranking's score on the market's scale, so it falls as the list goes down.`
         : "Ranked by the market's value."}</p></details>` : ""}
     ${R.pos === "ROOK" ? `<div class="seg" id="rseg">${[["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].map(([p, l]) => `<button data-rp="${p}" class="${R.rpos === p ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (production for his team this season and last, the age it came at, receptions for backs, size, recruiting pedigree, efficiency), weighted by what has worked for past classes in the NFL. Until the NFL draft, "Projected draft" is where players with profiles like his have been drafted; it counts a fifth of a running back's or receiver's grade and a tenth of a tight end's. Once the draft happens, the pick's round takes its place.</p>` : ""}
@@ -1714,7 +1714,7 @@ function rankList(el) {
     const spOf = a => (SP && SP[a.sleeper_id]) || null, wgOf = a => (WG && WG[a.sleeper_id]) || null;
     if (listPos && R.order === "proj") pool = pool.filter(Week.weekly_eligible(S.values, S.cfg));   // no one who is out, on IR or a backup without a shot at starting (2026-10-27)
     if (listPos) {
-      const key = R.order === "points" ? a => (spOf(a) ? spOf(a).pts : -1) : R.order === "proj" ? a => (wgOf(a) ? wgOf(a).pts : -1) : oursOn ? a => (a.orank ?? a.value) : a => a.value;
+      const key = R.order === "points" ? a => (spOf(a) ? spOf(a).pts : -1) : R.order === "proj" ? a => (wgOf(a) ? wgOf(a).pts : -1) : oursOn ? a => (a.tvalue ?? a.orank ?? a.value) : a => a.value;   // Our Rank: the trade value's order (2026-11-03)
       pool = pool.slice().sort((x, y) => key(y) - key(x) || y.value - x.value);
     }
     if (R.q) pool = E.search_players(R.q, S.values, 60, pool);
