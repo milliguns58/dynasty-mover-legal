@@ -1112,8 +1112,8 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .dial{display:block;width:100%;max-width:230px;height:auto;margin:8px auto 0;overflow:visible}
 .dial .z{fill:none;stroke-width:15}
 .dial .z-none{stroke:var(--raise)}
-.dial .z-red{stroke:#dc2626}.dial .z-orange{stroke:#f97316}.dial .z-yellow{stroke:#facc15}
-.dial .z-green{stroke:#22c55e}.dial .z-green2{stroke:#16a34a}.dial .z-green3{stroke:#15803d}
+.dial .z-red{stroke:#dc2626}.dial .z-orange{stroke:#f97316}.dial .z-amber{stroke:#f59e0b}.dial .z-yellow{stroke:#facc15}
+.dial .z-lime{stroke:#84cc16}.dial .z-green{stroke:#22c55e}.dial .z-green3{stroke:#15803d}
 .dial-needle{transform-box:view-box;transform-origin:100px 100px;transition:transform 1s cubic-bezier(.3,1.35,.5,1)}
 .dial-needle line{stroke:var(--ink);stroke-width:4;stroke-linecap:round}
 .dial-needle circle{fill:var(--ink);stroke:var(--surface);stroke-width:3}
