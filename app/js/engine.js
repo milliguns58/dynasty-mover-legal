@@ -281,9 +281,22 @@ function load_values(cfg) {
   bench_qb_cap(v, cfg);
   assign_tiers(v);
   apply_trending(v);
+  attach_trade_values(v);
   P.values = v;
   return v;
 }
+/* Trades run off Our Rank (2026-11-03, the user's ask: Trevor Lawrence for Caleb Williams should be about even, leaning to
+   the higher rank). Our Rank's order with the market's prices: the Nth player in Our Rank is worth what the market pays its
+   Nth player (a.tvalue), so players stay on the same scale as picks. The Basic plan keeps the market (set_trade_basis). */
+let TRADE_BASIS = "ours";
+function set_trade_basis(b) { TRADE_BASIS = b === "market" ? "market" : "ours"; }
+function attach_trade_values(values) {
+  const pl = values.players.filter(a => !a.is_pick && !a.unranked && a.value > 0);
+  if (!pl.some(a => a.orank > 0)) return;
+  const curve = pl.map(a => a.value).sort((x, y) => y - x);
+  pl.slice().sort((x, y) => (y.orank ?? y.value) - (x.orank ?? x.value) || y.value - x.value).forEach((a, i) => { a.tvalue = curve[i]; });   // the Our Rank list's own order
+}
+const trade_value = a => TRADE_BASIS === "ours" && a && a.tvalue > 0 ? a.tvalue : +a.value;
 
 /* Backup quarterbacks sit behind every starter (the user's rule, 2026-10-13: Justin Fields and Anthony Richardson
    were ranked among usable starters). A starter is a QB who took the snaps in either of the last two played weeks
@@ -2421,7 +2434,7 @@ function hype_mult(asset, cfg) {
 const TE_RISK = 0.15, TE_RISK_YOUNG = 0.2;
 const te_risk = a => (a && a.pos === "TE" && !a.is_pick ? (a.exp != null && a.exp <= 1 ? TE_RISK_YOUNG : TE_RISK) : 0);
 function adjusted_value(asset, mode, cfg) {
-  let v = +asset.value;
+  let v = trade_value(asset);
   v *= hype_mult(asset, cfg);
   if (asset.pos === "TE") v *= 1 + parseFloat(cfg.league.te_premium_bonus_pct || 0) / 100;
   v *= qb_trade_mult(asset, cfg) * league_market_mult(asset, cfg);
@@ -2479,9 +2492,10 @@ function evaluate_side(matches, mode, cfg) {
     const cat = is_redraft(cfg) ? "" : category(a, cfg);
     const av = adjusted_value(a, mode, cfg);
     const qbm = qb_trade_mult(a, cfg) * league_market_mult(a, cfg) * hype_mult(a, cfg);
-    rows.push({ id: a.id, name: a.name, pos: a.pos, team: a.team, age: a.age, value: a.value, priced: a.value * qbm, adjusted: av, category: cat, tier: a.tier, pos_rank: a.pos_rank,
+    const tv = trade_value(a);
+    rows.push({ id: a.id, name: a.name, pos: a.pos, team: a.team, age: a.age, value: tv, priced: tv * qbm, adjusted: av, category: cat, tier: a.tier, pos_rank: a.pos_rank,
       trend: a.trend, estimated: !!a.estimated, unranked: !!a.unranked, alts: (m.alts || []).slice(0, 3).map(x => x.name) });
-    raw += a.value * qbm;                                     // the market side of a trade carries the QB trade premium too
+    raw += tv * qbm;                                          // the market side of a trade carries the QB trade premium too
     adj += av;
   }
   return { rows, raw, adj };
@@ -2521,15 +2535,15 @@ function analyze_trade(a_gives, b_gives, mode_a, mode_b, cfg, values, team_a = n
     const top = Math.max(0, ...values.players.filter(p => !p.unranked).map(p => p.value)) || 1;
     const side = n_b < n_a ? "A" : "B";
     const received = side === "A" ? b_gives : a_gives;
-    const best = received.reduce((b, m) => m.asset.value > b.asset.value ? m : b, received[0]).asset;
-    const bonus = best.value * bonus_pct / 100 * Math.min(2, Math.abs(n_a - n_b)) * (best.value / top);
+    const best = received.reduce((b, m) => trade_value(m.asset) > trade_value(b.asset) ? m : b, received[0]).asset, bv = trade_value(best);
+    const bonus = bv * bonus_pct / 100 * Math.min(2, Math.abs(n_a - n_b)) * (bv / top);
     market_diff += side === "A" ? bonus : -bonus;
     a_net += side === "A" ? bonus : -bonus;
     b_net += side === "A" ? -bonus : bonus;
     consolidation = { side, asset: best.name, bonus: pyround(bonus) };
   }
   // the TE risk: what each side's incoming tight ends lose (market price, and as each team's strategy sees them)
-  const priced = a => +a.value * qb_trade_mult(a, cfg) * league_market_mult(a, cfg) * hype_mult(a, cfg);   // the market side's own price (evaluate_side's raw)
+  const priced = a => trade_value(a) * qb_trade_mult(a, cfg) * league_market_mult(a, cfg) * hype_mult(a, cfg);   // the market side's own price (evaluate_side's raw)
   const risk = (gives, mode) => gives.reduce((s, m) => [s[0] + te_risk(m.asset) * priced(m.asset), s[1] + te_risk(m.asset) * adjusted_value(m.asset, mode, cfg)], [0, 0]);
   const [rA, rAadj] = risk(b_gives, mode_a), [rB, rBadj] = risk(a_gives, mode_b);
   market_diff += rB - rA; a_net -= rAadj; b_net -= rBadj;
@@ -2585,7 +2599,7 @@ function balance_suggestions(values, cfg, a_gives, b_gives, mode_a, mode_b, team
     const m = { asset: c, alts: [], error: null, query: c.name };
     const [na, nb] = winner === "A" ? [a_gives.concat([m]), b_gives] : [a_gives, b_gives.concat([m])];
     const p2 = analyze_trade(na, nb, mode_a, mode_b, cfg, values, team_a, team_b, false).view.pct;
-    if (Math.abs(p2) < Math.abs(pct)) out.push({ side: winner, id: c.id, name: c.name, value: c.value, new_pct: p2, text: league_view_text(p2), even: Math.abs(p2) < even });
+    if (Math.abs(p2) < Math.abs(pct)) out.push({ side: winner, id: c.id, name: c.name, value: trade_value(c), new_pct: p2, text: league_view_text(p2), even: Math.abs(p2) < even });
   }
   out.sort((x, y) => (x.even === y.even ? 0 : (x.even ? -1 : 1)) || Math.abs(x.new_pct) - Math.abs(y.new_pct));
   return out.slice(0, 4);
@@ -3103,7 +3117,7 @@ return {
   update_values, build_consensus, fetch_all_sources, source_settings, source_applies, refresh_player_status, load_player_status, load_name_index,
   refresh_trending, trending_list, sleeper_player, team_depth, player_news, player_blurbs,
   parse_pick_query, resolve_pick, search_players, find_asset,
-  category, age_factor, adjusted_value, qb_trade_mult, roster_spot_cost, lineup_value, best_lineup, best_lineup_by, lineup_total, depth_of,
+  category, age_factor, adjusted_value, trade_value, set_trade_basis, qb_trade_mult, roster_spot_cost, lineup_value, best_lineup, best_lineup_by, lineup_total, depth_of,
   analyze_trade, verdict_for, pick_equivalent, league_view_text,
   sleeper_user_leagues, sleeper_import, find_team, team_assets, apply_settings, manual_league, manual_add_team, manual_save, manual_set_rounds, manual_roll_season, manual_lineup_counts, manual_set_lineup, manual_add_player, pool_search, pool_players,
   load_history, record_history, price_series, price_changes, log_trade, read_log,

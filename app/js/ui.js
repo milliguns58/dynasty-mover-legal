@@ -77,6 +77,10 @@ const retro = () => (app().look || "classic") === "retro" && !locked();
 function locked() { return typeof Pro !== "undefined" && Pro.ON && Pro.locked(); }
 /* No player values on the Basic plan (2026-10-27, the user's ask): grades and verdicts stay, the numbers behind them go. */
 const noVals = () => locked();
+/* The trade value (2026-11-03): Our Rank's order at the market's prices (E.trade_value), the number on the lists, the
+   card and the trade screen; the Basic plan keeps the market's, as its grades do. */
+const tradeBasis = () => E.set_trade_basis(locked() ? "market" : "ours");
+const tval = a => { tradeBasis(); return E.trade_value(a); };
 const proTag = () => (locked() ? Pro.tag() : "");
 /* Basic plan: a trade can hold up to BASIC_TRADE_MAX players and picks in all (both sides together). */
 const BASIC_TRADE_MAX = 4;
@@ -628,7 +632,7 @@ function gradeChip(a, withArrow = true) {
    only, 2026-10-16) and then "Dynasty" (the big grade, with the value under it; "Season" in redraft), a thin divider
    after the week so they read as different things. */
 // o.wk / o.val: a number under the week grade / in place of the value (the Rankings tab's Points and Projected orders)
-const gradeRight = (a, o = {}) => { const sc = seasonCell(a); if (isKdef(a) && o.val == null) { const k = kdefGrade(a); o = Object.assign({}, o, { val: k ? `${k.ppg.toFixed(1)}/g` : "–" }); } return `<div class="gcells${sc ? " g3" : ""}">${weekCell(a, o.wk)}${sc}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</small><div class="gv">${gradeChip(a, !sc)}</div>${o.val == null && noVals() ? "" : `<div class="d muted${o.val != null ? " rk-num" : ""}">${o.val != null ? o.val : fmt(a.value)}</div>`}</div></div>`; };
+const gradeRight = (a, o = {}) => { const sc = seasonCell(a); if (isKdef(a) && o.val == null) { const k = kdefGrade(a); o = Object.assign({}, o, { val: k ? `${k.ppg.toFixed(1)}/g` : "–" }); } return `<div class="gcells${sc ? " g3" : ""}">${weekCell(a, o.wk)}${sc}<div class="gcell"><small>${a.is_pick ? "Pick" : E.is_redraft(S.cfg) ? "Season" : "Dynasty"}</small><div class="gv">${gradeChip(a, !sc)}</div>${o.val == null && noVals() ? "" : `<div class="d muted${o.val != null ? " rk-num" : ""}">${o.val != null ? o.val : fmt(tval(a))}</div>`}</div></div>`; };
 /* A status flag by the name, from Sleeper's injury status: IR, PUP, OUT (this week), DOUB (doubtful), SUS, Q. */
 function statusFlag(a) {
   if (!a || a.is_pick || !a.sleeper_id) return "";
@@ -933,6 +937,7 @@ function renderTrade(el) {
   if (S.sidesDropped) { const n = S.sidesDropped; S.sidesDropped = 0; toast(n === 1 ? "One piece left the trade: it's no longer on that roster (per Sleeper)." : `${n} pieces left the trade: they're no longer on those rosters (per Sleeper).`, 3600); }
   if (!S.cfg) return quickStart(el);
   if (!S.values) return needValues(el);
+  tradeBasis();
   const redraft = E.is_redraft(S.cfg);
   if (S.sides.A.team != null && String(S.sides.A.team) === String(S.sides.B.team)) S.sides.B.team = null;   // a team can't trade with itself
   if (locked()) { S.sides.A.mode = "neutral"; S.sides.B.mode = "neutral"; }
@@ -941,9 +946,9 @@ function renderTrade(el) {
     : `<select class="pill" data-mode="${k}" aria-label="Strategy">${E.MODES.map(m => `<option value="${m}" ${s.mode === m ? "selected" : ""}>${MODE_LABEL[m]}</option>`).join("")}</select>`;
   const lens = !redraft && !locked() && S.sides.A.mode !== "neutral" ? S.sides.A.mode : null;   // your strategy prices both sides
   const priced = a => E.adjusted_value(a, lens || "neutral", S.cfg);
-  const lensRight = a => { const v = priced(a), d = v - a.value;
+  const lensRight = a => { const v = priced(a), d = v - tval(a);
     if (noVals()) return `<div class="gv">${gradeChip(a)}</div>`;
-    return `<div class="gv">${gradeChip(a)}</div><div class="d ${d > 0 ? "good" : d < 0 ? "bad" : "muted"}">${fmt(v)}${Math.abs(d) >= 1 ? ` <s class="was">${fmt(a.value)}</s>` : ""}</div>`; };
+    return `<div class="gv">${gradeChip(a)}</div><div class="d ${d > 0 ? "good" : d < 0 ? "bad" : "muted"}">${fmt(v)}${Math.abs(d) >= 1 ? ` <s class="was">${fmt(tval(a))}</s>` : ""}</div>`; };
   const qbBump = parseFloat(S.cfg.league.qb_trade_bump_pct ?? 15), hasQB = k => S.sides[k].items.some(a => a.pos === "QB" && E.qb_trade_mult(a, S.cfg) > 1);
   // a player on one side: a small centred tile (picture, name, grade and value), so the two sides fit next to each other
   const tile = a => `<div class="item hp" data-id="${esc(a.id)}" data-act="card">${avatar(a)}
@@ -1037,9 +1042,9 @@ function tradeIdeas(priced) {
     <div class="list">${rows}</div></section>` };
 }
 
-/* The verdict dial under the two sides (2026-10-30; before, a bar split by each side's share). Green in the middle
-   (fair) and on the right (you win); yellow, orange and red on the left as the other side wins by more: a slight
-   edge, a win, a big win. The zones follow the verdict's own thresholds, so the needle always sits in the colour
+/* The verdict dial behind the two sides (2026-10-30; before, a bar split by each side's share). Yellow in the middle
+   (fair); lime, green and dark green on the right as you win by more; amber, orange and red on the left as the other
+   side does: a slight edge, a win, a big win (2026-11-03). The zones follow the verdict's own thresholds, so the needle always sits in the colour
    the verdict names. */
 const TONE_COLOR = { edge: "yellow", win: "orange", big: "red" };
 const DIAL_STOPS = [15, 40, 65, 88];                           // degrees from upright where fair, edge, win and big end
@@ -1053,8 +1058,9 @@ function dial(deg, label, to) {
   const arc = (d0, d1, cls) => `<path class="z ${cls}" d="M ${pt(d0)} A ${R} ${R} 0 0 1 ${pt(d1)}"/>`;
   const S0 = DIAL_STOPS, g = 1.2;                              // a hairline gap between the zones
   const zones = deg == null ? arc(-90, 90, "z-none")
-    : arc(-90, -S0[2] - g, "z-red") + arc(-S0[2] + g, -S0[1] - g, "z-orange") + arc(-S0[1] + g, -S0[0] - g, "z-yellow")
-      + arc(-S0[0] + g, S0[0] - g, "z-green") + arc(S0[0] + g, S0[1] - g, "z-green2") + arc(S0[1] + g, 90, "z-green3");
+    // yellow in the middle (fair), greens toward a win, orange to red toward a loss (2026-11-03, the user's ask)
+    : arc(-90, -S0[2] - g, "z-red") + arc(-S0[2] + g, -S0[1] - g, "z-orange") + arc(-S0[1] + g, -S0[0] - g, "z-amber")
+      + arc(-S0[0] + g, S0[0] - g, "z-yellow") + arc(S0[0] + g, S0[1] - g, "z-lime") + arc(S0[1] + g, S0[2] - g, "z-green") + arc(S0[2] + g, 90, "z-green3");
   const at = deg == null ? 0 : deg;
   return `<svg class="dial${deg == null ? " idle" : ""}" viewBox="0 0 200 112" ${label ? `role="img" aria-label="${label}"` : 'aria-hidden="true"'}>${zones}
     <g class="dial-needle" data-to="${to ?? at}" style="transform:rotate(${at}deg)"><line x1="100" y1="100" x2="100" y2="34"/><circle cx="100" cy="100" r="7"/></g></svg>`;
@@ -1116,6 +1122,7 @@ function scoreboard(r, v, m, animate) {
 
 function analyze(scroll, animate) {
   const mk = a => ({ asset: a, alts: [], error: null, query: a.name });
+  tradeBasis();
   const r = E.analyze_trade(S.sides.A.items.map(mk), S.sides.B.items.map(mk), S.sides.A.mode, S.sides.B.mode, S.cfg, S.values,
     teamById(S.sides.A.team), teamById(S.sides.B.team));
   S.result = r;
@@ -1664,7 +1671,7 @@ function rankList(el) {
     ${listPos ? `<div class="seg rk-seg" id="oseg">${ORDERS.map(([k, l]) => `<button data-o="${k}" class="${R.order === k ? "on" : ""}">${l}</button>`).join("")}</div>${projNote}
       <details class="tip"><summary>How this list is ordered</summary><p class="note muted">${R.order === "points" ? `Fantasy points scored this season${S.W ? "" : " (loading this week's data…)"}.`
         : R.order === "proj" ? `This week's projected points, with the matchup${S.W ? "" : " (loading this week's data…)"}. No game this week sorts last.`
-        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his trade value, the same as on his card: what the market pays and what trades are judged on. The order is ours, so a player we like more than the market can sit above a higher value.`
+        : oursOn ? `Our ranking: ${E.is_redraft(S.cfg) ? "the points we expect the rest of this season (production, role and health)" : "what each player's future holds (production, the prime years left, role and health)"}. The number is his trade value, the same as on his card and what trades are judged on: the market's price for his spot in Our Rank, so it falls as the list goes down.`
         : "Ranked by the market's value."}</p></details>` : ""}
     ${R.pos === "ROOK" ? `<div class="seg" id="rseg">${[["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].map(([p, l]) => `<button data-rp="${p}" class="${R.rpos === p ? "on" : ""}">${l}</button>`).join("")}</div>
       <p class="note muted" style="margin:8px 2px 10px">College players for the ${draftYear()} NFL draft and your ${draftYear()} rookie draft, graded the way we grade NFL players: a forecast from the profile that predicts hits (production for his team this season and last, the age it came at, receptions for backs, size, recruiting pedigree, efficiency), weighted by what has worked for past classes in the NFL. Until the NFL draft, "Projected draft" is where players with profiles like his have been drafted; it counts a fifth of a running back's or receiver's grade and a tenth of a tight end's. Once the draft happens, the pick's round takes its place.</p>` : ""}
@@ -2383,7 +2390,7 @@ function card(a, opts = {}) {
         <div class="band-grade"><span class="big-grade ${G.cls}">${esc(G.g)}</span>
           <div><div class="bg-label">${gradeLabelHtml(G.label)}</div>
             <div class="bg-move ${M.dir}">${M.dir === "up" ? "▲ Rising" : (M.dir === "down" ? "▼ Falling" : "– Steady")}${M.amt && !noVals() ? ` <span>${M.amt > 0 ? "+" : "−"}${fmt(Math.abs(M.amt))} in 30 days</span>` : ""}</div>
-            ${noVals() ? "" : `<div class="bg-value">${a.is_pick || a.orank == null ? `Value ${fmt(a.value)}` : `Trade value ${fmt(a.value)} · Our score ${fmt(a.orank)}`}</div>`}
+            ${noVals() ? "" : `<div class="bg-value">${a.is_pick || a.orank == null ? `Value ${fmt(a.value)}` : (tval(a) !== +a.value ? `Trade value ${fmt(tval(a))} · Market ${fmt(a.value)}` : `Trade value ${fmt(a.value)} · Our score ${fmt(a.orank)}`)}</div>`}
             ${!a.is_pick && a.pred ? `<div class="bg-scope">Forecast: ${E.is_redraft(S.cfg) ? `${a.pred.ros.toFixed(1)} pts a game the rest of this season` : `${a.pred.next.toFixed(1)} pts a game next season · ${Math.round(a.pred.play * 100)}% to play 4+ games`}</div>` : ""}
             ${a.is_pick ? "" : `<div class="bg-scope">${E.is_redraft(S.cfg) ? "Grade: rest of this season" : "Grade: dynasty outlook"}${C.week && !C.week.none && C.week.grade ? ` · This week <span class="grade sm ${C.week.grade.cls}">${esc(C.week.grade.letter)}</span> ${esc(C.week.grade.label.toLowerCase())}` : C.week && C.week.bye ? " · Bye this week" : ""}</div>`}</div></div>${edgeLine(a, G)}${epLine(a)}${lastCallHtml(a)}</div>
       <div class="tiles">
