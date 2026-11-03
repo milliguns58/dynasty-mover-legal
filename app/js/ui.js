@@ -1560,10 +1560,12 @@ function picker(k) {
                 lower dynasty grade and our model 25% or more under the market; market value 1,500+
      Sell high  his value is likely to drop: a year from the decline with a 3,000+ price, or 25+ and not an A/A+ and
                 scoring well over what his usage earns (touchdowns running hot) while our model sees no more in him
-     Buy        our model 30% or more over the outside market, a B- or better, market value 1,500+, two years or more
-                short of the decline (QBs 30 and under), on a team and not on a long injury list
+     Buy low    under-producing (2026-11-03, the user's ask; before, our model 30% over the market): 4+ games scoring 15%
+                or more under what his usage earns, or 2+ touchdowns short of expected, while still a B- or better to us
+                (our model not under the market), market value 1,500+, two years or more short of the decline (QBs 30
+                and under), on a team and not on a long injury list
    The market is FantasyCalc x DynastyProcess (a.omkt) and our view our own model on that scale (a.oview, attach_orank). */
-const EDGE_KINDS = [["buy", "Buy"], ["sellhigh", "Sell High"], ["sell", "Sell"]];
+const EDGE_KINDS = [["buy", "Buy Low"], ["sellhigh", "Sell High"], ["sell", "Sell"]];
 const EDGE_OUT = ["IR", "PUP", "Out", "Sus", "Suspended", "DNR", "NA"];
 function dynastyEdge(a) {
   if (!a || a.is_pick || a.unranked || !a.omkt || a.age == null || !E.AGE_DECLINE[a.pos]) return null;            // (QB: his own cliff, 39 or down to 35 for a runner)
@@ -1576,8 +1578,10 @@ function dynastyEdge(a) {
   // touchdowns running hot: not for a young star (2026-10-16: Jaxon Smith-Njigba, 24 and A+, is no sell)
   if (a.omkt >= 1500 && age >= 25 && !top && ep && ep.g >= 4 && ep.exp > 0 && ep.pts / ep.exp >= 1.2 && ep.td - ep.tdx >= 2.5 && ratio <= 1.05)
     return { kind: "sellhigh", score: a.omkt * ep.pts / ep.exp, why: `${ep.td} TDs on ${ep.tdx.toFixed(1)} expected` };
-  if (a.omkt >= 1500 && ratio >= 1.3 && age <= dec - 2 && !(a.pos === "QB" && age > 30) && gIdx(g) <= gIdx("B-") && !EDGE_OUT.includes(st.inj) && a.team && a.team !== "FA")
-    return { kind: "buy", score: a.omkt * ratio, why: `Ours ${Math.round((ratio - 1) * 100)}% over the market` };
+  // buy low: the mirror of a hot streak, scoring under what his usage earns while his future still grades well
+  const played = ep && ep.g >= 4 && ep.exp > 0, cold = played && ep.pts / ep.exp <= 0.85, tdShort = played && ep.tdx - ep.td >= 2;
+  if (a.omkt >= 1500 && (cold || tdShort) && ratio >= 0.95 && age <= dec - 2 && !(a.pos === "QB" && age > 30) && gIdx(g) <= gIdx("B-") && !EDGE_OUT.includes(st.inj) && a.team && a.team !== "FA")
+    return { kind: "buy", score: a.omkt * ep.exp / Math.max(ep.pts, 1), why: cold ? `${Math.round(ep.pts)} pts on ${Math.round(ep.exp)} expected` : `${ep.td} TDs on ${ep.tdx.toFixed(1)} expected` };
   return null;
 }
 /* Players (2026-10-26, the user's ask: Rankings becomes Players, the home page, with Most added and dropped and the
@@ -1629,7 +1633,7 @@ function rankList(el) {
     ${rookTab ? `<div class="seg sub-seg" id="dseg"><button data-pos="DRAFT" class="${R.pos === "DRAFT" ? "on" : ""}">Draft Board</button><button data-pos="ROOK" class="${R.pos === "ROOK" ? "on" : ""}">${draftYear()} Class</button></div>` : ""}
     ${whoOpts ? `<div class="seg sub-seg" id="wseg">${whoOpts.map(([k, l]) => `<button data-who="${k}" class="${who === k ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
     ${R.pos === "EDGE" && dynEdge ? `<div class="seg" id="eseg">${EDGE_KINDS.map(([k, l]) => `<button data-e="${k}" class="${R.edge === k ? "on" : ""}">${l}</button>`).join("")}</div>
-      <p class="note muted" style="margin:8px 2px 10px">${R.edge === "buy" ? `Our model rates these players at least 30% above the outside market (${esc([].concat(S.values.meta.anchor || []).map(n => (E.SOURCES[n] || {}).label || n).join(" and "))}), and they're young enough to keep the value. Good ones to trade for.`
+      <p class="note muted" style="margin:8px 2px 10px">${R.edge === "buy" ? "Scoring less than their usage earns: fewer points, or fewer touchdowns, than their targets, carries and snaps should bring. They're young, healthy and still a B- or better to us, so the slump is the discount. Buy before it turns."
         : R.edge === "sellhigh" ? "Their value is likely to drop: a year from their position's decline age, or scoring well above what their usage earns (touchdowns running hot). Sell while the price is high."
         : "Past their position's decline age (running backs 27, receivers 29, tight ends 35, quarterbacks 38), or short on dynasty value. Worth more to a contender this season than to your future: sell for younger players or picks."}</p>` : ""}
     ${R.pos === "EDGE" && !dynEdge ? `<div class="seg" id="eseg"><button data-e="buy" class="${R.edge === "buy" ? "on" : ""}">Buys</button><button data-e="sell" class="${R.edge === "sell" ? "on" : ""}">Sells</button></div>
