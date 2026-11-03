@@ -956,7 +956,7 @@ function renderTrade(el) {
       `<option value="${t.roster_id}" ${String(s.team) === String(t.roster_id) ? "selected" : ""}>${esc(t.team_name)}${t.roster_id === S.cfg.my_roster_id ? " (you)" : ""}</option>`)).join("");
     const pills = (teams().length ? `<select class="pill" data-team="${k}" aria-label="Team">${opts}</select>` : "") + (redraft ? "" : modeSel(k, s));
     return `<div class="h2h-side ${k === "A" ? "give" : "get"}">
-      <div class="h2h-label">${k === "A" ? "You Give" : "You Get"}</div>
+      <div class="h2h-label">${k === "A" ? "You Give" : "They Give"}</div>
       ${noVals() ? "" : `<div class="h2h-tot${s.items.length ? "" : " muted"}">${s.items.length ? fmt(tot) : "0"}</div>`}
       ${pills ? `<div class="h2h-pills">${pills}</div>` : ""}
       <button class="add-row h2h-add" data-add="${k}" ${tradeFull() ? 'data-lock="tradesize"' : ""}><span class="plus">+</span>${s.items.length ? "Add" : (redraft ? "Add a Player" : "Add Player or Pick")}${tradeFull() ? " " + Pro.tag() : ""}</button>
@@ -1033,7 +1033,7 @@ function tradeIdeas(priced) {
       <div class="nm"><div class="n">${c.a.is_pick ? esc(c.a.name) : `<a class="plink" data-pcard="${esc(c.a.id)}">${esc(c.a.name)}</a>`}</div>
       <div class="s">${esc(sub(c.a))}${o && !otherTeam ? ` · ${esc(o.team_name)}` : ""}</div></div>
       <div class="v"><div class="gv">${gradeChip(c.a, false)}</div><div class="d muted">${fmt(c.v)}</div></div></div>`; }).join("");
-  return { side: k, html: `<section class="card ideas"><h2>${title}</h2><div class="hint">Within about ${Math.round(band * 100)}% of ${esc(anchor.name)}'s value, ${from}. Tap a row to add it${k === "A" ? " to what you get" : " to what you give"}; tap a name for his card.</div>
+  return { side: k, html: `<section class="card ideas"><h2>${title}</h2><div class="hint">Within about ${Math.round(band * 100)}% of ${esc(anchor.name)}'s value, ${from}. Tap a row to add it${k === "A" ? " to what they give" : " to what you give"}; tap a name for his card.</div>
     <div class="list">${rows}</div></section>` };
 }
 
@@ -1070,7 +1070,7 @@ function scoreboard(r, v, m, animate) {
   if (!r) {
     sb.className = `card tmid empty-state${ready ? " ready" : ""}`;
     const hint = !any ? "Add a player to each side to see who wins." : !S.sides.A.items.length ? "Now add what you give."
-      : !S.sides.B.items.length ? "Now add what you get." : "Ready. Tap Check This Trade.";
+      : !S.sides.B.items.length ? "Now add what they give." : "Ready. Tap Check This Trade.";
     sb.innerHTML = `<div class="tm-top"><div class="tm-title muted">${hint}</div>${swap}${clear}</div>${check}`;
     if (dh) { dh.classList.remove("flip"); dh.innerHTML = dial(null); $$(".h2h-side", dh.closest(".h2h")).forEach(s => s.classList.remove("out-win", "out-lose", "out-fair")); }
   } else {
@@ -1507,7 +1507,7 @@ function recheckTrade(t) {
 function picker(k) {
   const s = S.sides[k], team = teamById(s.team);
   const inSide = new Set(S.sides.A.items.concat(S.sides.B.items).map(a => a.id));
-  const body = openSheet(`<div class="sheet-head"><h2>${k === "A" ? "You Give" : "You Get"}</h2><button class="close" aria-label="Close">×</button></div>
+  const body = openSheet(`<div class="sheet-head"><h2>${k === "A" ? "You Give" : "They Give"}</h2><button class="close" aria-label="Close">×</button></div>
     <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     <input type="search" id="pq" placeholder="Search players${E.is_redraft(S.cfg) ? "" : ' or type "2027 1st"'}" autocomplete="off"></div>
     <div id="pres" class="list"></div>`, { full: true, focus: team ? null : "#pq" });
@@ -2065,7 +2065,7 @@ function drawTrades(body, t, W) {
   T.ideas.forEach((x, i) => {
     h += `<section class="card idea tone-purple">
       <div class="idea-top"><span class="idea-kind k-${x.kind}">${KIND[x.kind]}</span><b class="idea-team">${esc(x.team.team_name)}</b><span class="muted">${esc(x.team.record || "")}</span></div>
-      <div class="idea-cols"><div><div class="sub-h">You Get</div>${x.get.map(mini).join("")}</div><div><div class="sub-h">You Give</div>${x.give.map(mini).join("")}</div></div>
+      <div class="idea-cols"><div><div class="sub-h">They Give</div>${x.get.map(mini).join("")}</div><div><div class="sub-h">You Give</div>${x.give.map(mini).join("")}</div></div>
       <ul class="idea-why">${x.why.map(w => `<li>${linkify(w, x.get.concat(x.give))}</li>`).join("")}</ul>
       <button class="btn soft block" data-idea="${i}">Open in Trade</button></section>`;
   });
@@ -2434,7 +2434,7 @@ function card(a, opts = {}) {
       h += `${a.is_pick ? "" : `<div class="sec"><h3>Game log</h3><div id="wkBody">${weeklyHtml || `<p class="note muted">Loading…</p>`}</div></div>`}` + statsTbl;
     }
     if (tabNow === "news") h += newsHtml === "none" ? `<div class="sec"><p class="note muted">No news right now.</p></div>` : `${`<div class="sec" id="newsSec"><h3>News</h3><div id="newsBody">${newsHtml || `<p class="note muted">Loading…</p>`}</div></div>`}`;
-    return h + credits() + `<div class="card-bar"><div class="btns"><button class="btn soft" data-to="A">Add to "You Give"</button><button class="btn soft" data-to="B">Add to "You Get"</button></div></div>`;
+    return h + credits() + `<div class="card-bar"><div class="btns"><button class="btn soft" data-to="A">Add to "You Give"</button><button class="btn soft" data-to="B">Add to "They Give"</button></div></div>`;
   };
   let newsHtml = "", hdr = null, weeklyHtml = "", draftInfo = null, cardTab = "overview";
   const body = openSheet(draw(S.W), { full: true, onClose: opts.onClose });
