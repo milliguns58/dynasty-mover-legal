@@ -96,9 +96,9 @@ label.lbl{display:block;font-size:14px;color:var(--ink2);margin:6px 0 6px}
 .seg button.on{background:var(--accent);color:var(--accent-ink)}
 .chips-row{display:flex;flex-wrap:wrap;gap:8px;margin:0}
 .chips-row::-webkit-scrollbar{display:none}
-.who-row{display:flex;align-items:center;gap:8px;margin:10px 0 0;padding-top:10px;border-top:1px solid var(--line)}
-.who-lbl{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink2);margin-right:2px}
-.who-row .fchip{padding:6px 14px;font-size:13px}
+.seg.sub-seg{margin:10px 0 0;padding:3px;border-radius:12px}
+.seg.sub-seg button{min-height:32px;padding:5px 6px;font-size:14px;border-radius:9px}
+#eseg,#rseg{margin-top:10px}
 .fchip{flex:none;border:0;background:var(--surface);border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink2)}
 .fchip.on{background:var(--ink);color:var(--surface)}
 .switch{display:flex;align-items:center;gap:12px;padding:12px 0;cursor:pointer;min-height:50px}
