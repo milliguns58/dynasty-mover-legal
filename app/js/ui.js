@@ -1601,13 +1601,13 @@ function rankList(el) {
   if (hasLg) for (const t of teams()) for (const pid of t.players) owner[pid] = t;
   const tabs = [["ALL", "All"], ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"]].concat(E.is_redraft(S.cfg) ? [] : [["PICK", "Picks"], ["DRAFT", "Draft helper"]]);   // the class lives in the draft helper's tab (2026-11-03, the user's ask)
   const rookTab = R.pos === "DRAFT" || R.pos === "ROOK";
-  // whose players: free agents never make Market vs ours (it needs a real market price), so that list splits by team instead
+  // whose players: free agents never make Buy & sell (it needs a real market price), so that list splits by team instead
   const whoOpts = !hasLg || R.pos === "PICK" || rookTab ? null
     : [["all", "All players"]].concat(R.pos === "EDGE" ? [["theirs", "Other teams"]] : [["free", "Available"]], [["mine", "Mine"]]);
   const who = whoOpts && whoOpts.some(([k]) => k === R.who) ? R.who : "all";
   R.rpos = R.rpos || "ALL";
   const hasOurs = S.values.players.some(a => a.ours > 0);
-  if (hasOurs) tabs.push(["EDGE", "Market vs ours"]);
+  if (hasOurs) tabs.push(["EDGE", "Buy & sell"]);   // was "Market vs ours" (renamed 2026-11-03, the user's ask)
   if (R.pos === "EDGE" && (locked() || !hasOurs)) R.pos = "ALL";
   R.edge = R.edge || "buy";
   const dynEdge = !E.is_redraft(S.cfg) && S.values.players.some(a => a.omkt);   // the dynasty lists need the outside market (values from 2026-10-16 on)
