@@ -1,10 +1,10 @@
 {
- "versionCode": 45,
- "versionName": "3.2.27",
- "notes": "New Trade screen: You give and You get face off side by side, with a dial that shows who comes out ahead.",
+ "versionCode": 46,
+ "versionName": "3.2.28",
+ "notes": "Market vs ours no longer cut off on wide screens, and smoother desktop layout.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
  },
- "published": "2026-11-02"
+ "published": "2026-11-04"
 }
