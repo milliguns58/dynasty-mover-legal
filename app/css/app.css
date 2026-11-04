@@ -94,11 +94,11 @@ label.lbl{display:block;font-size:14px;color:var(--ink2);margin:6px 0 6px}
 .card .seg{background:var(--raise)}
 .seg button{border:0;background:transparent;color:var(--ink2);border-radius:10px;padding:8px 6px;font-size:15px;font-weight:600;cursor:pointer;min-height:40px}
 .seg button.on{background:var(--accent);color:var(--accent-ink)}
-.chips-row{display:flex;flex-wrap:wrap;gap:8px;margin:0}
+.chips-row{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
 .chips-row::-webkit-scrollbar{display:none}
-.seg.sub-seg{margin:10px 0 0;padding:3px;border-radius:12px}
-.seg.sub-seg button{min-height:32px;padding:5px 6px;font-size:14px;border-radius:9px}
-#eseg,#rseg{margin-top:10px}
+.chip-gap{flex:none;width:1px;background:var(--line);margin:6px 2px}
+/* a mouse can't swipe the row (no scrollbar), so with a mouse the chips wrap instead: "Market vs ours" was cut in half (2026-11-04) */
+@media (hover:hover) and (pointer:fine){.chips-row{flex-wrap:wrap;overflow-x:visible}}
 .fchip{flex:none;border:0;background:var(--surface);border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink2)}
 .fchip.on{background:var(--ink);color:var(--surface)}
 .switch{display:flex;align-items:center;gap:12px;padding:12px 0;cursor:pointer;min-height:50px}
@@ -518,9 +518,6 @@ select.pill{width:auto;max-width:100%;min-height:36px;padding:6px 32px 6px 14px;
 
 /* trade: the Check button */
 .tm-go{margin-top:12px}
-/* with a player on each side the verdict card, and Check This Trade with it, stays above the tab bar while the sides
-   scroll (2026-11-03, the user's ask) */
-.tmid.ready{position:sticky;bottom:calc(var(--tabh) + var(--safe-bottom) + 8px);z-index:5;filter:drop-shadow(0 -3px 12px rgba(0,0,0,.14))}
 
 /* player card: where our grade and the market disagree */
 .edge{margin-top:12px;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.35;background:rgba(0,0,0,.22);color:#fff}
@@ -1067,24 +1064,8 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
    with a VS badge between them; each player is a small centred tile. The verdict card under them has a dial. */
 .h2h{padding:12px 10px 8px}
 .h2h-cols{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:start}
-.h2h-side{position:relative;z-index:1;min-width:0;border-radius:14px;padding:10px 8px 2px;text-align:center;background:transparent;box-shadow:inset 0 0 0 1px var(--line);transition:background .4s}
-/* the dial behind the two sides: the sides' tints are see-through, so it shows between and under them */
-.h2h-cols:has(.h2h-dial){align-items:stretch}
-.h2h-dial{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92%,330px);z-index:0;pointer-events:none}
-.h2h-dial .dial{max-width:none;margin:0}
-.h2h-dial.flip .dial{transform:scaleX(-1)}           /* the user on the left: the winning side of the dial on the left too */
-.h2h-dial .dial .z{opacity:.6;stroke-width:18}
-.h2h-dial .dial .z-none{opacity:1}
-.h2h-dial .dial-needle{opacity:.9}
-.h2h-dial .dial-needle line{stroke-width:5}
-.h2h-dial .dial.idle .dial-needle{opacity:.35}
-/* the sides after a check (ui.js scoreboard): green for the team that wins, red for the one that loses, yellow when fair */
-.h2h .h2h-side.out-win{background:color-mix(in srgb,#22c55e 16%,transparent);box-shadow:none}
-.h2h .h2h-side.out-lose{background:color-mix(in srgb,#ef4444 14%,transparent);box-shadow:none}
-.h2h .h2h-side.out-fair{background:color-mix(in srgb,#facc15 20%,transparent);box-shadow:none}
-.h2h .h2h-side.out-win .h2h-label{color:#16a34a}
-.h2h .h2h-side.out-lose .h2h-label{color:#dc2626}
-.h2h .h2h-side.out-fair .h2h-label{color:#a16207}
+.h2h-side{min-width:0;border-radius:14px;padding:10px 8px 2px;text-align:center;background:color-mix(in srgb,var(--accent) 9%,var(--surface))}
+.h2h-side.get{background:color-mix(in srgb,var(--pick) 11%,var(--surface))}
 .h2h-label{font-size:12.5px;font-weight:750;color:var(--accent)}
 .h2h-side.get .h2h-label{color:var(--pick)}
 .h2h-tot{font-size:21px;font-weight:800;letter-spacing:-.02em;line-height:1.25;font-variant-numeric:tabular-nums}
@@ -1112,8 +1093,8 @@ details.tip.pw-legend{padding:0 16px 6px;font-size:inherit}
 .dial{display:block;width:100%;max-width:230px;height:auto;margin:8px auto 0;overflow:visible}
 .dial .z{fill:none;stroke-width:15}
 .dial .z-none{stroke:var(--raise)}
-.dial .z-red{stroke:#dc2626}.dial .z-orange{stroke:#f97316}.dial .z-amber{stroke:#f59e0b}.dial .z-yellow{stroke:#facc15}
-.dial .z-lime{stroke:#84cc16}.dial .z-green{stroke:#22c55e}.dial .z-green3{stroke:#15803d}
+.dial .z-red{stroke:#dc2626}.dial .z-orange{stroke:#f97316}.dial .z-yellow{stroke:#facc15}
+.dial .z-green{stroke:#22c55e}.dial .z-green2{stroke:#16a34a}.dial .z-green3{stroke:#15803d}
 .dial-needle{transform-box:view-box;transform-origin:100px 100px;transition:transform 1s cubic-bezier(.3,1.35,.5,1)}
 .dial-needle line{stroke:var(--ink);stroke-width:4;stroke-linecap:round}
 .dial-needle circle{fill:var(--ink);stroke:var(--surface);stroke-width:3}
