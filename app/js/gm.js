@@ -63,165 +63,217 @@ const GM = (() => {
     if (S.sides && S.sides.A && (S.sides.A.team == null || S.sides.A.team === S.cfg.my_roster_id)) { S.sides.A.mode = p; saveUi(); }   // the trade screen's lens on your side follows
     briefCache = { key: null, text: "" };
   }
-  /* The app's house rules, written from the engine's own constants so the GM and the app can never disagree. */
-  function houseRules(rd, sf) {
+  /* The app's house rules, written from the engine's own constants so the GM and the app can never disagree. Only the
+     rules the question's topic needs go in (2026-11-04, the user: the GM was confused; keep it to simpler things). */
+  function houseRules(rd, sf, kind) {
+    const all = kind === "report" || kind === "general", has = (...k) => all || k.includes(kind);
     const out = ["# House rules (how this app judges players; follow them)"];
-    if (rd) { out.push("- Redraft: points only. Age, runway, youth and draft slot count for nothing; the best roster scores the most this season. Most players can be replaced: sell the name, keep the points."); }
+    if (rd) out.push("- Redraft: points only. Age, runway, youth and draft slot count for nothing.");
     else {
       const C = E.AGE_CLIFF;
-      out.push(`- Age cliffs: RB ${C.RB}, WR ${C.WR}, TE ${C.TE}, QB ${C.QB} (35 for a QB who relies on running); the slide starts two years before each. Sell a year early rather than a year late. Player lines carry "declining", "cliff next year" or "past the cliff".`);
-      out.push("- Young talent is the currency: never trade away or drop a young player with long-term value for a short-term fill-in.");
-      out.push(`- Usable quarterbacks: a QB scoring ${sf ? E.QB_USABLE.sf : E.QB_USABLE.one}+ points a game this season is a usable starter and worth more than his reputation says; one well under it is worth less. Player lines show his points a game.${sf ? " Superflex: a young starting QB is the hardest asset to acquire; never give one away." : ""}`);
-      if (sf) out.push("- Superflex QB trades: never trade a QB who starts for his NFL team (\"NFL starter\") for a backup or a rookie who isn't starting (\"NFL backup\"), whatever their values say. Selling a starting QB needs a starting QB back, or a clear overpay of at least 25% more value, and the manager must keep two starting QBs. A rookie's draft-day hype is not a starting job.");
+      if (has("trade", "player", "pickup")) out.push(`- Age cliffs: RB ${C.RB}, WR ${C.WR}, TE ${C.TE}, QB ${C.QB} (35 for a running QB); the slide starts two years before. Sell a year early, not a year late.`);
+      if (has("trade", "pickup", "player")) out.push("- Never trade away or drop a young player with long-term value for a short-term fill-in.");
+      if (sf && has("trade", "player")) out.push("- Superflex: never trade an NFL starting QB for a backup or a rookie. Selling a starting QB needs a starting QB back or a 25%+ overpay, and the manager keeps two starters.");
     }
-    out.push(`- Stars start: a player tagged STAR who is healthy and has a game is never benched for a lesser player, whatever one week's projection says; only out, IR, bye or no team changes that. Only another star with the higher number takes his slot.`);
-    out.push("- Never recommend starting a player projected for nothing; when two are close, the one starting now stays.");
-    out.push("- Pickups: never drop a producing starter for a player who has not played unless he has a real role or is the hottest add in the league. Bids follow impact and demand, not value; a kicker or defense is a minimum bid.");
-    out.push("- Grades: F is for a player with nothing going (no team, no role, or old and unproductive); anyone with a role, a starting job, youth or a rising trend is at least a D.");
-    out.push("- Trades: within 5% of value is fair, 5 to 12% a slight edge, over 25% lopsided. The smallest sweetener that gets to yes is the right one.");
-    return out;
+    if (has("lineup")) {
+      out.push("- A player tagged STAR who is healthy and has a game always starts.");
+      out.push("- Never start a player projected for nothing; when two are close, the one starting now stays.");
+    }
+    if (has("pickup")) out.push("- Pickups: never drop a producing starter for a player who hasn't played unless he has a real role. Bids follow impact and demand; a kicker or defense is a minimum bid.");
+    if (has("trade")) out.push("- Trades: within 5% of value is fair, 5 to 12% a slight edge, over 25% lopsided. Suggest the smallest sweetener that gets to yes.");
+    if (has("player")) out.push("- Grades: F only for a player with nothing going; anyone with a role, a starting job, youth or a rising trend is at least a D.");
+    return out.length > 1 ? out : [];
   }
   const profiles = () => Week.team_profiles(S.values, S.cfg).teams;       // record, place, mode, thin/deep, trade habits (week.js)
-  const habits = I => { const T = I.trades || {}; if (!T.n) return "no trades this season"; return `${T.n} ${T.n === 1 ? "trade" : "trades"} this season${T.picksGot || T.picksGave ? `, picks taken ${T.picksGot} / given ${T.picksGave}` : ""}${T.multi ? `, took the extra pieces ${T.multi}x` : ""}`; };
+  const habits = I => { const T = I.trades || {}; if (!T.n) return "no trades"; return `${T.n} ${T.n === 1 ? "trade" : "trades"}${T.picksGot || T.picksGave ? `, picks taken ${T.picksGot} / given ${T.picksGave}` : ""}`; };
 
-  function briefText(W, TR = null) {
-    const v = S.values, lg = v.league;
+  /* What the question is about, so the brief carries only what it needs (2026-11-04). A quick-question button names
+     its topic; typed questions are read by their words. */
+  const TOPICS = [
+    ["lineup", /\b(start|sit|bench|lineup|flex|this week|matchup|play him|playing)\b/i],
+    ["pickup", /\b(pick ?up|waiver|wire|faab|bid|free agent|add|drop|stream)\b/i],
+    ["draft", /\b(rookie|draft|prospect|class|pick \d|\d(st|nd|rd|th) round|my picks?)\b/i],
+    ["trade", /\b(trade|offer|deal|swap|sell|buy|for my|give up|package|worth|fair|deadline)\b/i],
+  ];
+  function topicOf(q, named) {
+    for (const [k, re] of TOPICS) if (re.test(q)) return k;
+    return named.length ? "player" : "general";
+  }
+  /* The teams a question names, by team name or manager name. */
+  function namedTeams(q) {
+    const text = " " + E.norm(String(q).replace(/[^\w\s'.-]/g, " ")) + " ";
+    return teams().filter(t => [t.team_name, t.owner].some(n => n && E.norm(n).length >= 3 && text.includes(" " + E.norm(n) + " ")));
+  }
+
+  function briefText(W, TR = null, ctx = {}) {
+    const v = S.values, lg = v.league, kind = ctx.kind || "general";
     const PRc = E.prospects_cached(parseInt(S.cfg.season, 10) + 1);
-    const key = [E.P && E.P.id, v.meta && v.meta.fetched, W && W.week, S.cfg.my_roster_id, PRc && PRc.built, TR && TR.at, (lg.teams || []).map(t => `${t.record}:${(t.players || []).length}:${(t.picks || []).length}`).join(",")].join("|");
+    const key = [kind, (ctx.teams || []).map(t => t.roster_id).join("."), ctx.mu ? ctx.mu.p : "", E.P && E.P.id, v.meta && v.meta.fetched, W && W.week, S.cfg.my_roster_id, S.cfg.plan, PRc && PRc.built, TR && TR.at, (lg.teams || []).map(t => `${t.record}:${(t.players || []).length}:${(t.picks || []).length}`).join(",")].join("|");
     if (briefCache.key === key) return briefCache.text;
-    const text = buildBrief(W, TR);
+    const text = buildBrief(W, TR, kind, ctx);
     briefCache = { key, text };
     return text;
   }
 
-  function buildBrief(W, TR) {
+  /* The league brief, by topic (2026-11-04 revamp). Always: the league in two lines, the plan, the rules the topic
+     needs, how to read a player line, the standings in one line a team, and the manager's roster. Then only the topic's
+     own sections: lineup = this week's lineup, matchup, injuries, last week; pickup = suggested adds, best free agents,
+     trending, watchlist; trade = Buy & Sell, trade ideas, the other teams' best players, named teams in full, recent
+     trades; player = the app's numbers on the named players; draft = the rookie class and the manager's picks; a
+     report or a general question gets a short version of each. Every team's full roster no longer goes in: it was half
+     the brief and the free model lost the question in it. */
+  function buildBrief(W, TR, kind, ctx) {
     const v = S.values, c = S.cfg, lg = v.league, L = c.league, rd = E.is_redraft(c), sf = parseInt(L.num_qbs, 10) >= 2;
     const me = teamById(c.my_roster_id), week = W && W.week, P = E.project_standings(v, c), prof = profiles();
     const ppr = parseFloat(L.ppr || 0), pprTxt = ppr >= 1 ? "full PPR" : ppr > 0 ? "half PPR" : "standard scoring", tep = parseFloat(L.te_premium_bonus_pct || 0);
-    const kind = (E.league_kind_label ? E.league_kind_label(c) : (rd ? "redraft" : "dynasty")).toLowerCase();
+    const lkind = (E.league_kind_label ? E.league_kind_label(c) : (rd ? "redraft" : "dynasty")).toLowerCase();
     const pct = x => `${Math.round((x || 0) * 100)}%`, mine = t => t.roster_id === c.my_roster_id;
+    const all = kind === "report" || kind === "general", has = (...k) => all || k.includes(kind);
+    const owner = new Map(); for (const t of lg.teams) for (const pid of t.players || []) owner.set(String(pid), t);
     const out = [];
+    out.push(`# This question is about: ${{ lineup: "this week's lineup", pickup: "pickups and the waiver wire", trade: "trades", player: "the players it names", draft: "the rookie draft", report: "the weekly report", general: "the manager's team" }[kind]}. Answer that; the brief below carries what it needs.`);
+    out.push("");
     out.push("# League");
-    out.push(`${L.name || "League"}: ${lg.teams.length} teams, ${sf ? "superflex" : "1-QB"} ${kind}, ${pprTxt}${tep > 0 ? `, TE premium +${tep}%` : ""}. Season ${c.season}${week ? `, NFL week ${week}` : ""}.`);
-    out.push(`Starting lineup: ${(lg.roster_positions_starters || L.starters).map(SLOT_LABEL).join(", ")}.`);
+    out.push(`${L.name || "League"}: ${lg.teams.length} teams, ${sf ? "superflex" : "1-QB"} ${lkind}, ${pprTxt}${tep > 0 ? `, TE premium +${tep}%` : ""}. Season ${c.season}${week ? `, NFL week ${week}` : ""}. Starters: ${(lg.roster_positions_starters || L.starters).map(SLOT_LABEL).join(", ")}.`);
     const bits = [];
     if (lg.trade_deadline) bits.push(`trade deadline after week ${lg.trade_deadline}`);
-    if (lg.playoff_week_start) bits.push(`playoffs start week ${lg.playoff_week_start} with ${lg.playoff_teams || 6} teams`);
-    if (parseInt(lg.waiver_type, 10) === 2 && lg.waiver_budget) bits.push(`FAAB budget $${lg.waiver_budget} a season`);
+    if (lg.playoff_week_start) bits.push(`playoffs from week ${lg.playoff_week_start}, ${lg.playoff_teams || 6} teams`);
+    if (parseInt(lg.waiver_type, 10) === 2 && lg.waiver_budget) bits.push(`FAAB $${lg.waiver_budget}`);
     if (bits.length) out.push(bits.join("; ") + ".");
-    out.push(me ? `The manager you work for runs ${me.team_name}.` : "The manager hasn't marked which team is theirs; ask if it matters.");
-    out.push(`Values as of ${String((v.meta && v.meta.fetched) || "").slice(0, 16).replace("T", " ")}.`);
+    out.push(me ? `The manager runs ${me.team_name}.` : "The manager hasn't marked which team is theirs; ask if it matters.");
     out.push("");
     out.push("# The manager's plan");
-    out.push(plan() ? `${planLabel(plan()).toUpperCase()}${plan() === "contend" ? ": buy this season's points with picks and prospects; sell nothing young unless it wins now." : plan() === "rebuild" ? ": sell players near the age cliff for youth and picks; this season's wins don't matter." : ": keep the window open and the future healthy; take the better side of value either way."} Advise for this plan in every answer. If the app's read of the team (Direction, below) disagrees with it, say so once, then advise for the plan.`
-      : "NOT SET. Before anything else, ask the manager which plan this season is: rebuild, balanced, or win now (one short question, then give a provisional answer for the most likely one). The app's Plan buttons above the chat save it.");
+    out.push(plan() ? `${planLabel(plan()).toUpperCase()}${plan() === "contend" ? ": win this season; trade picks and prospects for points, never the young core." : plan() === "rebuild" ? ": sell players near the age cliff for youth and picks; this season's wins don't matter." : ": stay competitive and keep the future healthy."} Advise for this plan.`
+      : "NOT SET. Ask in one short question which plan it is (rebuild, balanced or win now), then give a provisional answer.");
     out.push("");
-    out.push(...houseRules(rd, sf));
-    try { const sc = Score.briefLine(c, v, W); if (sc) out.push(sc); } catch (e) { /* no record yet */ }
-    try { const A = W && W.acc; if (A && A.all) out.push(`This season's weekly projections have missed by ${A.all.mae.toFixed(1)} points a player on average (${Math.round(A.all.close * 100)}% within 5, ${A.all.n} player-weeks); the numbers in this brief are already corrected for how they ran by position. Say so when a call rests on a close projection.`); } catch (e) { /* none */ }
-    try { const mt = marketText(); if (mt && c.league.use_market !== false) out.push(mt + " The app's trade verdicts are priced with it."); } catch (e) { /* none */ }
+    const HR = houseRules(rd, sf, kind); if (HR.length) { out.push(...HR); out.push(""); }
+    out.push("# Reading a player line");
+    out.push(`Name (position age team) value grade [tags]. Value is the trade value (10,000 = the top asset). Grade is our ${rd ? "rest-of-season" : "dynasty"} outlook, A+ to F. "Buy" or "Sell" after the grade: our grade and his price disagree by two steps. ${rd ? "ROS12.4: our points a game for the rest of the season." : "NX14.2: our points a game next season."} EP+2.1: his usage was worth 2.1 a game more than he scored (due for more); EP-1.8: running hot.`);
     out.push("");
-    out.push("# How to read the numbers");
-    out.push(`Player lines read: Name (position age team) value grade, then Buy or Sell when our grade and the price disagree. Value is the Dynasty Mover trade value (10,000 is the top asset in this format; QBs carry a premium because they cost more in trades${sf ? ", more so in superflex" : ""}). Grade is our outlook for ${rd ? "the rest of this season" : "the next few seasons"}, A+ down to F; the market grade is simply where the value ranks. Buy means our grade is two steps above what his price says; Sell means two below. Picks show the slot they project to from the original owner's projected finish.`);
-    out.push(rd ? "ROS12.4 on a player line is our forecast of his points a game for the rest of this season, from a model fitted to thirteen seasons of NFL data (usage, expected points, snap share, team, history)."
-      : "NX14.2 on a player line is our forecast of his points a game next season, from a model fitted to thirteen seasons of NFL data (usage, expected points, snap share, age by position, draft slot, team, history). The grade builds on it.");
-    out.push("EP+2.1 on a player line means his usage this season (expected points from every play he was involved in) was worth 2.1 points a game more than he scored: due for more, a buy-low. EP-1.8 means he scored 1.8 a game above his usage: running hot, likely to cool.");
-    out.push(`Odds come from simulating the remaining schedule thousands of times. A trade within 5% of total value is fair, 5 to 12% a slight edge, over 25% lopsided.${!rd && parseFloat(L.qb_trade_bump_pct ?? 15) > 0 ? ` In this app's trade verdicts a starting QB is priced ${parseFloat(L.qb_trade_bump_pct ?? 15)}% above his ranking value, because managers overpay for QBs.` : ""}`);
-    out.push("");
-    out.push("# Standings and projections");
+    out.push("# Standings");
     for (const I of [...prof].sort((a, b) => a.place - b.place)) {
       const p = P && P.by[I.t.roster_id];
-      out.push(`${I.place}. ${I.t.team_name}${I.t.owner && I.t.owner !== I.t.team_name ? ` (manager ${I.t.owner})` : ""} (${I.t.record || "0-0"}${I.t.points_for ? `, ${Math.round(I.t.points_for)} pts` : ""}): ${I.mode}${p && P.weeks_left ? `; projected ${p.wins.toFixed(1)} wins, ${pct(p.playoff)} playoffs, ${pct(p.title)} title` : ""}${I.thin.length ? `; thin at ${I.thin.join("/")}` : ""}${I.deep.length ? `; deep at ${I.deep.join("/")}` : ""}; ${habits(I)}${mine(I.t) ? " (the manager's team)" : ""}`);
+      const top = has("trade") && !mine(I.t) ? `; best: ${I.players.filter(a => !a.is_pick).sort((a, b) => b.value - a.value).slice(0, 4).map(a => `${a.name} (${a.pos}) ${Math.round(a.value)}`).join(", ")}` : "";
+      out.push(`${I.place}. ${I.t.team_name}${I.t.owner && I.t.owner !== I.t.team_name ? ` (${I.t.owner})` : ""} ${I.t.record || "0-0"}, ${I.mode}${p && P.weeks_left ? `, ${pct(p.playoff)} playoffs` : ""}${I.thin.length ? `, thin at ${I.thin.join("/")}` : ""}${I.deep.length ? `, deep at ${I.deep.join("/")}` : ""}${has("trade") ? `, ${habits(I)}` : ""}${top}${mine(I.t) ? " (THE MANAGER)" : ""}`);
     }
     out.push("");
-    out.push("# Rosters");
     const byPos = players => POS.map(pos => { const l = players.filter(a => a.pos === pos).sort((a, b) => b.value - a.value); return l.length ? `${pos}: ${l.map(line).join("; ")}` : null; }).filter(Boolean);
-    for (const I of [...prof].sort((a, b) => (mine(a.t) ? -1 : mine(b.t) ? 1 : a.place - b.place))) {
-      out.push(`## ${I.t.team_name} (${I.t.record || "0-0"}): ${I.mode}${mine(I.t) ? ". THE MANAGER'S TEAM" : ""}`);
+    const roster = I => {
+      out.push(`# ${mine(I.t) ? "The manager's roster" : `${I.t.team_name}'s roster`} (${I.t.record || "0-0"}, ${I.mode})`);
       out.push(...byPos(I.players));
-      const others = I.players.filter(a => !POS.includes(a.pos));
-      if (others.length) out.push(`Other: ${others.map(a => `${a.name} (${a.pos})`).join("; ")}`);
       const picks = I.assets.filter(a => a.is_pick);
-      if (picks.length) out.push(`Picks: ${picks.map(a => a.name.replace(" · ", ", ")).join("; ")}`);
+      if (picks.length && !rd && has("trade", "draft")) out.push(`Picks: ${picks.map(a => a.name.replace(" · ", ", ")).join("; ")}`);
       out.push("");
-    }
-    const PR = rd ? null : E.prospects_cached(parseInt(c.season, 10) + 1);
-    if (PR && PR.players && PR.players.length) {
-      out.push(`# Rookie class (${PR.draftYear} NFL draft; our prospect grades 0-100 like the player grades; college data from CollegeFootballData.com${PR.sample ? "; PLACEHOLDER DATA" : ""})`);
-      out.push(PR.players.slice(0, 36).map(p => `${p.rank}. ${p.name} (${p.pos}, ${p.school}, ${p.cls}) grade ${p.grade} ${p.tier}; ${typeof prospectStat === "function" ? prospectStat(p) : ""}${p.drafted ? `; drafted ${p.drafted.round}.${p.drafted.overall} by ${p.drafted.team}` : ""}${p.note ? `. ${p.note}` : ""}`).join("\n"));
-      if (me) {
-        const picks = E.team_assets(v, c, me).filter(a => a.is_pick && parseInt(a.pick.season, 10) === PR.draftYear);
-        if (picks.length) out.push(`The manager's picks in this draft: ${picks.map(a => a.name.replace(" · ", ", ")).join("; ")}. A pick's slot maps to the board rank: round 1 slot 7 is rank 7 in this ${lg.teams.length}-team league, round 2 slot 3 is rank ${lg.teams.length + 3}.`);
-      }
-      out.push("");
-    } else if (!rd) E.prospects(parseInt(c.season, 10) + 1).catch(() => null);
-    const owned = new Map(); for (const I of prof) for (const a of I.players) owned.set(a.id, I.t.team_name);
-    const reg = v.players.filter(a => !a.is_pick && a.ep && a.ep.g >= 3 && a.value >= 800 && owned.has(a.id)).map(a => [a, (a.ep.exp - a.ep.pts) / a.ep.g]).filter(x => Math.abs(x[1]) >= 2);
-    if (reg.length) {
-      out.push("# Regression watch (usage versus points this season)");
-      const fmtR = l => l.map(([a, g]) => `${a.name} (${a.pos}, ${owned.get(a.id)}) ${g > 0 ? "+" : ""}${g.toFixed(1)} a game`).join("; ");
-      const under = reg.filter(x => x[1] > 0).sort((x, y) => y[1] - x[1]).slice(0, 6), over = reg.filter(x => x[1] < 0).sort((x, y) => x[1] - y[1]).slice(0, 6);
-      if (under.length) out.push(`Scoring under their usage, due for more (buy low): ${fmtR(under)}.`);
-      if (over.length) out.push(`Scoring over their usage, likely to cool (sell high): ${fmtR(over)}.`);
-      out.push("");
-    }
-    if (TR && ((TR.adds || []).length || (TR.drops || []).length)) {
-      const ownerSid = new Map(); for (const t of lg.teams) for (const pid of t.players || []) ownerSid.set(String(pid), t.team_name);
-      const tl = l => l.map(r => `${r.name} (${r.pos} ${r.team || "FA"})${ownerSid.has(String(r.sid)) ? ` (on ${ownerSid.get(String(r.sid))})` : " (available here)"} ${E.compact(r.count)}`).join("; ");
-      out.push("# Trending on Sleeper (adds and drops across all leagues, last 2 days: what the waiver wire is talking about)");
-      if ((TR.adds || []).length) out.push(`Most added: ${tl(TR.adds)}.`);
-      if ((TR.drops || []).length) out.push(`Most dropped: ${tl(TR.drops)}.`);
-      out.push("");
-    }
-    if (me) {
-      const I = prof.find(x => x.t.roster_id === me.roster_id);
-      out.push("# The manager's team in detail");
-      const inj = I.players.map(a => { const sid = a.sleeper_id, st = (lg.players && lg.players[sid] && lg.players[sid].injury) || (W && W.status && W.status[sid] && W.status[sid].inj); return st ? `${a.name} (${st})` : null; }).filter(Boolean);
-      if (inj.length) out.push(`Injury status: ${inj.join("; ")}.`);
-      if (W && !W.valuesOnly) {
+    };
+    const myI = me && prof.find(x => x.t.roster_id === me.roster_id);
+    if (myI) roster(myI);
+    // the other teams the question is about, in full: named in the question, or owning a player it names
+    for (const t of ctx.teams || []) { const I = prof.find(x => x.t.roster_id === t.roster_id); if (I && !mine(I.t)) roster(I); }
+
+    if (me && myI) {
+      const inj = myI.players.map(a => { const sid = a.sleeper_id, st = (lg.players && lg.players[sid] && lg.players[sid].injury) || (W && W.status && W.status[sid] && W.status[sid].inj); return st ? `${a.name} (${st})` : null; }).filter(Boolean);
+      // ---- lineup: the app's lineup (it already runs on the card's next-week model), the grades, the matchup
+      if (has("lineup") && W && !W.valuesOnly) {
+        out.push(`# This week (week ${week})`);
+        if (inj.length) out.push(`Injuries: ${inj.join("; ")}.`);
         try {
           const LH = Week.lineup_helper(v, c, me, W);
-          const rowTxt = r => `${r.slot ? r.slot + " " : ""}${r.name}${r.pts != null ? ` ${(+r.pts).toFixed(1)}` : ""}${r.opp ? ` vs ${r.opp}` : ""}${r.flag ? ` [${r.flag}]` : ""}${r.bold ? " (a bold call)" : ""}`;
-          out.push(`This week's recommended lineup (week ${LH.week}, ${(+LH.rec_total).toFixed(1)} projected): ${LH.recommended.map(rowTxt).join("; ")}.`);
-          if (LH.has_current && LH.gain > 0.05) out.push(`Their current lineup projects ${(+LH.cur_total).toFixed(1)}; the recommended one adds ${(+LH.gain).toFixed(1)}.`);
-          if (LH.changes && LH.changes.length) out.push(`Changes from their current lineup: ${LH.changes.map(x => (typeof x === "string" ? x : `${x.action} ${x.name}${x.slot ? " at " + SLOT_LABEL(x.slot) : ""} (${(+x.pts || 0).toFixed(1)})${x.flag ? " [" + x.flag + "]" : ""}`)).join("; ")}.`);
+          const rowTxt = r => `${r.slot ? r.slot + " " : ""}${r.name}${r.pts != null ? ` ${(+r.pts).toFixed(1)}` : ""}${r.opp ? ` vs ${r.opp}` : ""}${r.flag ? ` [${r.flag}]` : ""}`;
+          out.push(`The app's lineup (${(+LH.rec_total).toFixed(1)} projected, from our next-week model): ${LH.recommended.map(rowTxt).join("; ")}.`);
+          if (LH.changes && LH.changes.length) out.push(`Changes from the lineup set now${LH.has_current ? ` (${(+LH.cur_total).toFixed(1)})` : ""}: ${LH.changes.map(x => (typeof x === "string" ? x : `${x.action} ${x.name}${x.slot ? " at " + SLOT_LABEL(x.slot) : ""} (${(+x.pts || 0).toFixed(1)})`)).join("; ")}.`);
+          else if (LH.has_current) out.push("The lineup set now is already the best one.");
           if (LH.notes && LH.notes.length) out.push(`Notes: ${LH.notes.join(" ")}`);
           const WG = Week.week_grades(v, c, W);
-          const wk = I.players.map(a => (WG[a.sleeper_id] ? `${a.name} ${WG[a.sleeper_id].letter} (${WG[a.sleeper_id].pts.toFixed(1)})` : null)).filter(Boolean);
-          if (wk.length) out.push(`This week's grades (projection ranked at the position): ${wk.join("; ")}.`);
+          const bench = myI.players.filter(a => WG[a.sleeper_id] && !LH.recommended.some(r => r.name === a.name)).map(a => `${a.name} ${WG[a.sleeper_id].pts.toFixed(1)}`);
+          if (bench.length) out.push(`Bench projections: ${bench.join("; ")}.`);
         } catch (e) { console.error(e); }
+        const mu = ctx.mu;
+        if (mu && !mu.started) {
+          const big = Object.entries(mu.edge).filter(([, d]) => Math.abs(d) >= 2).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 3).map(([s, d]) => `${SLOT_LABEL(s)} ${d > 0 ? "+" : ""}${d.toFixed(1)}`);
+          out.push(`Matchup: against ${mu.opponent}, ${mu.me.toFixed(1)} to ${mu.them.toFixed(1)} projected, ${Math.round(mu.p * 100)}% to win${big.length ? `; biggest edges by slot: ${big.join(", ")}` : ""}.`);
+        }
+        out.push("");
+      }
+      // ---- pickups: the app's suggested moves, the best free agents, what's trending, the watchlist
+      if (has("pickup") && W && !W.valuesOnly) {
+        out.push("# Pickups");
         try {
           const fas = Week.free_agents(v, c, W).filter(suggestable), M = Week.waiver_metric(v, c, W);
-          const moves = Week.roster_moves(v, c, me, W, { n: 6, per_group: 2, fas, metric: M });
-          if (moves.length) out.push(`Suggested pickups: ${moves.map(m => `add ${m.add.name} (${m.add.pos} ${m.add.team || "FA"})${m.drop ? `, drop ${m.drop.name}` : ", open roster spot"}${m.faab != null ? `, bid $${m.faab}` : ""}: ${whyPlain(M[2], m.add)}`).join("; ")}.`);
-          const best = [];
-          for (const [grp, rows] of Week.free_agent_board(v, c, fas, M[0], M[2], 4)) if (rows.length) best.push(`${grp}: ${rows.map(a => `${a.name} ${Math.round(a.value)}`).join(", ")}`);
-          if (best.length) out.push(`Best available free agents: ${best.join("; ")}.`);
+          const moves = Week.roster_moves(v, c, me, W, { n: kind === "pickup" ? 5 : 3, per_group: 2, fas, metric: M });
+          out.push(moves.length ? `The app's suggested moves: ${moves.map(m => `add ${m.add.name} (${m.add.pos} ${m.add.team || "FA"})${m.drop ? `, drop ${m.drop.name}` : ", open spot"}${m.faab != null ? `, bid $${m.faab}` : ""}: ${whyPlain(M[2], m.add)}`).join("; ")}.` : "The app finds no pickup worth a roster spot this week.");
+          if (kind === "pickup") {
+            const best = [];
+            for (const [grp, rows] of Week.free_agent_board(v, c, fas, M[0], M[2], 3)) if (rows.length) best.push(`${grp}: ${rows.map(a => a.name).join(", ")}`);
+            if (best.length) out.push(`Best available: ${best.join("; ")}.`);
+          }
         } catch (e) { console.error(e); }
+        if (TR && (TR.adds || []).length) {
+          const free = TR.adds.filter(r => !owner.has(String(r.sid))).slice(0, 6);
+          if (free.length) out.push(`Most added on Sleeper in the last 2 days and available here: ${free.map(r => `${r.name} (${r.pos} ${r.team || "FA"})`).join(", ")}.`);
+        }
+        out.push("");
       }
-      try {
-        const T = Week.trade_targets(v, c, me, week, 6);
-        if (T.me) out.push(`Direction: ${T.me.direction === "contend" ? "contending" : T.me.direction === "rebuild" ? "rebuilding" : "in between"}${T.me.thin.length ? `; thin at ${T.me.thin.join("/")}` : ""}${T.me.deep.length ? `; deep at ${T.me.deep.join("/")}` : ""}.${T.timing && T.timing.left != null ? ` ${T.timing.left} weeks to the trade deadline.` : ""}`);
-        if (T.ideas && T.ideas.length) out.push(`Trade ideas the app found: ${T.ideas.map(x => `${{ buy: "buy", sell: "sell", fit: "fit", buylow: "buy low", sellhigh: "sell high", injury: "injury buy", consolidate: "two-for-one", market: "league market" }[x.kind] || x.kind} with ${x.team.team_name}, get ${x.get.map(a => a.name).join(" + ")} for ${x.give.map(a => a.name).join(" + ")} (${x.why.join("; ")})`).join(". ")}.`);
-      } catch (e) { console.error(e); }
-      out.push("");
+      // ---- trades: Buy & Sell (the app's own list), the app's trade ideas, recent league trades
+      if (has("trade") && !rd) {
+        const edges = typeof dynastyEdge === "function" ? v.players.map(a => [a, dynastyEdge(a)]).filter(x => x[1] && owner.has(String(x[0].sleeper_id))) : [];
+        if (edges.length) {
+          const list = k => edges.filter(x => x[1].kind === k).sort((x, y) => y[1].score - x[1].score).slice(0, kind === "trade" ? 6 : 3);
+          const fmt = l => l.map(([a, e]) => `${a.name} (${a.pos}, ${mine(owner.get(String(a.sleeper_id))) ? "yours" : owner.get(String(a.sleeper_id)).team_name}): ${e.why}`).join("; ");
+          out.push("# Buy & Sell (the app's list: our model against the outside market)");
+          const bl = list("buy"), sh = list("sellhigh"), se = list("sell");
+          if (bl.length) out.push(`Buy low: ${fmt(bl)}.`);
+          if (sh.length) out.push(`Sell high: ${fmt(sh)}.`);
+          if (se.length) out.push(`Sell: ${fmt(se)}.`);
+          out.push("");
+        }
+      }
+      if (has("trade")) {
+        try {
+          const T = Week.trade_targets(v, c, me, week, kind === "trade" ? 5 : 3);
+          out.push("# Trade ideas");
+          if (T.me) out.push(`The app reads the manager's team as ${T.me.direction === "contend" ? "contending" : T.me.direction === "rebuild" ? "rebuilding" : "in between"}${T.timing && T.timing.left != null ? `, ${T.timing.left} weeks to the deadline` : ""}.`);
+          if (T.ideas && T.ideas.length) out.push(...T.ideas.map(x => `- With ${x.team.team_name}: get ${x.get.map(a => a.name).join(" + ")} for ${x.give.map(a => a.name).join(" + ")} (${x.why.join("; ")})`));
+          else out.push("The app found no trade that helps both sides right now.");
+          try { const mt = marketText(); if (mt && c.league.use_market !== false) out.push(mt); } catch (e) { /* none */ }
+          const trades = (lg.trades || []).slice(-(kind === "trade" ? 6 : 3)).reverse();
+          if (trades.length) {
+            const nm = ids => (ids || []).map(id => (v.by_sleeper[String(id)] || {}).name || `player ${id}`);
+            const pk = p => (typeof p === "string" ? p : p && p.season ? `${p.season} ${E.ordinal(p.round)}` : "a pick");
+            const tn = rid => { const t = teamById(rid); return t ? t.team_name : `roster ${rid}`; };
+            out.push(`Recent league trades: ${trades.map(tr => `week ${tr.week}, ${Object.entries(tr.sides || {}).map(([rid, s]) => `${tn(rid)} got ${nm(s.players).concat((s.picks || []).map(pk)).join(", ") || "nothing"}`).join(" / ")}`).join("; ")}.`);
+          }
+        } catch (e) { console.error(e); }
+        out.push("");
+      }
+      // ---- news on the manager's players, last 7 days (the app's wire)
+      if (has("lineup", "player", "pickup")) {
+        try {
+          const since = Date.now() - 7 * 86400000, sids = new Set(myI.players.map(a => String(a.sleeper_id)));
+          const news = E.load_wire().filter(x => sids.has(String(x.sid)) && new Date(x.t).getTime() >= since).slice(0, 6);
+          if (news.length) { out.push("# News on the manager's players (last 7 days)"); out.push(news.map(e => `${(v.by_sleeper[String(e.sid)] || {}).name || "A player"}: ${e.text}`).join("; ") + "."); out.push(""); }
+        } catch (e) { /* no wire yet */ }
+      }
+      // ---- the watchlist: players the manager is keeping an eye on
+      if (has("pickup", "trade", "player") && typeof watchList === "function") {
+        const W8 = watchList().map(w => S.values.players.find(a => typeof watchKey === "function" && watchKey(a) === w.k)).filter(Boolean);
+        if (W8.length) { out.push("# The manager's watchlist"); out.push(W8.map(a => `${line(a)}, ${owner.has(String(a.sleeper_id)) ? `on ${owner.get(String(a.sleeper_id)).team_name}` : "available"}`).join("; ") + "."); out.push(""); }
+      }
     }
-    const lw = lastWeek(W, me);
-    if (lw.length) { out.push("# Last week"); out.push(...lw); out.push(""); }
-    const trades = (lg.trades || []).slice(-15).reverse();
-    if (trades.length) {
-      out.push("# Recent league trades (what each side received)");
-      const nm = ids => (ids || []).map(id => (v.by_sleeper[String(id)] || {}).name || `player ${id}`);
-      const pk = p => (typeof p === "string" ? p : p && p.season ? `${p.season} ${E.ordinal(p.round)}${p.original != null ? " (via " + ((teamById(p.original) || {}).team_name || "another team") + ")" : ""}` : "a pick");
-      const tn = rid => { const t = teamById(rid); return t ? t.team_name : `roster ${rid}`; };
-      for (const tr of trades) {
-        const sides = Object.entries(tr.sides || {}).map(([rid, s]) => `${tn(rid)} got ${nm(s.players).concat((s.picks || []).map(pk)).join(", ") || "nothing"}`);
-        out.push(`Week ${tr.week}: ${sides.join("; ")}.`);
+    // ---- the draft: the rookie class and the manager's picks
+    const PR = rd || !has("draft") ? null : E.prospects_cached(parseInt(c.season, 10) + 1);
+    if (PR && PR.players && PR.players.length) {
+      out.push(`# Rookie class (${PR.draftYear} NFL draft; our prospect grades 0-100${PR.sample ? "; PLACEHOLDER DATA" : ""})`);
+      out.push(PR.players.slice(0, kind === "draft" ? 24 : 10).map(p => `${p.rank}. ${p.name} (${p.pos}, ${p.school}) ${p.grade} ${p.tier}${p.drafted ? `, drafted ${p.drafted.round}.${p.drafted.overall} by ${p.drafted.team}` : ""}`).join("\n"));
+      if (me) {
+        const picks = E.team_assets(v, c, me).filter(a => a.is_pick && parseInt(a.pick.season, 10) === PR.draftYear);
+        if (picks.length) out.push(`The manager's picks in this draft: ${picks.map(a => a.name.replace(" · ", ", ")).join("; ")}. Round 1 slot 7 is board rank 7; round 2 slot 3 is rank ${lg.teams.length + 3}.`);
       }
       out.push("");
-    }
-    out.push("# Top 40 players by value, the market scale");
-    out.push(v.players.filter(a => !a.unranked && !a.is_pick).slice(0, 40).map((a, i) => `${i + 1}. ${line(a)}`).join("\n"));
+    } else if (!rd && has("draft")) E.prospects(parseInt(c.season, 10) + 1).catch(() => null);
+    // ---- last week: for the report, the lineup and general questions
+    if (has("lineup")) { const lw = lastWeek(W, me); if (lw.length) { out.push("# Last week"); out.push(...lw); out.push(""); } }
+    out.push("# How to answer");
+    out.push(kind === "report" ? "Follow the report's outline. Plain text, short." : "Start with the answer in one line (what to do, with names). Then two or three short reasons from the numbers above. About 120 words. If the brief doesn't have what the question needs, say so in one line instead of guessing.");
     return out.join("\n");
   }
 
@@ -304,10 +356,12 @@ const GM = (() => {
   const playerQuestion = a => `What's your read on ${a.name}${a.is_pick ? "" : ` (${a.pos}, ${a.team || "FA"})`} for my team: buy, sell or hold, and at what price?`;
 
   // ---- the screen ----
-  const SUGGEST = {
-    dynasty: ["What should I do before the trade deadline?", "Who on my team should I sell high?", "Find me a trade that helps me now", "Who should I start this week?", "What's my best pickup this week?", "Which rebuilding team should I call?"],
-    redraft: ["Who should I start this week?", "What's my best pickup this week?", "Which trade helps me most this season?", "How do my playoff odds look?"],
+  // the quick questions (2026-11-04): a short label, the topic it sends (so the brief is the right one) and the question
+  const QUICK = {
+    dynasty: [["Who Do I Start?", "lineup", "Who should I start this week?"], ["Best Pickup?", "pickup", "What's my best pickup this week?"], ["Who Should I Sell?", "trade", "Who on my team should I sell?"], ["Find Me a Trade", "trade", "Find me one trade that fits my plan."], ["Rookie Picks", "draft", "Who should I take with my rookie picks?"]],
+    redraft: [["Who Do I Start?", "lineup", "Who should I start this week?"], ["Best Pickup?", "pickup", "What's my best pickup this week?"], ["Find Me a Trade", "trade", "Which trade helps me most this season?"], ["My Playoff Odds", "general", "How do my playoff odds look, and what would raise them?"]],
   };
+  const quickRow = (off = false) => `<div class="gm-chips gm-quick">${QUICK[E.is_redraft(S.cfg) ? "redraft" : "dynasty"].map(([l, k, q]) => `<button ${off ? "disabled" : `data-q="${esc(q)}" data-topic="${k}"`}>${esc(l)}</button>`).join("")}</div>`;
   function bubble(m, partial) {
     if (m.role === "user") return m.kind === "report" ? `<div class="msg user">Week ${esc(m.week)} GM report, please.</div>` : `<div class="msg user">${esc(m.content)}</div>`;
     if (m.role === "error") return `<div class="msg err">${esc(m.content)}</div>`;
@@ -352,7 +406,7 @@ const GM = (() => {
       root.innerHTML = `<section class="card gm-head"><div class="gm-title">${ICON} Your GM</div>
         <div class="hint">A general manager who knows your league: every roster, our values and grades, your odds, this week's lineup and pickups. Ask it anything, from "who should I sell high?" to "write Dave a message for this trade".</div>
         <p class="note" style="margin-top:8px"><b>Not connected yet.</b> The GM talks to a small server of your own that holds the Anthropic key. Set it up with <b>gm\\README.md</b>: an Anthropic API key, a free Cloudflare Worker running gm\\worker.js, then its URL${personal ? " and your personal key" : ""} in <b>editions\\${personal ? "personal" : "pro"}\\www\\js\\edition.js</b> under GM_CFG, and rebuild.</p>
-        <div class="gm-chips" style="margin-top:12px">${SUGGEST[E.is_redraft(S.cfg) ? "redraft" : "dynasty"].map(q => `<button disabled>${esc(q)}</button>`).join("")}</div></section>`;
+        ${quickRow(true)}</section>`;
       return;
     }
     if (locked()) {
@@ -371,7 +425,7 @@ const GM = (() => {
           ${plan() ? "" : `<div class="hint">The GM, the trade screen and the team read all advise for it. You can change it any time.</div>`}</div></section>
       <div class="gm-chat" id="gmChat">${c.messages.map(m => bubble(m)).join("")}</div>
       ${(() => { const w = S.W && S.W.week; return w && !reportFor(w) ? `<div class="gm-chips"><button id="gmReportChip" class="accent">${ICON} Get my week ${w} GM report</button></div>` : ""; })()}
-      ${c.messages.length ? "" : `<div class="gm-chips">${SUGGEST[E.is_redraft(S.cfg) ? "redraft" : "dynasty"].map(q => `<button data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`}
+      ${quickRow(pending)}
       <div class="gm-input"><button class="btn ghost gm-newbtn${c.messages.length ? "" : " hidden"}" id="gmClear2" title="Start a new chat" aria-label="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>New Chat</button><textarea id="gmQ" rows="1" placeholder="Ask your GM…" aria-label="Your question" ${pending ? "disabled" : ""}></textarea><button class="btn primary" id="gmSend" aria-label="Send" ${pending ? "disabled" : ""}>Send</button></div>`;
     $$("#gmPlan button", root).forEach(b => b.onclick = () => { setPlan(b.dataset.plan); toast(`Plan: ${planLabel(b.dataset.plan)}`, 1400); render(root); });
     const ta = $("#gmQ", root);
@@ -379,7 +433,7 @@ const GM = (() => {
     ta.oninput = grow;
     ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !/Mobi|Android/i.test(navigator.userAgent)) { e.preventDefault(); send(ta.value); } };
     $("#gmSend", root).onclick = () => send(ta.value);
-    $$("[data-q]", root).forEach(b => b.onclick = () => send(b.dataset.q));
+    $$("[data-q]", root).forEach(b => b.onclick = () => send(b.dataset.q, null, b.dataset.topic || null));
     const rc = $("#gmReportChip", root); if (rc) rc.onclick = () => openReport();
     const newChat = () => { if (pending) return; load().messages = []; save(); render(root); window.scrollTo(0, 0); toast("New chat. The GM still knows your league.", 1800); };
     for (const id of ["#gmClear", "#gmClear2"]) { const b = $(id, root); if (b) b.onclick = newChat; }
@@ -390,7 +444,8 @@ const GM = (() => {
     const c = load();
     if (partialLast && box.lastElementChild && c.messages.length) box.lastElementChild.outerHTML = bubble(c.messages[c.messages.length - 1], true);
     else box.innerHTML = c.messages.map(m => bubble(m)).join("");
-    const chips = $(".gm-chips"); if (chips && c.messages.length) chips.remove();
+    const chips = $(".gm-chips:not(.gm-quick)"); if (chips && c.messages.length) chips.remove();   // the report chip; the quick questions stay
+    $$(".gm-quick button").forEach(b => { b.disabled = pending; });
     const nb = $("#gmClear2"); if (nb) nb.classList.toggle("hidden", !c.messages.length);   // "New chat" at the bottom, from the first message on (2026-10-20)
     window.scrollTo(0, document.body.scrollHeight);
   }
@@ -419,12 +474,18 @@ const GM = (() => {
     bits.push(`${a.name} (${a.pos} ${a.age != null ? Math.floor(a.age) : "?"} ${a.team || "FA"}): ${team ? `on ${team.team_name}${team.roster_id === S.cfg.my_roster_id ? " (the manager's team)" : ""}` : "free agent"}. Value ${Math.round(a.value)}, market grade ${gradeOf(a).g}${a.ours > 0 ? `, our grade ${gradeOf(a, true).g}` : ""}${appTags(a)}.`);
     const st = E.load_player_status()[sid] || {};
     if (st.inj) bits.push(`Injury: ${st.inj}.`); if (st.depth != null) bits.push(`Depth chart: ${a.pos}${st.depth}.`);
-    if (W && W.proj && W.proj[sid]) { const p = W.proj[sid], c = W.ctx && W.ctx[a.team]; bits.push(`This week: ${(+p.pts).toFixed(1)} projected${c ? ` ${c.home ? "vs" : "at"} ${c.opp}` : ""}${(() => { const g = Week.week_grades(S.values, S.cfg, W)[sid]; return g ? `, weekly grade ${g.letter} (${g.label})` : ""; })()}.`); }
+    const mp = W ? Week.model_week_pts(a, S.cfg, W) : null;                  // the card's next-week model, the app's projection everywhere
+    if (W && (mp != null || (W.proj && W.proj[sid]))) { const p = { pts: mp != null ? mp : W.proj[sid].pts }, c = W.ctx && W.ctx[a.team]; bits.push(`This week: ${(+p.pts).toFixed(1)} projected${c ? ` ${c.home ? "vs" : "at"} ${c.opp}` : ""}${(() => { const g = Week.week_grades(S.values, S.cfg, W)[sid]; return g ? `, weekly grade ${g.letter} (${g.label})` : ""; })()}.`); }
     else if (W && W.ctx && a.team && !W.ctx[a.team]) bits.push("This week: no game (bye).");
     const wk = (Store.get(`nflv_wk_${parseInt(S.cfg.season, 10)}.json`) || {}).players || {}, o = wk[E.player_key(a.name, a.pos)], ppr = parseFloat(S.cfg.league.ppr || 0);
     if (o && o[3]) { const ws = Object.keys(o[3]).map(Number).sort((x, y) => x - y), pts = w => { const g = o[3][w]; return g[0] + ppr * (g[1] - g[0]); }; bits.push(`Season: ${(ws.reduce((s, w) => s + pts(w), 0) / ws.length).toFixed(1)} a game over ${ws.length} games; last three: ${ws.slice(-3).map(w => `wk${w} ${pts(w).toFixed(1)}`).join(", ")}; opportunities a game ${(ws.reduce((s, w) => s + (o[3][w][2] || 0), 0) / ws.length).toFixed(1)}.`); }
     if (a.ep && a.ep.g >= 3) { const gap = (a.ep.exp - a.ep.pts) / a.ep.g; if (Math.abs(gap) >= 1) bits.push(`Usage says ${gap > 0 ? "more points are coming" : "he is running hot"} (${gap > 0 ? "+" : ""}${gap.toFixed(1)} a game vs his expected points).`); }
     if (a.pred) bits.push(rd ? `Our forecast: ${a.pred.ros.toFixed(1)} a game the rest of this season.` : `Our forecast: ${a.pred.next.toFixed(1)} a game next season, ${Math.round(a.pred.play * 100)}% to play 4+ games.`);
+    // the grade's parts as the card shows them (Runway is how long the value lasts) and the Buy & Sell list
+    if (a.oparts && !rd) { const [p, r, o, h, s] = a.oparts, n = (l, x) => (x == null ? null : `${l} ${x}`); bits.push(`Grade parts (0-100): ${[n("production", p), n("runway", r), n("role", o), n("health", h), n("situation", s)].filter(Boolean).join(", ")}.`); }
+    const ed = !rd && typeof dynastyEdge === "function" ? dynastyEdge(a) : null;
+    if (ed) bits.push(`On the app's Buy & Sell list: ${{ buy: "buy low", sellhigh: "sell high", sell: "sell" }[ed.kind]} (${ed.why}).`);
+    else if (!rd && a.omkt) bits.push("Not on the app's Buy & Sell list: his price and our view agree.");
     return bits.join(" ");
   }
   function tradeFacts(named, W) {
@@ -453,7 +514,7 @@ const GM = (() => {
       return out.join("\n");
     } catch (e) { console.error(e); return ""; }
   }
-  async function send(q, tag = null) {
+  async function send(q, tag = null, topic = null) {
     q = String(q || "").trim();
     if (!q || pending || !available()) return;
     const c = load();
@@ -465,7 +526,13 @@ const GM = (() => {
       const W = S.W || await weekData().catch(() => null);
       let TR = null;
       try { const [ad, dr] = await Promise.all([E.trending_list("adds", 10, S.values, true), E.trending_list("drops", 10, S.values, true)]); TR = { adds: ad.rows || [], drops: dr.rows || [], at: ad.fetched }; } catch (e) { TR = null; }
-      const text = briefText(W, TR) + toolsFor(q, W);                          // the GM's tools: the app's numbers for what was asked
+      // the topic and the teams the question is about, so the brief carries only what it needs (2026-11-04)
+      const named = namedPlayers(q), kind = (tag && tag.kind === "report") ? "report" : topic || topicOf(q, named);
+      const me = teamById(S.cfg.my_roster_id), tms = namedTeams(q);
+      for (const x of named) if (x.team && !tms.includes(x.team)) tms.push(x.team);
+      let mu = null;
+      if ((kind === "lineup" || kind === "report") && me && W) mu = await Week.matchup_preview(S.values, S.cfg, W, me).catch(() => null);
+      const text = briefText(W, TR, { kind, teams: tms.filter(t => !me || t.roster_id !== me.roster_id).slice(0, 2), mu }) + toolsFor(q, W);   // the GM's tools: the app's numbers for what was asked
       a.status = "Thinking…"; drawChat(true);
       let token = "";
       if (keyed()) token = "key:" + cfg().key;
