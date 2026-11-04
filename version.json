@@ -1,7 +1,7 @@
 {
- "versionCode": 47,
- "versionName": "3.2.29",
- "notes": "New Buy & Sell list, a They Give trade screen with a meter, and Title Case buttons.",
+ "versionCode": 48,
+ "versionName": "3.2.30",
+ "notes": "A simpler GM: quick-question buttons, shorter answers that start with what to do, and it knows Buy & Sell, your matchup and your watchlist.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
