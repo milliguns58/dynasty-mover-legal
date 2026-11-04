@@ -1,7 +1,7 @@
 {
- "versionCode": 46,
- "versionName": "3.2.28",
- "notes": "Market vs ours no longer cut off on wide screens, and smoother desktop layout.",
+ "versionCode": 47,
+ "versionName": "3.2.29",
+ "notes": "New Buy & Sell list, a They Give trade screen with a meter, and Title Case buttons.",
  "apk": {
   "personal": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMover.apk",
   "pro": "https://milliguns58.github.io/dynasty-mover-legal/DynastyMoverPro.apk"
